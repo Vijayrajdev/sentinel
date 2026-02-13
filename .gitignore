@@ -20,3 +20,6 @@ venv/
 # Secrets
 *.json
 key.json
+
+# Temp
+infra/Ingestion
