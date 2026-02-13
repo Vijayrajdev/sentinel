@@ -3,7 +3,7 @@ resource "google_bigquery_dataset" "layers" {
   for_each   = toset(["raw_landing", "audit_logs", "refined_layer",])
   dataset_id = "sentinel_${each.key}"
   location   = "US"
-  delete_contents_on_destroy = true # Be careful with this in production!
+  delete_contents_on_destroy = true 
 }
 
 # 2. Service Account for dbt
