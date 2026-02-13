@@ -18,5 +18,7 @@ venv/
 .env
 
 # Secrets
-*.json
-key.json
+/infra/key
+
+# Temp
+/infra/ingestion

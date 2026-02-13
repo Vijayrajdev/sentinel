@@ -1,0 +1,50 @@
+[
+  {
+    "name": "file_pattern",
+    "type": "STRING",
+    "mode": "REQUIRED",
+    "description": "Regex pattern to match incoming files (e.g., '^sales_.*\\.csv$')"
+  },
+  {
+    "name": "target_dataset",
+    "type": "STRING",
+    "mode": "REQUIRED",
+    "description": "Destination BigQuery Dataset (e.g., 'sentinel_raw_landing')"
+  },
+  {
+    "name": "target_table",
+    "type": "STRING",
+    "mode": "REQUIRED",
+    "description": "Destination Table Name (e.g., 'raw_sales')"
+  },
+  {
+    "name": "file_format",
+    "type": "STRING",
+    "mode": "NULLABLE",
+    "description": "Expected format: CSV, JSON, AVRO, PARQUET (Default: CSV)"
+  },
+  {
+    "name": "delimiter",
+    "type": "STRING",
+    "mode": "NULLABLE",
+    "description": "Field delimiter for CSVs (Default: ',')"
+  },
+  {
+    "name": "skip_header_rows",
+    "type": "INTEGER",
+    "mode": "NULLABLE",
+    "description": "Number of rows to skip (Default: 1)"
+  },
+  {
+    "name": "is_active",
+    "type": "BOOLEAN",
+    "mode": "REQUIRED",
+    "description": "Flag to enable/disable ingestion for this pattern"
+  },
+  {
+    "name": "created_at",
+    "type": "TIMESTAMP",
+    "mode": "NULLABLE",
+    "description": "When this rule was created"
+  }
+]

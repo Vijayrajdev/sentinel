@@ -1,0 +1,56 @@
+[
+  {
+    "name": "ingestion_id",
+    "type": "STRING",
+    "mode": "REQUIRED",
+    "description": "Unique UUID for this specific run (Cloud Function Execution ID)"
+  },
+  {
+    "name": "file_name",
+    "type": "STRING",
+    "mode": "REQUIRED",
+    "description": "Name of the file processed (e.g., 'orders_v1_20260213.csv')"
+  },
+  {
+    "name": "file_uri",
+    "type": "STRING",
+    "mode": "REQUIRED",
+    "description": "Full GCS path (gs://bucket/file)"
+  },
+  {
+    "name": "status",
+    "type": "STRING",
+    "mode": "REQUIRED",
+    "description": "Status of the job: 'SUCCESS', 'FAILED', 'SKIPPED'"
+  },
+  {
+    "name": "row_count",
+    "type": "INTEGER",
+    "mode": "NULLABLE",
+    "description": "Number of rows loaded into BigQuery"
+  },
+  {
+    "name": "error_message",
+    "type": "STRING",
+    "mode": "NULLABLE",
+    "description": "Full error trace if status is FAILED"
+  },
+  {
+    "name": "start_time",
+    "type": "TIMESTAMP",
+    "mode": "REQUIRED",
+    "description": "When the function started"
+  },
+  {
+    "name": "end_time",
+    "type": "TIMESTAMP",
+    "mode": "NULLABLE",
+    "description": "When the function finished"
+  },
+  {
+    "name": "target_table",
+    "type": "STRING",
+    "mode": "NULLABLE",
+    "description": "Where the data tried to go"
+  }
+]
