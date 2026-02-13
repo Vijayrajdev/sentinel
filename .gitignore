@@ -1,0 +1,22 @@
+
+# Terraform
+.terraform/
+*.tfstate
+*.tfstate.backup
+*.tfvars
+.terraform.lock.hcl
+
+# dbt
+dbt_sentinel/target/
+dbt_sentinel/dbt_packages/
+dbt_sentinel/logs/
+
+# Python
+__pycache__/
+*.pyc
+venv/
+.env
+
+# Secrets
+*.json
+key.json
