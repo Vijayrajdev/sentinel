@@ -21,7 +21,7 @@ storage_client: Optional[storage.Client] = None
 PROJECT_ID = os.environ.get("GCP_PROJECT")
 METADATA_DATASET = os.environ.get("METADATA_DATASET", "sentinel_audit")
 MASTER_TABLE = os.environ.get("MASTER_TABLE", "ingestion_master")
-LOGS_TABLE = os.environ.get("LOGS_TABLE", "ingestion_logs")
+LOGS_TABLE = os.environ.get("LOGS_TABLE", "ingestion_log")
 ARCHIVE_BUCKET = os.environ.get("ARCHIVE_BUCKET")
 
 logging.basicConfig(level=logging.INFO)
