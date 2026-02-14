@@ -11,6 +11,7 @@ from typing import Dict, Optional, Any, List, Tuple
 
 from google.cloud import bigquery
 from google.cloud import storage
+from google.cloud import pubsub_v1
 from google.api_core.exceptions import NotFound
 
 # ==============================================================================
@@ -25,6 +26,7 @@ METADATA_DATASET = os.environ.get("METADATA_DATASET", "sentinel_audit")
 MASTER_TABLE = os.environ.get("MASTER_TABLE", "ingestion_master")
 LOGS_TABLE = os.environ.get("LOGS_TABLE", "ingestion_log")
 ARCHIVE_BUCKET = os.environ.get("ARCHIVE_BUCKET")
+PUBSUB_TOPIC_DRIFT = os.environ.get("PUBSUB_TOPIC_DRIFT")
 
 # Standard logging setup
 logging.basicConfig(level=logging.INFO)
@@ -35,13 +37,14 @@ logging.basicConfig(level=logging.INFO)
 # ==============================================================================
 class SchemaDriftError(Exception):
     """Raised when file contains columns not present in BigQuery Table."""
-
-    pass
+    def __init__(self, message, new_columns, sample_rows=None):
+        super().__init__(message)
+        self.new_columns = new_columns
+        self.sample_rows = sample_rows
 
 
 class TableNotFoundError(Exception):
     """Raised when the target BigQuery Table does not exist."""
-
     pass
 
 
@@ -55,7 +58,9 @@ def get_clients():
         bq_client = bigquery.Client()
     if not storage_client:
         storage_client = storage.Client()
-    return bq_client, storage_client
+    if not publisher_client:  # <--- NEW INITIALIZATION
+        publisher_client = pubsub_v1.PublisherClient()
+    return bq_client, storage_client, publisher_client
 
 
 def log_event(severity: str, message: str, trace_id: str, **kwargs):
@@ -83,13 +88,41 @@ def get_csv_headers(bucket: str, file_name: str, delimiter: str = ",") -> List[s
     headers = next(reader)
     return headers
 
+def trigger_ai_agent(bucket, file_name, table_ref, new_columns, sample_data, trace_id):
+    """
+    NEW: Publishes schema drift event to Pub/Sub for the AI Agent.
+    """
+    _, _, publisher = get_clients()
+
+    if not PUBSUB_TOPIC_DRIFT:
+        log_event(
+            "WARNING", "PUBSUB_TOPIC_DRIFT not set. Cannot call AI Agent.", trace_id
+        )
+        return
+
+    message = {
+        "event_type": "SCHEMA_DRIFT_AI",
+        "trace_id": trace_id,
+        "bucket": bucket,
+        "file_name": file_name,
+        "table_ref": table_ref,
+        "new_column_headers": new_columns,
+        "sample_data_rows": sample_data,
+        "timestamp": datetime.datetime.now().isoformat(),
+    }
+
+    data = json.dumps(message).encode("utf-8")
+    future = publisher.publish(PUBSUB_TOPIC_DRIFT, data)
+    msg_id = future.result()
+    log_event("INFO", f"🧠 AI Agent Summoned. Message ID: {msg_id}", trace_id)
+
 
 def validate_schema(final_table_ref: str, file_headers: List[str], trace_id: str):
     """
     Strictly checks if table exists and if file headers match table schema.
-    Raises SchemaDriftError or TableNotFoundError.
+    Raises SchemaDriftError (with column details) or TableNotFoundError.
     """
-    bq, _ = get_clients()
+    bq, _, _ = get_clients()
 
     log_event("INFO", f"🔍 Validating schema for: {final_table_ref}", trace_id)
 
@@ -105,14 +138,14 @@ def validate_schema(final_table_ref: str, file_headers: List[str], trace_id: str
     file_columns = set(file_headers)
 
     # Check for Unknown Columns (Drift)
-    unknown_cols = file_columns - bq_columns
+    unknown_cols = list(file_columns - bq_columns)
 
     if unknown_cols:
-        error_msg = (
-            f"Schema Drift Detected. File contains columns not in table: {unknown_cols}"
+        # UPDATED: We raise the error with the list of columns
+        raise SchemaDriftError(
+            f"Schema Drift Detected. New columns: {unknown_cols}",
+            new_columns=unknown_cols,
         )
-        log_event("ERROR", error_msg, trace_id, unknown_columns=list(unknown_cols))
-        raise SchemaDriftError(error_msg)
 
     log_event("INFO", "✅ Schema Validation Passed.", trace_id)
 
@@ -132,14 +165,44 @@ def load_raw_strings(
     Calculates Good/Bad record counts using SQL.
     Returns Dictionary of counts.
     """
-    bq, _ = get_clients()
+    bq, storage, _ = get_clients()
 
-    # 1. Read Headers & Validate Schema
+    # 1. Read Headers
     delimiter = rule.get("delimiter", ",")
     headers = get_csv_headers(bucket, file_name, delimiter)
-    validate_schema(final_table_ref, headers, trace_id)
 
-    # 2. Prepare Staging Load
+    # 2. Validate Schema (With AI Sample Capture)
+    try:
+        validate_schema(final_table_ref, headers, trace_id)
+    except SchemaDriftError as e:
+        # --- NEW LOGIC START: Capture Sample Data for AI ---
+        log_event(
+            "WARNING", "⚠️ Drift detected. Capturing sample data for AI...", trace_id
+        )
+
+        blob = storage.bucket(bucket).blob(file_name)
+        content = blob.download_as_text(start=0, end=4096)  # Read first 4KB
+        lines = content.split("\n")
+        reader = csv.reader(lines, delimiter=delimiter)
+        _ = next(reader)  # Skip header
+
+        sample_rows = []
+        for i in range(5):  # Get 5 rows
+            try:
+                row = next(reader)
+                if len(row) == len(headers):
+                    row_dict = dict(zip(headers, row))
+                    # Only keep data for the NEW columns
+                    filtered_row = {k: row_dict.get(k) for k in e.new_columns}
+                    sample_rows.append(filtered_row)
+            except StopIteration:
+                break
+
+        # Re-raise with the samples attached
+        raise SchemaDriftError(str(e), e.new_columns, sample_rows)
+        # --- NEW LOGIC END ---
+
+    # 3. Prepare Staging Load (Existing Logic)
     staging_table_id = f"{PROJECT_ID}.{rule['target_dataset']}.staging_{rule['target_table']}_{uuid.uuid4().hex[:8]}"
 
     try:
@@ -160,12 +223,9 @@ def load_raw_strings(
         load_job = bq.load_table_from_uri(uri, staging_table_id, job_config=job_config)
         load_job.result()  # Wait for staging load
 
-        # 3. CALCULATE QUALITY METRICS (Good vs Bad)
-        # We construct a dynamic SQL query to count NULLs across all columns
+        # 4. CALCULATE QUALITY METRICS (Existing Logic)
         log_event("INFO", "📊 Calculating Good/Bad record counts...", trace_id)
 
-        # Logic: If ANY column is NULL or Empty String, it's a "Bad" record.
-        # "COALESCE(col, '') = ''" checks for both NULL and Empty String
         conditions = [f"(COALESCE(`{col}`, '') = '')" for col in headers]
         bad_record_condition = " OR ".join(conditions)
 
@@ -187,7 +247,7 @@ def load_raw_strings(
 
         log_event("INFO", f"📈 Quality Metrics: {json.dumps(metrics)}", trace_id)
 
-        # 4. Final Insert (Staging -> Final)
+        # 5. Final Insert (Existing Logic)
         col_names = headers
         cols_string = ", ".join([f"`{c}`" for c in col_names])
 
@@ -396,6 +456,7 @@ def process_file(cloud_event):
         "processed/" in file_name
         or "exempted/" in file_name
         or "unprocessed/" in file_name
+        or "schema_pending/" in file_name
     ):
         print(f"🚫 Ignoring internal event: {file_name}")
         return
@@ -452,10 +513,37 @@ def process_file(cloud_event):
         )
         log_event("INFO", "✅ Ingestion Complete Successfully.", trace_id)
 
-    except (SchemaDriftError, TableNotFoundError) as e:
+    except SchemaDriftError as e:
+        # --- Handle Drift with AI ---
+        error_msg = f"Drift Detected: {e.new_columns}"
+        log_event("WARNING", f"⚠️ {error_msg}", trace_id)
+
+        # 1. Trigger AI (Passing the samples we captured in load_raw_strings)
+        trigger_ai_agent(
+            bucket_name,
+            file_name,
+            final_table_ref,
+            e.new_columns,
+            e.sample_rows,
+            trace_id,
+        )
+
+        # 2. Move to 'schema_pending' instead of 'unprocessed'
+        handle_failure(
+            bucket_name,
+            file_name,
+            "DRIFT_DETECTED",
+            error_msg,
+            trace_id,
+            ingestion_id,
+            start_time,
+            target_folder="schema_pending",
+        )
+    
+    except TableNotFoundError as e:
         error_msg = str(e)
         log_event("ERROR", f"❌ Validation Error: {error_msg}", trace_id)
-        # Schema/Table errors -> "unprocessed"
+        # Table missing -> "unprocessed"
         handle_failure(
             bucket_name,
             file_name,
