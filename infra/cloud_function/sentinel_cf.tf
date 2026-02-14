@@ -66,11 +66,12 @@ resource "google_cloudfunctions2_function" "sentinel_ingestor" {
     
     # Environment Variables accessed by os.environ.get() in Python
     environment_variables = {
-      GCP_PROJECT      = var.project_id
-      METADATA_DATASET = "sentinel_audit"
-      MASTER_TABLE     = "ingestion_master"
-      LOGS_TABLE       = "ingestion_log"
-      ARCHIVE_BUCKET   = var.ingestion_archive_bucket_name
+      GCP_PROJECT        = var.project_id
+      METADATA_DATASET   = "sentinel_audit"
+      MASTER_TABLE       = "ingestion_master"
+      LOGS_TABLE         = "ingestion_log"
+      ARCHIVE_BUCKET     = var.ingestion_archive_bucket_name
+      PUBSUB_TOPIC_DRIFT = var.pubsub_topic_id
     }
 
     # The Service Account that gives the function permission to use BigQuery/Storage
