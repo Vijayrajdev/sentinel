@@ -46,7 +46,7 @@ resource "google_cloudfunctions2_function" "sentinel_ingestor" {
     max_instance_count = 2
     min_instance_count = 0
     available_memory   = "256M"
-    timeout_seconds    = 120
+    timeout_seconds    = 540
     
     # Environment Variables accessed by os.environ.get() in Python
     environment_variables = {

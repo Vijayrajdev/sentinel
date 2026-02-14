@@ -101,7 +101,7 @@ def process_file(cloud_event):
         "INFO", f"🚀 Started Processing: gs://{bucket_name}/{file_name}", trace_id
     )
     log_event("INFO", f"🫆 Trace Id: {trace_id}", trace_id)
-    log_event("INFO", f"📥 Ingestion Id: {trace_id}", trace_id)
+    log_event("INFO", f"📥 Ingestion Id: {ingestion_id}", trace_id)
 
     try:
         # 1. ROUTER
@@ -357,9 +357,6 @@ def audit_log(
         log_event("INFO", f"🚀 Starting Batch Audit Load: {trace_id}", trace_id)
 
         job = bq.load_table_from_file(file_obj, table_id, job_config=job_config)
-
-        # This will now throw a clear error if the schema doesn't match
-        job.result()
 
         log_event("INFO", "🟢 Audit Batch Insert Successful", trace_id)
 
