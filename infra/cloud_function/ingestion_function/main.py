@@ -20,6 +20,7 @@ from google.api_core.exceptions import NotFound
 # Global clients for reuse (warm starts)
 bq_client: Optional[bigquery.Client] = None
 storage_client: Optional[storage.Client] = None
+publisher_client: Optional[pubsub_v1.PublisherClient] = None
 
 PROJECT_ID = os.environ.get("GCP_PROJECT")
 METADATA_DATASET = os.environ.get("METADATA_DATASET", "sentinel_audit")
@@ -58,7 +59,7 @@ def get_clients():
         bq_client = bigquery.Client()
     if not storage_client:
         storage_client = storage.Client()
-    if not publisher_client:  # <--- NEW INITIALIZATION
+    if not publisher_client:
         publisher_client = pubsub_v1.PublisherClient()
     return bq_client, storage_client, publisher_client
 
