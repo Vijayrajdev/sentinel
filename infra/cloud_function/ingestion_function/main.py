@@ -1,5 +1,6 @@
 import functions_framework
 import json
+import io
 import logging
 import os
 import uuid
@@ -81,7 +82,7 @@ def process_file(cloud_event):
         return
 
     log_event("INFO", f"🚀 Started Processing: gs://{bucket_name}/{file_name}", trace_id)
-    log_event("INFO", f"Trace Id: {trace_id}", trace_id)
+    log_event("INFO", f"🫆 Trace Id: {trace_id}", trace_id)
 
     try:
         # 1. ROUTER
@@ -101,9 +102,8 @@ def process_file(cloud_event):
         archive_file(bucket_name, file_name, "processed", trace_id)
 
         # 4. AUDIT
-        log_event("INFO", f"Trace Id: {trace_id}", trace_id)
         audit_log(trace_id, file_name, "SUCCESS", row_count=row_count, target_table=final_table_ref)
-        log_event("INFO", f"✅ Successfully inserted {row_count} records into table: {final_table_ref}.")
+        log_event("INFO", f"✅ Successfully inserted {row_count} records into table: {final_table_ref}.", trace_id)
         log_event("INFO", "📂 Ingestion Complete.", trace_id)
 
     except Exception as e:
@@ -247,20 +247,48 @@ def archive_file(source_bucket: str, file_name: str, folder: str, trace_id: str)
 
 def audit_log(trace_id, file_name, status, row_count=None, target_table=None, error_msg=None):
     bq, _ = get_clients()
+    
+    # 1. Prepare the data exactly like before
     row = {
-        "ingestion_id": trace_id, "file_name": file_name, "status": status,
-        "row_count": row_count, "target_table": target_table, 
+        "ingestion_id": trace_id, 
+        "file_name": file_name, 
+        "status": status,
+        "row_count": row_count, 
+        "target_table": target_table, 
         "error_message": error_msg[:2000] if error_msg else None,
-        "created_at": datetime.datetime.utcnow().isoformat()
+        "created_at": datetime.datetime.now(datetime.timezone.utc).isoformat()
     }
+
+    # 2. Configure the Batch Load Job
+    job_config = bigquery.LoadJobConfig(
+        source_format=bigquery.SourceFormat.NEWLINE_DELIMITED_JSON,
+        write_disposition=bigquery.WriteDisposition.WRITE_APPEND, # Adds to table
+    )
+
     try:
-        log_event("INFO", f"Inserting Audit: {row}", trace_id)
-        bq.insert_rows_json(f"{PROJECT_ID}.{METADATA_DATASET}.{LOGS_TABLE}", [row])
-        log_event("INFO", f"🟢 Audit Insert Completed", trace_id)
+        table_id = f"{PROJECT_ID}.{METADATA_DATASET}.{LOGS_TABLE}"
+        
+        # 3. Convert dict to a Newline Delimited JSON string in memory
+        json_data = json.dumps(row) + "\n"
+        file_obj = io.StringIO(json_data)
+
+        # 4. Trigger the Load Job
+        log_event("INFO", f"🚀 Starting Batch Audit Load: {trace_id}", trace_id)
+        
+        # We wrap the string in a Bio/StringIO to treat it like a file
+        job = bq.load_table_from_file(
+            file_obj, 
+            table_id, 
+            job_config=job_config
+        )
+        
+        # 5. WAIT for the job to complete (Crucial for Batch)
+        job.result() 
+        
+        log_event("INFO", "🟢 Batch Audit Insert Completed", trace_id)
+
     except Exception as e:
-        error_msg = str(e)
-        log_event("ERROR", f"❌ Inserting Audit Failed: {error_msg}", trace_id)
-        pass
+        log_event("ERROR", f"❌ Batch Audit Failed: {str(e)}", trace_id)
 
 def handle_failure(bucket, file_name, status, error_msg, trace_id):
     try:
