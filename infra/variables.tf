@@ -10,16 +10,28 @@ variable "region" {
   default     = "us-central1"
 }
 
-variable "function_name" {
+variable "ingestion_function_name" {
   description = "Name of the Cloud Function"
   type        = string
   default     = "sentinel-ingestor"
 }
 
-variable "function_entry_point" {
+variable "data_engineer_function_name" {
+  description = "Name of the Cloud Function"
+  type        = string
+  default     = "sentinel-data-engineer"
+}
+
+variable "ingestion_function_entry_point" {
   description = "The Python function to call (must match main.py)"
   type        = string
   default     = "process_file"
+}
+
+variable "data_engineer_function_entry_point" {
+  description = "The Python function to call (must match main.py)"
+  type        = string
+  default     = "ai_agent_main"
 }
 
 # --- Buckets ---
@@ -45,5 +57,10 @@ variable "github_token" {
 
 variable "repo_name" {
   description = "Name of the existing Github Repo"
+  type        = string
+}
+
+variable "pubsub_topic" {
+  description = "Name of the existing PUB/SUB Topic"
   type        = string
 }

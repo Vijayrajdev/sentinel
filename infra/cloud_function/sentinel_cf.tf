@@ -155,7 +155,7 @@ resource "google_cloudfunctions2_function" "sentinel_data_engineer" {
   event_trigger {
     trigger_region = var.region
     event_type     = "google.cloud.pubsub.topic.v1.messagePublished"
-    pubsub_topic   = google_pubsub_topic.schema_drift_events.id
+    pubsub_topic   = var.pubsub_topic
     retry_policy   = "RETRY_POLICY_DO_NOT_RETRY" # Don't retry AI calls endlessly on error
   }
 }

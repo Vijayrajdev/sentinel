@@ -3,7 +3,7 @@
 # ==============================================================================
 # The Ingestor shouts here when it finds a new column.
 resource "google_pubsub_topic" "schema_drift_events" {
-  name = "schema-drift-events"
+  name = var.pubsub_topic
 
   labels = {
     env       = "dev"

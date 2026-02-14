@@ -49,3 +49,18 @@ variable "code_bucket_name" {
   description = "Name of the existing Code bucket"
   type        = string
 }
+
+variable "github_token" {
+  description = "Name of the existing Code bucket"
+  type        = string
+}
+
+variable "repo_name" {
+  description = "Name of the existing Github Repo"
+  type        = string
+}
+
+variable "pubsub_topic" {
+  description = "Name of the PUB/SUB Topic"
+  type        = string
+}
