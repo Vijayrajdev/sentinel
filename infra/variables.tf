@@ -64,3 +64,8 @@ variable "pubsub_topic" {
   description = "Name of the existing PUB/SUB Topic"
   type        = string
 }
+
+variable "pubsub_topic_id" {
+  description = "Full ID of the Pub/Sub topic"
+  type        = string
+}

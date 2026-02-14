@@ -42,6 +42,7 @@ module "cloud_function" {
   github_token                      = var.github_token
   repo_name                         = var.repo_name
   pubsub_topic                      = var.pubsub_topic
+  pubsub_topic_id                   = var.pubsub_topic_id
 }
 
 # ==========================================
