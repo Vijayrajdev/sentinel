@@ -50,7 +50,7 @@ class TableNotFoundError(Exception):
 
 
 # ==============================================================================
-# HELPER FUNCTIONS
+# HELPER FUNCTIONS (v2)
 # ==============================================================================
 def get_clients():
     """Lazy initialization of GCP clients."""
