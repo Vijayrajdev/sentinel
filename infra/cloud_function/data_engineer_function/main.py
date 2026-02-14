@@ -127,26 +127,39 @@ def ask_gemini_for_path(table_name: str, file_list: List[str], trace_id: str) ->
     Asks AI to pick the best file path based on the existing repo structure.
     """
     if not model:
+        # Fallback: Look for any existing JSON file in the list and use its folder
+        for f in file_list:
+            if f.endswith(".json") and "bigquery" in f:
+                return os.path.join(os.path.dirname(f), f"{table_name}.json")
         return f"infra/bigquery/tables/json/{table_name}.json"
 
-    prompt = f"""
-    You are a DevOps Architect.
-    
-    Task: Determine the EXACT file path for a new BigQuery Schema JSON file.
-    
-    Context:
-    1. Target Table: "{table_name}"
-    2. Existing Repo Files (Reference these patterns): 
-    {json.dumps(file_list, indent=2)} 
+    # 1. Filter the list to only show relevant JSON files (reduces noise)
+    json_files = [f for f in file_list if f.endswith(".json")]
 
-    Instructions:
-    - FIND THE PATTERN: Look at where other JSON schema files are stored.
-    - COPY THE STRUCTURE: If you see 'infra/bigquery/tables/json/some_table.json', then your output MUST be 'infra/bigquery/tables/json/{table_name}.json'.
-    - DO NOT invent new folders like 'schemas/' if a 'json/' folder already exists.
-    - DO NOT return double slashes like '//'.
+    # If we found JSON files, pass ONLY those. If not, pass everything.
+    context_files = json_files if json_files else file_list
+
+    prompt = f"""
+    You are a File System Analyzer.
     
-    Output:
-    Return ONLY the file path string.
+    Task: Output the full path for a new file named "{table_name}.json".
+    
+    CRITICAL INSTRUCTION:
+    You must NOT invent a path. You must find an existing JSON file in the list below, copy its directory exactly, and just change the filename.
+    
+    Existing Files:
+    {json.dumps(context_files[:50], indent=2)}
+    
+    Step-by-Step Logic:
+    1. Scan the list for any file ending in ".json".
+    2. Example: If you find "infra/bigquery/tables/json/users.json", then the directory is "infra/bigquery/tables/json/".
+    3. Target: Your output MUST be "infra/bigquery/tables/json/{table_name}.json".
+    4. If multiple folders exist, prefer one containing "schemas" or "tables".
+    
+    Constraint:
+    - Do not add double slashes (e.g. //).
+    - Do not return markdown.
+    - Return ONLY the string.
     """
 
     try:
@@ -159,14 +172,34 @@ def ask_gemini_for_path(table_name: str, file_list: List[str], trace_id: str) ->
         ):
             path = path[1:-1]
 
-        # 🛡️ FIX: Clean up double slashes (The error you saw)
+        # 🛡️ FIX 1: Clean up double slashes
         path = path.replace("//", "/")
+
+        # 🛡️ FIX 2: Python-side validation
+        # If the AI completely hallucinated a folder that doesn't exist,
+        # try to find the closest match from our real file list.
+        directory = os.path.dirname(path)
+
+        # If we have files, check if the directory exists in our known list
+        if context_files:
+            known_dirs = {os.path.dirname(f) for f in context_files}
+            if directory not in known_dirs:
+                # AI invented a folder. Let's pick the best real one.
+                # Pick the longest directory path that contains "json"
+                best_dir = max(known_dirs, key=len)
+                path = os.path.join(best_dir, f"{table_name}.json")
+                log_event(
+                    "WARNING",
+                    f"AI hallucinated dir '{directory}'. Corrected to '{best_dir}'",
+                    trace_id,
+                )
 
         log_event("INFO", f"🧠 AI decided file path: {path}", trace_id)
         return path
+
     except Exception as e:
         log_event("ERROR", f"AI Path Decision failed: {e}", trace_id)
-        # Default safe path
+        # Final Fallback
         return f"infra/bigquery/tables/json/{table_name}.json"
 
 
@@ -358,9 +391,9 @@ def apply_schema_update(
 *Target File:* `{target_file_path}`
 
 ### 🧠 Intelligence Report
-    1. *Path Discovery:* I scanned the repo and determined `{target_file_path}` is the correct location.
-    2. *Action:** {'Updated existing file' if file_exists else 'Created new file'}.
-    3. *Changes:* Added *{len(added_cols)}* new columns.
+1. **Path Discovery:** I scanned the repo and determined `{target_file_path}` is the correct location.
+2. **Action:** {'Updated existing file' if file_exists else 'Created new file'}.
+3. **Changes:** Added **{len(added_cols)}** new columns.
 
 ### 📝 Schema Updates
 ```json
