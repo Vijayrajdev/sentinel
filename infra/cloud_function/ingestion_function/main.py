@@ -72,6 +72,8 @@ def get_csv_headers(bucket: str, file_name: str, delimiter: str = ",") -> List[s
 # ==============================================================================
 @functions_framework.cloud_event
 def process_file(cloud_event):
+    global start_time
+    start_time = datetime.datetime.now(datetime.timezone.utc)
     trace_id = f"projects/{PROJECT_ID}/traces/{uuid.uuid4().hex}"
     data = cloud_event.data
     
@@ -96,13 +98,13 @@ def process_file(cloud_event):
         log_event("INFO", f"🎯 Routing to Raw Table: {final_table_ref}", trace_id)
 
         # 2. LOADER
-        row_count = load_raw_strings(bucket_name, file_name, rule, final_table_ref, trace_id)
+        row_count, uri = load_raw_strings(bucket_name, file_name, rule, final_table_ref, trace_id)
 
         # 3. ARCHIVER
         archive_file(bucket_name, file_name, "processed", trace_id)
 
         # 4. AUDIT
-        audit_log(trace_id, file_name, "SUCCESS", row_count=row_count, target_table=final_table_ref)
+        audit_log(trace_id, file_name, uri, "SUCCESS", start_time, row_count=row_count, target_table=final_table_ref)
         log_event("INFO", f"✅ Successfully inserted {row_count} records into table: {final_table_ref}.", trace_id)
         log_event("INFO", "📂 Ingestion Complete.", trace_id)
 
@@ -200,7 +202,7 @@ def load_raw_strings(bucket: str, file_name: str, rule: Dict[str, Any], final_ta
         log_event("INFO", "⏳ Executing Final Insert (Defaults applied)...", trace_id)
         bq.query(insert_query).result()
         
-        return load_job.output_rows
+        return load_job.output_rows, uri
 
     finally:
         bq.delete_table(staging_table_id, not_found_ok=True)
@@ -245,54 +247,51 @@ def archive_file(source_bucket: str, file_name: str, folder: str, trace_id: str)
         log_event("ERROR", f"❌ Archival Failed: {error_msg}", trace_id)
         pass
 
-def audit_log(trace_id, file_name, status, row_count=None, target_table=None, error_msg=None):
+def audit_log(trace_id, file_name, file_uri, status, start_time, row_count=None, target_table=None, error_msg=None):
     bq, _ = get_clients()
     
-    # 1. Prepare the data exactly like before
+    # 1. Align keys with your schema names
+    # Note: 'created_at' from previous version is now 'start_time' and 'end_time'
     row = {
-        "ingestion_id": trace_id, 
-        "file_name": file_name, 
+        "ingestion_id": trace_id,
+        "file_name": file_name,
+        "file_uri": file_uri if file_uri else None,
         "status": status,
-        "row_count": row_count, 
-        "target_table": target_table, 
+        "row_count": row_count,
+        "target_table": target_table,
         "error_message": error_msg[:2000] if error_msg else None,
-        "created_at": datetime.datetime.now(datetime.timezone.utc).isoformat()
+        "start_time": start_time.isoformat(), # Must be TIMESTAMP compatible
+        "end_time": datetime.datetime.now(datetime.timezone.utc).isoformat()
     }
 
-    # 2. Configure the Batch Load Job
     job_config = bigquery.LoadJobConfig(
         source_format=bigquery.SourceFormat.NEWLINE_DELIMITED_JSON,
-        write_disposition=bigquery.WriteDisposition.WRITE_APPEND, # Adds to table
+        write_disposition=bigquery.WriteDisposition.WRITE_APPEND,
     )
 
     try:
         table_id = f"{PROJECT_ID}.{METADATA_DATASET}.{LOGS_TABLE}"
         
-        # 3. Convert dict to a Newline Delimited JSON string in memory
+        # Convert to Newline Delimited JSON
         json_data = json.dumps(row) + "\n"
         file_obj = io.StringIO(json_data)
 
-        # 4. Trigger the Load Job
         log_event("INFO", f"🚀 Starting Batch Audit Load: {trace_id}", trace_id)
         
-        # We wrap the string in a Bio/StringIO to treat it like a file
-        job = bq.load_table_from_file(
-            file_obj, 
-            table_id, 
-            job_config=job_config
-        )
+        job = bq.load_table_from_file(file_obj, table_id, job_config=job_config)
         
-        # 5. WAIT for the job to complete (Crucial for Batch)
+        # This will now throw a clear error if the schema doesn't match
         job.result() 
         
-        log_event("INFO", "🟢 Batch Audit Insert Completed", trace_id)
+        log_event("INFO", "🟢 Audit Batch Insert Successful", trace_id)
 
     except Exception as e:
-        log_event("ERROR", f"❌ Batch Audit Failed: {str(e)}", trace_id)
+        log_event("ERROR", f"❌ Audit Batch Failed: {str(e)}", trace_id)
 
 def handle_failure(bucket, file_name, status, error_msg, trace_id):
     try:
         archive_file(bucket, file_name, "exempted", trace_id)
         audit_log(trace_id, file_name, status, error_msg=error_msg)
+        audit_log(trace_id, file_name, "SUCCESS", start_time, status, error_msg=error_msg)
         log_event("INFO", "🛑 Handled Failure. No Retry.", trace_id)
     except Exception: pass
