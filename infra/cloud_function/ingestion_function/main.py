@@ -76,7 +76,7 @@ def get_csv_headers(bucket: str, file_name: str, delimiter: str = ",") -> List[s
 def process_file(cloud_event):
     global start_time, ingestion_id, trace_id
     start_time = datetime.datetime.now(datetime.timezone.utc)
-    ingestion_id = {uuid.uuid4().hex}
+    ingestion_id = uuid.uuid4().hex
     trace_id = f"projects/{PROJECT_ID}/traces/{ingestion_id}" 
     data = cloud_event.data
     
