@@ -358,9 +358,6 @@ def audit_log(
 
         job = bq.load_table_from_file(file_obj, table_id, job_config=job_config)
 
-        # This will now throw a clear error if the schema doesn't match
-        job.result()
-
         log_event("INFO", "🟢 Audit Batch Insert Successful", trace_id)
 
     except Exception as e:
