@@ -203,7 +203,7 @@ def load_raw_strings(
         raise SchemaDriftError(str(e), e.new_columns, sample_rows)
         # --- NEW LOGIC END ---
 
-    # 3. Prepare Staging Load (Existing Logic)
+    # 3. Prepare Staging Load
     staging_table_id = f"{PROJECT_ID}.{rule['target_dataset']}.staging_{rule['target_table']}_{uuid.uuid4().hex[:8]}"
 
     try:
@@ -224,7 +224,7 @@ def load_raw_strings(
         load_job = bq.load_table_from_uri(uri, staging_table_id, job_config=job_config)
         load_job.result()  # Wait for staging load
 
-        # 4. CALCULATE QUALITY METRICS (Existing Logic)
+        # 4. CALCULATE QUALITY METRICS
         log_event("INFO", "📊 Calculating Good/Bad record counts...", trace_id)
 
         conditions = [f"(COALESCE(`{col}`, '') = '')" for col in headers]
@@ -248,10 +248,20 @@ def load_raw_strings(
 
         log_event("INFO", f"📈 Quality Metrics: {json.dumps(metrics)}", trace_id)
 
-        # 5. Final Insert (Existing Logic)
-        col_names = headers
-        cols_string = ", ".join([f"`{c}`" for c in col_names])
+        # ======================================================================
+        # 5. FINAL INSERT (UPDATED FOR SAFETY)
+        # ======================================================================
+        # Logic: Map columns BY NAME. This ensures that even if 'warehouse_id'
+        # is physically after 'batch_date' in the table, it goes to the right place.
+        # Audit columns (batch_date) are NOT in 'col_names', so BQ uses Defaults.
 
+        col_names = headers
+        # Wrap in backticks to handle spaces or special characters
+        safe_cols = [f"`{c}`" for c in col_names]
+        cols_string = ", ".join(safe_cols)
+
+        # ⚠️ CRITICAL: We list columns in INSERT (...) AND SELECT (...)
+        # This forces name-based mapping instead of position-based mapping.
         insert_query = f"""
             INSERT INTO `{final_table_ref}` ({cols_string})
             SELECT {cols_string}
@@ -259,7 +269,7 @@ def load_raw_strings(
         """
 
         log_event(
-            "INFO", f"⏳ Executing Final Insert into {final_table_ref}...", trace_id
+            "INFO", f"⏳ Executing Smart Insert into {final_table_ref}...", trace_id
         )
         bq.query(insert_query).result()
 
