@@ -205,8 +205,19 @@ def apply_schema_update(
         g = Github(token)
         repo = g.get_repo(repo_name)
 
-        # 1. Get Main Branch SHA
-        main_branch = repo.get_branch("main")
+        # 1. Get the repo's default branch name from GitHub settings
+        base_branch_name = repo.default_branch
+
+        # 2. Get the actual branch object
+        try:
+            main_branch = repo.get_branch(base_branch_name)
+        except GithubException:
+            log_event(
+                "CRITICAL",
+                f"Repo is empty! Please initialize {repo_name} with a README.",
+                trace_id,
+            )
+            return None
 
         # 2. Create New Feature Branch
         branch_name = f"ai/schema-drift-{table}-{uuid.uuid4().hex[:6]}"
