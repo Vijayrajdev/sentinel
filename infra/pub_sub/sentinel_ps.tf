@@ -19,3 +19,8 @@ resource "google_pubsub_subscription" "schema_drift_debug_sub" {
   # Expire messages after 7 days if not acked
   message_retention_duration = "604800s" 
 }
+
+output "topic_id" {
+  description = "The full path of the created topic (projects/xyz/topics/abc)"
+  value       = google_pubsub_topic.schema_drift_events.id
+}
