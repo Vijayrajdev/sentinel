@@ -65,14 +65,16 @@ def get_csv_headers(bucket: str, file_name: str, delimiter: str = ",") -> List[s
         headers = next(reader)
         return headers
     except Exception as e:
-        raise ValueError(f"Could not read headers from file: {e}")
+        log_event("ERROR", f"❌ Could not read headers from file: {e}", trace_id)
+        handle_failure(bucket, file_name, "SKIPPED", f"Could not read headers from file: {e}", trace_id, ingestion_id)
+    
 
 # ==============================================================================
 # MAIN ENTRY POINT
 # ==============================================================================
 @functions_framework.cloud_event
 def process_file(cloud_event):
-    global start_time
+    global start_time, ingestion_id, trace_id
     start_time = datetime.datetime.now(datetime.timezone.utc)
     ingestion_id = {uuid.uuid4().hex}
     trace_id = f"projects/{PROJECT_ID}/traces/{ingestion_id}" 
@@ -100,6 +102,7 @@ def process_file(cloud_event):
 
         # 2. LOADER
         row_count, uri = load_raw_strings(bucket_name, file_name, rule, final_table_ref, trace_id)
+        print(row_count, uri)
 
         # 3. ARCHIVER
         archive_file(bucket_name, file_name, "processed", trace_id)
