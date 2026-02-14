@@ -1,0 +1,62 @@
+[
+  {
+    "name": "operation_id",
+    "type": "STRING",
+    "mode": "REQUIRED",
+    "description": "Unique UUID for this specific AI operation"
+  },
+  {
+    "name": "timestamp",
+    "type": "TIMESTAMP",
+    "mode": "REQUIRED",
+    "description": "When the AI took action"
+  },
+  {
+    "name": "ai_agent_id",
+    "type": "STRING",
+    "mode": "NULLABLE",
+    "description": "Identity of the AI (e.g., Gemini-Raw-Architect)"
+  },
+  {
+    "name": "resource_group",
+    "type": "STRING",
+    "mode": "NULLABLE",
+    "description": "Category (Terraform, dbt, Airflow)"
+  },
+  {
+    "name": "resource_type",
+    "type": "STRING",
+    "mode": "NULLABLE",
+    "description": "Type (Table, Schema, Model)"
+  },
+  {
+    "name": "resource_id",
+    "type": "STRING",
+    "mode": "NULLABLE",
+    "description": "Full path to the resource"
+  },
+  {
+    "name": "action_type",
+    "type": "STRING",
+    "mode": "NULLABLE",
+    "description": "What did it do? (CREATE_PR, ABORT, ERROR)"
+  },
+  {
+    "name": "change_payload",
+    "type": "JSON",
+    "mode": "NULLABLE",
+    "description": "The exact data/diff the AI generated"
+  },
+  {
+    "name": "outcome_status",
+    "type": "STRING",
+    "mode": "NULLABLE",
+    "description": "SUCCESS or FAILED"
+  },
+  {
+    "name": "reference_link",
+    "type": "STRING",
+    "mode": "NULLABLE",
+    "description": "URL to the GitHub PR or Log"
+  }
+]
