@@ -81,7 +81,7 @@ def process_file(cloud_event):
         return
 
     log_event("INFO", f"🚀 Started Processing: gs://{bucket_name}/{file_name}", trace_id)
-    log_event("INFO", f"Trace Id: {trace_id}", trace_id)
+    log_event("INFO", f"🫆 Trace Id: {trace_id}", trace_id)
 
     try:
         # 1. ROUTER
@@ -101,9 +101,8 @@ def process_file(cloud_event):
         archive_file(bucket_name, file_name, "processed", trace_id)
 
         # 4. AUDIT
-        log_event("INFO", f"Trace Id: {trace_id}", trace_id)
         audit_log(trace_id, file_name, "SUCCESS", row_count=row_count, target_table=final_table_ref)
-        log_event("INFO", f"✅ Successfully inserted {row_count} records into table: {final_table_ref}.")
+        log_event("INFO", f"✅ Successfully inserted {row_count} records into table: {final_table_ref}.", trace_id)
         log_event("INFO", "📂 Ingestion Complete.", trace_id)
 
     except Exception as e:
