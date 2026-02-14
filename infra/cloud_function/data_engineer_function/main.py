@@ -358,14 +358,14 @@ def apply_schema_update(
 *Target File:* `{target_file_path}`
 
 ### 🧠 Intelligence Report
-    1. **Path Discovery:** I scanned the repo and determined `{target_file_path}` is the correct location.
-    2. **Action:** {'Updated existing file' if file_exists else 'Created new file'}.
-    3. **Changes:** Added **{len(added_cols)}** new columns.
+    1. *Path Discovery:* I scanned the repo and determined `{target_file_path}` is the correct location.
+    2. *Action:** {'Updated existing file' if file_exists else 'Created new file'}.
+    3. *Changes:* Added *{len(added_cols)}* new columns.
 
 ### 📝 Schema Updates
-    ```json
-    {json.dumps(added_cols, indent=2)}
-    ```
+```json
+{json.dumps(added_cols, indent=2)}
+```
 
 ### ✅ Action Required
 Merge this PR to apply changes to BigQuery via Terraform.
