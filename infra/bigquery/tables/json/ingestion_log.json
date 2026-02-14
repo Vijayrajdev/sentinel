@@ -52,5 +52,29 @@
     "type": "STRING",
     "mode": "NULLABLE",
     "description": "Where the data tried to go"
+  },
+  {
+    "name": "total_records",
+    "type": "STRING",
+    "mode": "NULLABLE",
+    "description": "Number of rows present in CSV"
+  },
+  {
+    "name": "processed_records",
+    "type": "STRING",
+    "mode": "NULLABLE",
+    "description": "Number of rows processed into BigQuery"
+  },
+  {
+    "name": "good_records",
+    "type": "STRING",
+    "mode": "NULLABLE",
+    "description": "Number of good records loaded into BigQuery"
+  },
+  {
+    "name": "bad_records",
+    "type": "STRING",
+    "mode": "NULLABLE",
+    "description": "Number of bad records loaded into BigQuery"
   }
 ]
