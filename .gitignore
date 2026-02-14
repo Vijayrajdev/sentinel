@@ -20,4 +20,4 @@ venv/
 /infra/key
 
 # Temp
-/infra/ingestion
+/infra/temp
