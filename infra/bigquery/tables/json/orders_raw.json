@@ -42,5 +42,11 @@
     "mode": "REQUIRED",
     "defaultValueExpression": "CURRENT_TIMESTAMP()",
     "description": "When the record inserted"
+  },
+  {
+    "name": "warehouse_id",
+    "type": "STRING",
+    "mode": "NULLABLE",
+    "description": "Unique identifier for the warehouse associated with the order."
   }
 ]
