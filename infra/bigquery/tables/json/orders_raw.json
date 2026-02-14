@@ -2,25 +2,25 @@
   {
     "name": "order_id",
     "type": "STRING",
-    "mode": "REQUIRED",
+    "mode": "NULLABLE",
     "description": "Unique ID for this specific order"
   },
   {
     "name": "customer_name",
     "type": "STRING",
-    "mode": "REQUIRED",
+    "mode": "NULLABLE",
     "description": "Name of the customer"
   },
   {
     "name": "amount",
     "type": "STRING",
-    "mode": "REQUIRED",
+    "mode": "NULLABLE",
     "description": "order amount"
   },
   {
     "name": "status",
     "type": "STRING",
-    "mode": "REQUIRED",
+    "mode": "NULLABLE",
     "description": "Status of the order"
   },
   {
@@ -28,5 +28,19 @@
     "type": "STRING",
     "mode": "NULLABLE",
     "description": "When the order made"
+  },
+  {
+    "name": "batch_date",
+    "type": "DATE",
+    "mode": "REQUIRED",
+    "defaultValueExpression": "DATE '9999-12-31'",
+    "description": "Record's batch date: Default '9999-12-31'"
+  },
+  {
+    "name": "processed_dttm",
+    "type": "TIMESTAMP",
+    "mode": "REQUIRED",
+    "defaultValueExpression": "CURRENT_TIMESTAMP()",
+    "description": "When the record inserted"
   }
 ]
