@@ -12,6 +12,9 @@ locals {
     "orders_raw" = {
       partition_type = null
     }
+    "ai_ops_log" = {
+      partition_type = null
+    }
   }
 }
 

@@ -1,0 +1,4 @@
+functions-framework==3.*
+google-cloud-bigquery>=3.10.0
+google-cloud-aiplatform>=1.38.0
+PyGithub>=2.0.0

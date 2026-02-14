@@ -19,10 +19,10 @@ module "buckets" {
   source     = "./cloud_storage"
 
   # Pass variables from Root -> Module
-  region                  = var.region
-  code_bucket_name        = var.code_bucket_name
-  archive_bucket_name     = var.archive_bucket_name
-  landing_bucket_name     = var.landing_bucket_name
+  region                            = var.region
+  code_bucket_name                  = var.code_bucket_name
+  ingestion_archive_bucket_name     = var.ingestion_archive_bucket_name
+  ingestion_landing_bucket_name     = var.ingestion_landing_bucket_name
 }
 
 # ==========================================
@@ -32,11 +32,24 @@ module "cloud_function" {
   source     = "./cloud_function"
 
   # Pass variables from Root -> Module
-  project_id              = var.project_id
-  region                  = var.region
-  code_bucket_name        = var.code_bucket_name
-  archive_bucket_name     = var.archive_bucket_name
-  landing_bucket_name     = var.landing_bucket_name
-  function_name           = var.function_name
-  function_entry_point    = var.function_entry_point
+  project_id                        = var.project_id
+  region                            = var.region
+  code_bucket_name                  = var.code_bucket_name
+  ingestion_archive_bucket_name     = var.ingestion_archive_bucket_name
+  ingestion_landing_bucket_name     = var.ingestion_landing_bucket_name
+  ingestion_function_name           = var.ingestion_function_name
+  ingestion_function_entry_point    = var.ingestion_function_entry_point
+  github_token                      = var.github_token
+  repo_name                         = var.repo_name
+  pubsub_topic                      = var.pubsub_topic
+}
+
+# ==========================================
+# MODULE 5: Create Pub/Sub
+# ==========================================
+module "pub_sub" {
+  source     = "./pub_sub"
+
+  # Pass variables from Root -> Module
+  pubsub_topic                      = var.pubsub_topic
 }
