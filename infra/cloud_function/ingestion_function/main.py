@@ -88,6 +88,7 @@ def process_file(cloud_event):
 
     log_event("INFO", f"🚀 Started Processing: gs://{bucket_name}/{file_name}", trace_id)
     log_event("INFO", f"🫆 Trace Id: {trace_id}", trace_id)
+    log_event("INFO", f"📥 Ingestion Id: {trace_id}", trace_id)
 
     try:
         # 1. ROUTER
@@ -108,7 +109,7 @@ def process_file(cloud_event):
 
         # 4. AUDIT
         uri = f"{bucket_name}/{file_name}"
-        audit_log(ingestion_id, trace_id, file_name, uri, "SUCCESS", start_time, row_count=row_count, target_table=final_table_ref)
+        audit_log(trace_id, ingestion_id, file_name, uri, "SUCCESS", start_time, row_count=row_count, target_table=final_table_ref)
         log_event("INFO", f"✅ Successfully inserted {row_count} records into table: {final_table_ref}.", trace_id)
         log_event("INFO", "📂 Ingestion Complete.", trace_id)
 
@@ -295,7 +296,6 @@ def audit_log(trace_id, ingestion_id, file_name, file_uri, status, start_time, r
 def handle_failure(bucket, file_name, status, error_msg, trace_id, ingestion_id):
     try:
         archive_file(bucket, file_name, "exempted", trace_id)
-        audit_log(ingestion_id, file_name, status, error_msg=error_msg)
-        audit_log(ingestion_id, file_name, "SUCCESS", start_time, status, error_msg=error_msg)
+        audit_log(trace_id, ingestion_id, file_name, "SUCCESS", start_time, status, error_msg=error_msg)
         log_event("INFO", "🛑 Handled Failure. No Retry.", trace_id)
     except Exception: pass
