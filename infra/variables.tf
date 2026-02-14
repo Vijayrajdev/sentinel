@@ -23,17 +23,27 @@ variable "function_entry_point" {
 }
 
 # --- Buckets ---
-variable "landing_bucket_name" {
+variable "ingestion_landing_bucket_name" {
   description = "Name of the existing Landing Zone bucket"
   type        = string
 }
 
-variable "archive_bucket_name" {
+variable "ingestion_archive_bucket_name" {
   description = "Name of the existing Archive Zone bucket"
   type        = string
 }
 
 variable "code_bucket_name" {
   description = "Name of the existing Code bucket"
+  type        = string
+}
+
+variable "github_token" {
+  description = "Name of the existing Code bucket"
+  type        = string
+}
+
+variable "repo_name" {
+  description = "Name of the existing Github Repo"
   type        = string
 }

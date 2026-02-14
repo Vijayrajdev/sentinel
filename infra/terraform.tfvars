@@ -1,5 +1,5 @@
 project_id          = "sentinel-486707"
 region              = "us-central1"
-landing_bucket_name = "sentinel-ingestion-landing"
-archive_bucket_name = "sentinel-ingestion-archive"
+ingestion_landing_bucket_name = "sentinel-ingestion-landing"
+ingestion_archive_bucket_name = "sentinel-ingestion-archive"
 code_bucket_name    = "sentinel-ingestor-code"

@@ -2,25 +2,41 @@
 # 1. PREPARE THE CODE
 # ==============================================================================
 # Zip the 'ingestion_function' folder into a single file
-data "archive_file" "function_zip" {
+data "archive_file" "ingestion_function_zip" {
   type        = "zip"
   source_dir  = "${path.module}/ingestion_function"
-  output_path = "${path.module}/../tmp/function.zip"
+  output_path = "${path.module}/../tmp/ingestion_function.zip"
 }
 
-# Upload the Zip file to your Code Bucket
-resource "google_storage_bucket_object" "source_code" {
+# Zip the 'data_engineer_function' folder into a single file
+data "archive_file" "data_engineer_function_zip" {
+  type        = "zip"
+  source_dir  = "${path.module}/data_engineer_function"
+  output_path = "${path.module}/../tmp/data_engineer_function.zip"
+}
+
+# Upload the ingestion Zip file to your Code Bucket
+resource "google_storage_bucket_object" "ingestion_source_code" {
   # Use MD5 in filename to force redeployment when code changes
-  name   = "src-${data.archive_file.function_zip.output_md5}.zip"
+  name   = "ingestion_function/src-${data.archive_file.ingestion_function_zip.output_md5}.zip"
   bucket = var.code_bucket_name
-  source = data.archive_file.function_zip.output_path
+  source = data.archive_file.ingestion_function_zip.output_path
+}
+
+# Upload the data engineer Zip file to your Code Bucket
+resource "google_storage_bucket_object" "data_engineer_source_code" {
+  # Use MD5 in filename to force redeployment when code changes
+  name   = "data_engineer_function/src-${data.archive_file.data_engineer_function_zip.output_md5}.zip"
+  bucket = var.code_bucket_name
+  source = data.archive_file.data_engineer_function_zip.output_path
 }
 
 # ==============================================================================
 # 2. DEPLOY CLOUD FUNCTION (GEN 2)
 # ==============================================================================
+# Sentinel Ingestor
 resource "google_cloudfunctions2_function" "sentinel_ingestor" {
-  name        = var.function_name
+  name        = var.ingestion_function_name
   location    = var.region
   description = "Sentinel Ingestion Framework - Event Driven ETL"
 
@@ -29,12 +45,12 @@ resource "google_cloudfunctions2_function" "sentinel_ingestor" {
   # ----------------------------------------------------------------------------
   build_config {
     runtime     = "python310"
-    entry_point = var.function_entry_point
+    entry_point = var.ingestion_function_entry_point
     
     source {
       storage_source {
         bucket = var.code_bucket_name
-        object = google_storage_bucket_object.source_code.name
+        object = google_storage_bucket_object.ingestion_source_code.name
       }
     }
   }
@@ -54,7 +70,7 @@ resource "google_cloudfunctions2_function" "sentinel_ingestor" {
       METADATA_DATASET = "sentinel_audit"
       MASTER_TABLE     = "ingestion_master"
       LOGS_TABLE       = "ingestion_log"
-      ARCHIVE_BUCKET   = var.archive_bucket_name
+      ARCHIVE_BUCKET   = var.ingestion_archive_bucket_name
     }
 
     # The Service Account that gives the function permission to use BigQuery/Storage
@@ -72,7 +88,7 @@ resource "google_cloudfunctions2_function" "sentinel_ingestor" {
     
     event_filters {
       attribute = "bucket"
-      value     = var.landing_bucket_name
+      value     = var.ingestion_landing_bucket_name
     }
   }
 }
@@ -86,4 +102,60 @@ resource "google_cloud_run_service_iam_member" "invoker" {
   service  = google_cloudfunctions2_function.sentinel_ingestor.name
   role     = "roles/run.invoker"
   member   = "serviceAccount:sentinel-deployer@${var.project_id}.iam.gserviceaccount.com"
+}
+
+# Sentinel Data Engineer
+resource "google_cloudfunctions2_function" "sentinel_data_engineer" {
+  name        = var.data_engineer_function_name
+  location    = var.region
+  description = "AI Agent that fixes schema drift via GitHub PRs"
+
+  # ----------------------------------------------------------------------------
+  # A. BUILD CONFIGURATION (How to run the code)
+  # ----------------------------------------------------------------------------
+  build_config {
+    runtime     = "python310"
+    entry_point = var.data_engineer_function_entry_point
+    
+    source {
+      storage_source {
+        bucket = var.code_bucket_name
+        object = google_storage_bucket_object.data_engineer_source_code.name
+      }
+    }
+  }
+
+  # ----------------------------------------------------------------------------
+  # B. SERVICE CONFIGURATION (Runtime settings)
+  # ----------------------------------------------------------------------------
+  service_config {
+    max_instance_count = 2
+    min_instance_count = 0
+    available_memory   = "256M"
+    timeout_seconds    = 540
+    
+    # Environment Variables accessed by os.environ.get() in Python
+    environment_variables = {
+      GCP_PROJECT     = var.project_id
+      GCP_REGION      = var.region
+      GITHUB_TOKEN    = var.github_token
+      REPO_NAME       = var.repo_name
+      AI_AUDIT_TABLE  = "sentinel_audit.ai_ops_log"
+    }
+
+    # The Service Account that gives the function permission to use BigQuery/Storage
+    # If you haven't created a custom one, use the default (though custom is safer)
+    service_account_email = "sentinel-deployer@${var.project_id}.iam.gserviceaccount.com"
+  }
+
+  # ----------------------------------------------------------------------------
+  # C. TRIGGER CONFIGURATION (Pub/Sub Topic)
+  # ----------------------------------------------------------------------------
+
+  event_trigger {
+    trigger_region = var.region
+    event_type     = "google.cloud.pubsub.topic.v1.messagePublished"
+    pubsub_topic   = google_pubsub_topic.schema_drift_events.id
+    retry_policy   = "RETRY_POLICY_DO_NOT_RETRY" # Don't retry AI calls endlessly on error
+  }
 }
