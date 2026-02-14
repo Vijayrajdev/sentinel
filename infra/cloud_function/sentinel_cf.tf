@@ -131,7 +131,7 @@ resource "google_cloudfunctions2_function" "sentinel_data_engineer" {
   service_config {
     max_instance_count = 2
     min_instance_count = 0
-    available_memory   = "256M"
+    available_memory   = "512M"
     timeout_seconds    = 540
     
     # Environment Variables accessed by os.environ.get() in Python
