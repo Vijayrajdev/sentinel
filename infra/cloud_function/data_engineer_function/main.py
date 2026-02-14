@@ -199,7 +199,7 @@ def apply_schema_update(
     Returns: PR URL if successful, None otherwise.
     """
     dataset, table = table_ref.split(".")[-2:]
-    file_path = f"terraform/schemas/{table}.json"  # Convention: schemas/table_name.json
+    file_path = f"infra/bigquery/tables/json/{table}.json"
 
     try:
         g = Github(token)
