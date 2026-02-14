@@ -1,0 +1,8 @@
+[
+  {
+    "name": "warehouse_id",
+    "type": "STRING",
+    "mode": "NULLABLE",
+    "description": "The unique identifier for the warehouse from which the order is fulfilled."
+  }
+]
