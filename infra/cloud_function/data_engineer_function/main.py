@@ -95,21 +95,31 @@ def log_ai_action(
 # ==============================================================================
 def get_repo_map(repo, branch_sha) -> List[str]:
     """
-    Recursively lists files in the repo to understand the structure.
+    Recursively lists files, prioritizing Schema/BigQuery locations.
     """
-    file_list = []
+    all_files = []
+    priority_files = []
+
     try:
-        # Recursive=True fetches the entire tree
         tree = repo.get_git_tree(branch_sha, recursive=True)
         for element in tree.tree:
-            if element.type == "blob":  # blob = file
-                # Only keep likely schema files to save context window
-                if element.path.endswith((".json", ".tf")):
-                    file_list.append(element.path)
-    except Exception as e:
-        print(f"Repo scan warning (might be empty): {e}")
+            if element.type == "blob":
+                path = element.path
+                # Only care about config/code files
+                if path.endswith((".json", ".tf")):
+                    all_files.append(path)
 
-    return file_list
+                    # PRIORITY: If it looks like a BQ schema, put it at the top
+                    if "bigquery" in path or "schema" in path or "tables" in path:
+                        priority_files.append(path)
+
+    except Exception as e:
+        print(f"Repo scan warning: {e}")
+
+    # Combine: Priority files first, then the rest (up to limit)
+    # This ensures the AI sees "infra/bigquery/tables/json/..." first
+    final_list = list(set(priority_files + all_files))
+    return final_list[:300]
 
 
 def ask_gemini_for_path(table_name: str, file_list: List[str], trace_id: str) -> str:
@@ -117,43 +127,46 @@ def ask_gemini_for_path(table_name: str, file_list: List[str], trace_id: str) ->
     Asks AI to pick the best file path based on the existing repo structure.
     """
     if not model:
-        # Fallback to your old default if AI is down
         return f"infra/bigquery/tables/json/{table_name}.json"
 
     prompt = f"""
-    You are a DevOps Architect managing a Terraform repository.
+    You are a DevOps Architect.
     
-    Task: Determine the correct file path for a BigQuery Schema definition.
+    Task: Determine the EXACT file path for a new BigQuery Schema JSON file.
     
     Context:
     1. Target Table: "{table_name}"
-    2. Existing Files in Repo: 
-    {json.dumps(file_list[:200], indent=2)} 
-    (List truncated to first 200 relevant files)
+    2. Existing Repo Files (Reference these patterns): 
+    {json.dumps(file_list, indent=2)} 
 
     Instructions:
-    - Look for an existing file that matches the table name (e.g., 'infra/bq/{table_name}.json').
-    - If it exists, return that EXACT path.
-    - If it does NOT exist, analyze the folder structure (e.g., if you see 'schemas/users.json', create 'schemas/{table_name}.json').
-    - If the repo is empty or unclear, default to 'infra/bigquery/tables/json/{table_name}.json'.
+    - FIND THE PATTERN: Look at where other JSON schema files are stored.
+    - COPY THE STRUCTURE: If you see 'infra/bigquery/tables/json/some_table.json', then your output MUST be 'infra/bigquery/tables/json/{table_name}.json'.
+    - DO NOT invent new folders like 'schemas/' if a 'json/' folder already exists.
+    - DO NOT return double slashes like '//'.
     
     Output:
-    Return ONLY the file path string. Do not use Markdown or explanations.
+    Return ONLY the file path string.
     """
 
     try:
         response = model.generate_content(prompt)
         path = response.text.strip().replace("`", "").replace("json", "", 1).strip()
-        # Clean up quotes
+
+        # Cleanup quotes
         if (path.startswith("'") and path.endswith("'")) or (
             path.startswith('"') and path.endswith('"')
         ):
             path = path[1:-1]
 
+        # 🛡️ FIX: Clean up double slashes (The error you saw)
+        path = path.replace("//", "/")
+
         log_event("INFO", f"🧠 AI decided file path: {path}", trace_id)
         return path
     except Exception as e:
         log_event("ERROR", f"AI Path Decision failed: {e}", trace_id)
+        # Default safe path
         return f"infra/bigquery/tables/json/{table_name}.json"
 
 
