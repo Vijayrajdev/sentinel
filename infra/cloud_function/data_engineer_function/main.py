@@ -285,7 +285,7 @@ def apply_schema_update(
             title=f"feat(data): Fix Schema Drift in {table}",
             body=pr_body,
             head=branch_name,
-            base="main",  # Ensure this matches your repo's default branch
+            base=main_branch,  # Ensure this matches your repo's default branch
         )
 
         log_event("INFO", f"✅ PR Created: {pr.html_url}", trace_id)
