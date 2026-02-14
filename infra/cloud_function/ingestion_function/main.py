@@ -101,7 +101,7 @@ def process_file(cloud_event):
         "INFO", f"🚀 Started Processing: gs://{bucket_name}/{file_name}", trace_id
     )
     log_event("INFO", f"🫆 Trace Id: {trace_id}", trace_id)
-    log_event("INFO", f"📥 Ingestion Id: {trace_id}", trace_id)
+    log_event("INFO", f"📥 Ingestion Id: {ingestion_id}", trace_id)
 
     try:
         # 1. ROUTER
