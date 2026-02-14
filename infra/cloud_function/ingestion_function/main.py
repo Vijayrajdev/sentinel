@@ -78,7 +78,7 @@ def log_event(severity: str, message: str, trace_id: str, **kwargs):
 
 def get_csv_headers(bucket: str, file_name: str, delimiter: str = ",") -> List[str]:
     """Downloads the first line of the file to extract headers."""
-    _, storage = get_clients()
+    _, storage, _ = get_clients()
     blob = storage.bucket(bucket).blob(file_name)
 
     # Download first 4KB to get the header row
@@ -272,7 +272,7 @@ def load_raw_strings(
 
 
 def get_routing_rule(file_name: str, trace_id: str) -> Optional[Dict[str, Any]]:
-    bq, _ = get_clients()
+    bq, _, _ = get_clients()
     log_event("INFO", "🔍 Looking up routing rules...", trace_id)
 
     query = f"""
@@ -297,7 +297,7 @@ def archive_file(
     source_bucket: str, file_name: str, folder: str, trace_id: str
 ) -> Optional[str]:
     """Moves file to archive bucket and returns the NEW URI."""
-    _, storage = get_clients()
+    _, storage, _ = get_clients()
     if not ARCHIVE_BUCKET:
         log_event(
             "WARNING", "⚠️ ARCHIVE_BUCKET env var not set. Skipping archive.", trace_id
@@ -342,7 +342,7 @@ def audit_log(
     """
     Logs status AND Quality Metrics (Total, Processed, Good, Bad) to BigQuery.
     """
-    bq, _ = get_clients()
+    bq, _, _ = get_clients()
 
     if isinstance(start_time, datetime.datetime):
         start_time_str = start_time.isoformat()
@@ -463,7 +463,7 @@ def process_file(cloud_event):
         return
 
     # --- CIRCUIT BREAKER 3: Phantom File Check ---
-    _, storage = get_clients()
+    _, storage, _ = get_clients()
     if not storage.bucket(bucket_name).blob(file_name).exists():
         print(f"👻 File not found: {file_name}. Stopping to prevent retry loop.")
         return
