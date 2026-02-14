@@ -101,6 +101,7 @@ def process_file(cloud_event):
 
         # 4. AUDIT
         audit_log(trace_id, file_name, "SUCCESS", row_count=row_count, target_table=final_table_ref)
+        log_event("INFO", f"✅ Successfully inserted {row_count} records into table: {final_table_ref}.")
         log_event("INFO", "✅ Ingestion Complete.", trace_id)
 
     except Exception as e:
@@ -202,7 +203,6 @@ def load_raw_strings(bucket: str, file_name: str, rule: Dict[str, Any], final_ta
     finally:
         bq.delete_table(staging_table_id, not_found_ok=True)
 
-# ... (Include get_routing_rule, archive_file, audit_log, handle_failure from previous answer) ...
 def get_routing_rule(file_name: str, trace_id: str) -> Optional[Dict[str, Any]]:
     bq, _ = get_clients()
     query = f"""
@@ -226,7 +226,9 @@ def archive_file(source_bucket: str, file_name: str, folder: str, trace_id: str)
         blob.copy_blob(dest, new_name)
         blob.delete()
         log_event("INFO", f"📦 Archived: {new_name}", trace_id)
-    except Exception: pass
+    except Exception as e:
+        error_msg = str(e)
+        log_event("ERROR", f"❌ Archival Failed: {error_msg}", trace_id)
 
 def audit_log(trace_id, file_name, status, row_count=None, target_table=None, error_msg=None):
     bq, _ = get_clients()
@@ -236,7 +238,11 @@ def audit_log(trace_id, file_name, status, row_count=None, target_table=None, er
         "error_message": error_msg[:2000] if error_msg else None,
         "created_at": datetime.datetime.utcnow().isoformat()
     }
-    bq.insert_rows_json(f"{PROJECT_ID}.{METADATA_DATASET}.{LOGS_TABLE}", [row])
+    try:
+        bq.insert_rows_json(f"{PROJECT_ID}.{METADATA_DATASET}.{LOGS_TABLE}", [row])
+    except Exception as e:
+        error_msg = str(e)
+        log_event("ERROR", f"❌ Inserting Audit Failed: {error_msg}", trace_id)
 
 def handle_failure(bucket, file_name, status, error_msg, trace_id):
     try:
