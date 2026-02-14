@@ -101,13 +101,13 @@ def process_file(cloud_event):
         log_event("INFO", f"🎯 Routing to Raw Table: {final_table_ref}", trace_id)
 
         # 2. LOADER
-        row_count, uri = load_raw_strings(bucket_name, file_name, rule, final_table_ref, trace_id)
-        print(row_count, uri)
+        row_count = load_raw_strings(bucket_name, file_name, rule, final_table_ref, trace_id)
 
         # 3. ARCHIVER
         archive_file(bucket_name, file_name, "processed", trace_id)
 
         # 4. AUDIT
+        uri = f"{bucket_name}/{file_name}"
         audit_log(ingestion_id, trace_id, file_name, uri, "SUCCESS", start_time, row_count=row_count, target_table=final_table_ref)
         log_event("INFO", f"✅ Successfully inserted {row_count} records into table: {final_table_ref}.", trace_id)
         log_event("INFO", "📂 Ingestion Complete.", trace_id)
@@ -206,7 +206,7 @@ def load_raw_strings(bucket: str, file_name: str, rule: Dict[str, Any], final_ta
         log_event("INFO", "⏳ Executing Final Insert (Defaults applied)...", trace_id)
         bq.query(insert_query).result()
         
-        return load_job.output_rows, uri
+        return load_job.output_rows
 
     finally:
         bq.delete_table(staging_table_id, not_found_ok=True)
