@@ -81,6 +81,7 @@ def process_file(cloud_event):
         return
 
     log_event("INFO", f"🚀 Started Processing: gs://{bucket_name}/{file_name}", trace_id)
+    log_event("INFO", f"Trace Id: {trace_id}", trace_id)
 
     try:
         # 1. ROUTER
@@ -100,9 +101,10 @@ def process_file(cloud_event):
         archive_file(bucket_name, file_name, "processed", trace_id)
 
         # 4. AUDIT
+        log_event("INFO", f"Trace Id: {trace_id}", trace_id)
         audit_log(trace_id, file_name, "SUCCESS", row_count=row_count, target_table=final_table_ref)
         log_event("INFO", f"✅ Successfully inserted {row_count} records into table: {final_table_ref}.")
-        log_event("INFO", "✅ Ingestion Complete.", trace_id)
+        log_event("INFO", "📂 Ingestion Complete.", trace_id)
 
     except Exception as e:
         # STOP RETRY: Move to exempted and exit gracefully
@@ -252,7 +254,9 @@ def audit_log(trace_id, file_name, status, row_count=None, target_table=None, er
         "created_at": datetime.datetime.utcnow().isoformat()
     }
     try:
+        log_event("INFO", f"Inserting Audit: {row}", trace_id)
         bq.insert_rows_json(f"{PROJECT_ID}.{METADATA_DATASET}.{LOGS_TABLE}", [row])
+        log_event("INFO", f"🟢 Audit Insert Completed", trace_id)
     except Exception as e:
         error_msg = str(e)
         log_event("ERROR", f"❌ Inserting Audit Failed: {error_msg}", trace_id)
