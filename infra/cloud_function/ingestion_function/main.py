@@ -74,7 +74,8 @@ def get_csv_headers(bucket: str, file_name: str, delimiter: str = ",") -> List[s
 def process_file(cloud_event):
     global start_time
     start_time = datetime.datetime.now(datetime.timezone.utc)
-    trace_id = f"projects/{PROJECT_ID}/traces/{uuid.uuid4().hex}"
+    ingestion_id = {uuid.uuid4().hex}
+    trace_id = f"projects/{PROJECT_ID}/traces/{ingestion_id}" 
     data = cloud_event.data
     
     bucket_name = data.get("bucket")
@@ -91,7 +92,7 @@ def process_file(cloud_event):
         rule = get_routing_rule(file_name, trace_id)
         
         if not rule:
-            handle_failure(bucket_name, file_name, "SKIPPED", "No matching routing rule", trace_id)
+            handle_failure(bucket_name, file_name, "SKIPPED", "No matching routing rule", trace_id, ingestion_id)
             return
 
         final_table_ref = f"{PROJECT_ID}.{rule['target_dataset']}.{rule['target_table']}"
@@ -104,7 +105,7 @@ def process_file(cloud_event):
         archive_file(bucket_name, file_name, "processed", trace_id)
 
         # 4. AUDIT
-        audit_log(trace_id, file_name, uri, "SUCCESS", start_time, row_count=row_count, target_table=final_table_ref)
+        audit_log(ingestion_id, trace_id, file_name, uri, "SUCCESS", start_time, row_count=row_count, target_table=final_table_ref)
         log_event("INFO", f"✅ Successfully inserted {row_count} records into table: {final_table_ref}.", trace_id)
         log_event("INFO", "📂 Ingestion Complete.", trace_id)
 
@@ -247,13 +248,13 @@ def archive_file(source_bucket: str, file_name: str, folder: str, trace_id: str)
         log_event("ERROR", f"❌ Archival Failed: {error_msg}", trace_id)
         pass
 
-def audit_log(trace_id, file_name, file_uri, status, start_time, row_count=None, target_table=None, error_msg=None):
+def audit_log(trace_id, ingestion_id, file_name, file_uri, status, start_time, row_count=None, target_table=None, error_msg=None):
     bq, _ = get_clients()
     
     # 1. Align keys with your schema names
     # Note: 'created_at' from previous version is now 'start_time' and 'end_time'
     row = {
-        "ingestion_id": trace_id,
+        "ingestion_id": ingestion_id,
         "file_name": file_name,
         "file_uri": file_uri if file_uri else None,
         "status": status,
@@ -288,10 +289,10 @@ def audit_log(trace_id, file_name, file_uri, status, start_time, row_count=None,
     except Exception as e:
         log_event("ERROR", f"❌ Audit Batch Failed: {str(e)}", trace_id)
 
-def handle_failure(bucket, file_name, status, error_msg, trace_id):
+def handle_failure(bucket, file_name, status, error_msg, trace_id, ingestion_id):
     try:
         archive_file(bucket, file_name, "exempted", trace_id)
-        audit_log(trace_id, file_name, status, error_msg=error_msg)
-        audit_log(trace_id, file_name, "SUCCESS", start_time, status, error_msg=error_msg)
+        audit_log(ingestion_id, file_name, status, error_msg=error_msg)
+        audit_log(ingestion_id, file_name, "SUCCESS", start_time, status, error_msg=error_msg)
         log_event("INFO", "🛑 Handled Failure. No Retry.", trace_id)
     except Exception: pass
