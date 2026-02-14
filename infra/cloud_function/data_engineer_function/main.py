@@ -15,27 +15,24 @@ from google.cloud import bigquery
 # ==============================================================================
 # CONFIGURATION
 # ==============================================================================
-# 1. Environment Variables (Injected by Terraform)
 PROJECT_ID = os.environ.get("GCP_PROJECT")
 REGION = os.environ.get("GCP_REGION", "us-central1")
 REPO_NAME = os.environ.get("REPO_NAME")
-# GITHUB_TOKEN is injected securely via Secret Manager as an Env Var
 GITHUB_TOKEN = os.environ.get("GITHUB_TOKEN")
 AI_AUDIT_TABLE = os.environ.get("AI_AUDIT_TABLE", "sentinel_audit.ai_ops_log")
 
-# 2. Client Initialization (Lazy Loading Pattern)
 bq_client: Optional[bigquery.Client] = None
 
-# Initialize Vertex AI once (Global Scope)
+# Initialize Vertex AI
 try:
-    vertexai.init(project=PROJECT_ID, location=REGION)
-    # Using the latest stable Gemini Pro model
-    model = GenerativeModel("gemini-2.5-pro")
+    if PROJECT_ID:
+        vertexai.init(project=PROJECT_ID, location=REGION)
+        # Using the specific stable version you requested
+        model = GenerativeModel("gemini-2.5-pro")
 except Exception as e:
     logging.error(f"Failed to initialize Vertex AI: {e}")
     model = None
 
-# Configure Logging
 logging.basicConfig(level=logging.INFO)
 
 
@@ -69,17 +66,15 @@ def log_ai_action(
     details: Any,
     link: Optional[str] = None,
 ):
-    """
-    Writes a permanent record of the AI's "thought process" to BigQuery.
-    """
+    """Writes a permanent record of the AI's actions to BigQuery."""
     client = get_bq_client()
 
     row = {
         "operation_id": uuid.uuid4().hex,
         "timestamp": datetime.datetime.now(datetime.timezone.utc).isoformat(),
-        "ai_agent_id": "Gemini-Raw-Architect-v1",
-        "resource_group": "Terraform",
-        "resource_type": "BigQuery Schema",
+        "ai_agent_id": "Gemini-Autonomous-v2",
+        "resource_group": "GitHub Repo",
+        "resource_type": "Schema File",
         "resource_id": resource,
         "action_type": action,
         "change_payload": json.dumps(details),
@@ -96,24 +91,89 @@ def log_ai_action(
 
 
 # ==============================================================================
-# CORE INTELLIGENCE: GEMINI 1.5 PRO
+# NEW FEATURE: REPO INTELLIGENCE
+# ==============================================================================
+def get_repo_map(repo, branch_sha) -> List[str]:
+    """
+    Recursively lists files in the repo to understand the structure.
+    """
+    file_list = []
+    try:
+        # Recursive=True fetches the entire tree
+        tree = repo.get_git_tree(branch_sha, recursive=True)
+        for element in tree.tree:
+            if element.type == "blob":  # blob = file
+                # Only keep likely schema files to save context window
+                if element.path.endswith((".json", ".tf")):
+                    file_list.append(element.path)
+    except Exception as e:
+        print(f"Repo scan warning (might be empty): {e}")
+
+    return file_list
+
+
+def ask_gemini_for_path(table_name: str, file_list: List[str], trace_id: str) -> str:
+    """
+    Asks AI to pick the best file path based on the existing repo structure.
+    """
+    if not model:
+        # Fallback to your old default if AI is down
+        return f"infra/bigquery/tables/json/{table_name}.json"
+
+    prompt = f"""
+    You are a DevOps Architect managing a Terraform repository.
+    
+    Task: Determine the correct file path for a BigQuery Schema definition.
+    
+    Context:
+    1. Target Table: "{table_name}"
+    2. Existing Files in Repo: 
+    {json.dumps(file_list[:200], indent=2)} 
+    (List truncated to first 200 relevant files)
+
+    Instructions:
+    - Look for an existing file that matches the table name (e.g., 'infra/bq/{table_name}.json').
+    - If it exists, return that EXACT path.
+    - If it does NOT exist, analyze the folder structure (e.g., if you see 'schemas/users.json', create 'schemas/{table_name}.json').
+    - If the repo is empty or unclear, default to 'infra/bigquery/tables/json/{table_name}.json'.
+    
+    Output:
+    Return ONLY the file path string. Do not use Markdown or explanations.
+    """
+
+    try:
+        response = model.generate_content(prompt)
+        path = response.text.strip().replace("`", "").replace("json", "", 1).strip()
+        # Clean up quotes
+        if (path.startswith("'") and path.endswith("'")) or (
+            path.startswith('"') and path.endswith('"')
+        ):
+            path = path[1:-1]
+
+        log_event("INFO", f"🧠 AI decided file path: {path}", trace_id)
+        return path
+    except Exception as e:
+        log_event("ERROR", f"AI Path Decision failed: {e}", trace_id)
+        return f"infra/bigquery/tables/json/{table_name}.json"
+
+
+# ==============================================================================
+# CORE INTELLIGENCE: GEMINI
 # ==============================================================================
 def ask_gemini_for_schema(
     table_name: str, new_cols: List[str], sample_data: List[Dict], trace_id: str
 ) -> List[Dict[str, str]]:
     """
     Uses LLM to generate descriptions and PII tags.
-    STRICTLY ENFORCES 'STRING' TYPE.
     """
     if not model:
         log_event("ERROR", "Vertex AI model not initialized.", trace_id)
-        # Fallback: Return basic schema without AI descriptions
         return [
             {
                 "name": col,
                 "type": "STRING",
                 "mode": "NULLABLE",
-                "description": "Auto-added column (AI Unavailable)",
+                "description": "Auto-added column",
             }
             for col in new_cols
         ]
@@ -129,9 +189,9 @@ def ask_gemini_for_schema(
     Target System: Google BigQuery (Raw Layer).
     
     CRITICAL RULES:
-    1. ALL columns MUST be of type 'STRING'. Do not use INTEGER, FLOAT, or TIMESTAMP.
+    1. ALL columns MUST be of type 'STRING'.
     2. Generate a professional 'description' based on the column name and the provided sample data.
-    3. Privacy Check: If the data looks like PII (email, phone, SSN, names), prefix the description with "[PII]".
+    3. Privacy Check: If the data looks like PII (email, phone, SSN), prefix the description with "[PII]".
     
     Input Context:
     - Table: {table_name}
@@ -140,30 +200,25 @@ def ask_gemini_for_schema(
       {json.dumps(sample_data, indent=2)}
     
     Output Format:
-    Return strictly a JSON Array of Objects. No markdown formatting.
+    Return strictly a JSON Array of Objects.
     Example:
-    [
-      {{"name": "customer_id", "type": "STRING", "mode": "NULLABLE", "description": "Unique identifier for the customer."}},
-      {{"name": "email_address", "type": "STRING", "mode": "NULLABLE", "description": "[PII] Customer contact email."}}
-    ]
+    [ {{"name": "email", "type": "STRING", "mode": "NULLABLE", "description": "[PII] User email"}} ]
     """
 
     generation_config = GenerationConfig(
         response_mime_type="application/json",
-        temperature=0.1,  # Low temperature for consistent, deterministic output
-        max_output_tokens=2048,
+        temperature=0.1,
     )
 
     try:
         response = model.generate_content(prompt, generation_config=generation_config)
-        # Clean response (sometimes models add ```json ... ```)
         text_response = response.text.strip()
-        if text_response.startswith("```json"):
-            text_response = text_response[7:-3]
+        if text_response.startswith("```"):
+            text_response = text_response.split("\n", 1)[1].rsplit("\n", 1)[0]
 
         schema_list = json.loads(text_response)
 
-        # FINAL SAFETY CHECK: Force types to STRING regardless of what AI said
+        # FINAL SAFETY CHECK
         for col in schema_list:
             col["type"] = "STRING"
             col["mode"] = "NULLABLE"
@@ -172,7 +227,6 @@ def ask_gemini_for_schema(
 
     except Exception as e:
         log_event("ERROR", f"Gemini Analysis Failed: {e}", trace_id)
-        # Fallback logic
         return [
             {
                 "name": col,
@@ -185,7 +239,7 @@ def ask_gemini_for_schema(
 
 
 # ==============================================================================
-# INFRASTRUCTURE OPS: GITHUB
+# INFRASTRUCTURE OPS: GITHUB (AUTONOMOUS)
 # ==============================================================================
 def apply_schema_update(
     repo_name: str,
@@ -195,46 +249,59 @@ def apply_schema_update(
     trace_id: str,
 ) -> Union[str, None]:
     """
-    Clones repo, creates branch, updates JSON, pushes, opens PR.
-    Returns: PR URL if successful, None otherwise.
+    Autonomous function: Scans repo -> Finds path -> Creates/Updates file -> Opens PR.
     """
     dataset, table = table_ref.split(".")[-2:]
-    file_path = f"infra/bigquery/tables/json/{table}.json"
 
     try:
         g = Github(token)
         repo = g.get_repo(repo_name)
 
-        # 1. Get the repo's default branch name from GitHub settings
-        base_branch_name = repo.default_branch
-
-        # 2. Get the actual branch object
+        # 1. Get Default Branch (Handling Main/Master)
+        default_branch_name = repo.default_branch
         try:
-            main_branch = repo.get_branch(base_branch_name)
+            default_branch_obj = repo.get_branch(default_branch_name)
         except GithubException:
-            log_event(
-                "CRITICAL",
-                f"Repo is empty! Please initialize {repo_name} with a README.",
-                trace_id,
-            )
+            log_event("CRITICAL", "Repo is empty! Initialize with a README.", trace_id)
             return None
 
-        # 2. Create New Feature Branch
-        branch_name = f"ai/schema-drift-{table}-{uuid.uuid4().hex[:6]}"
-        repo.create_git_ref(ref=f"refs/heads/{branch_name}", sha=main_branch.commit.sha)
+        # 2. SCAN: Map the repo structure
+        log_event("INFO", "🛰️ Scanning repository structure...", trace_id)
+        repo_files = get_repo_map(repo, default_branch_obj.commit.sha)
+
+        # 3. DECIDE: Ask AI for the target file path
+        target_file_path = ask_gemini_for_path(table, repo_files, trace_id)
+
+        # 4. Create Feature Branch
+        branch_name = f"ai/autonomous-fix-{table}-{uuid.uuid4().hex[:6]}"
+        repo.create_git_ref(
+            ref=f"refs/heads/{branch_name}", sha=default_branch_obj.commit.sha
+        )
         log_event("INFO", f"🌿 Created branch: {branch_name}", trace_id)
 
-        # 3. Get Existing Schema File
-        try:
-            contents = repo.get_contents(file_path, ref=branch_name)
-            current_schema = json.loads(
-                base64.b64decode(contents.content).decode("utf-8")
-            )
-        except GithubException:
-            log_event("ERROR", f"Schema file not found: {file_path}", trace_id)
-            return None
+        # 5. Read or Create File Content
+        current_schema = []
+        file_sha = None
+        file_exists = False
 
-        # 4. Merge Changes (Idempotency Check)
+        try:
+            # Check if file exists in the NEW branch
+            contents = repo.get_contents(target_file_path, ref=branch_name)
+            file_content = base64.b64decode(contents.content).decode("utf-8")
+            current_schema = json.loads(file_content)
+            file_sha = contents.sha
+            file_exists = True
+            log_event("INFO", f"📂 Found existing file: {target_file_path}", trace_id)
+        except GithubException:
+            log_event(
+                "INFO",
+                f"✨ File not found. Will create new: {target_file_path}",
+                trace_id,
+            )
+            file_exists = False
+            current_schema = []
+
+        # 6. Merge Logic (Idempotency)
         existing_cols = {col["name"] for col in current_schema}
         added_cols = []
 
@@ -249,43 +316,54 @@ def apply_schema_update(
             )
             return None
 
-        # 5. Commit & Push
-        commit_message = f"feat(data): AI auto-update schema for {table}"
-        repo.update_file(
-            path=file_path,
-            message=commit_message,
-            content=json.dumps(current_schema, indent=2),
-            sha=contents.sha,
-            branch=branch_name,
-        )
-        log_event("INFO", "💾 Changes committed to GitHub.", trace_id)
+        # 7. Commit & Push
+        new_content = json.dumps(current_schema, indent=2)
+        commit_message = f"feat(data): AI autonomous update for {table}"
 
-        # 6. Open Pull Request
+        if file_exists:
+            repo.update_file(
+                path=target_file_path,
+                message=commit_message,
+                content=new_content,
+                sha=file_sha,
+                branch=branch_name,
+            )
+        else:
+            repo.create_file(
+                path=target_file_path,
+                message=commit_message,
+                content=new_content,
+                branch=branch_name,
+            )
+
+        log_event("INFO", f"💾 Changes committed to {target_file_path}", trace_id)
+
+        # 8. Open Pull Request
         pr_body = f"""
-        ## 🤖 Sentinel AI Auto-Fix
-        **Trace ID:** `{trace_id}`
-        **Table:** `{table_ref}`
+# 🤖 Sentinel AI Auto-Fix
+*Trace ID:* `{trace_id}`
+*Target File:* `{target_file_path}`
 
-        ### 📝 Summary
-        I detected **{len(added_cols)}** new columns in the incoming data that were missing from the Terraform definition.
-        I have analyzed the data samples and generated the following schema updates:
-        {json.dumps(added_cols, indent=2)}
-        
-        ### 🛡️ Safety Check
-        - **Data Type:** Enforced as `STRING` (Raw Layer Standard).
-        - **PII Detection:** Checked. See descriptions for `[PII]` tags.
+### 🧠 Intelligence Report
+    1. **Path Discovery:** I scanned the repo and determined `{target_file_path}` is the correct location.
+    2. **Action:** {'Updated existing file' if file_exists else 'Created new file'}.
+    3. **Changes:** Added **{len(added_cols)}** new columns.
 
-        ### ✅ Action Required
-        1. Review the descriptions.
-        2. Merge this PR.
-        3. Terraform Cloud will apply the changes to BigQuery.
-        """
-        # Create the PR
+### 📝 Schema Updates
+    ```json
+    {json.dumps(added_cols, indent=2)}
+    ```
+
+### ✅ Action Required
+Merge this PR to apply changes to BigQuery via Terraform.
+"""
+
+        # FIX: Pass the STRING name of the base branch
         pr = repo.create_pull(
             title=f"feat(data): Fix Schema Drift in {table}",
             body=pr_body,
             head=branch_name,
-            base=base_branch_name,
+            base=default_branch_name,
         )
 
         log_event("INFO", f"✅ PR Created: {pr.html_url}", trace_id)
@@ -309,7 +387,6 @@ def ai_agent_main(cloud_event):
 
     try:
         # 1. Parse Pub/Sub Message
-        # The message comes in as a base64 encoded bytestring
         if "data" in cloud_event.data["message"]:
             pubsub_message = base64.b64decode(
                 cloud_event.data["message"]["data"]
@@ -330,7 +407,6 @@ def ai_agent_main(cloud_event):
         if not GITHUB_TOKEN or not REPO_NAME:
             error_msg = "Missing GITHUB_TOKEN or REPO_NAME configuration."
             log_event("CRITICAL", error_msg, trace_id)
-            log_ai_action(trace_id, "ABORT", table_ref, "FAILED", error_msg, None)
             return
 
         if not new_cols:
@@ -342,12 +418,11 @@ def ai_agent_main(cloud_event):
             return
 
         # 3. Ask The Brain (Gemini)
-        # Returns list of dicts: [{'name': 'x', 'type': 'STRING', ...}]
         ai_suggestions = ask_gemini_for_schema(
             table_ref, new_cols, sample_data, trace_id
         )
 
-        # 4. Execute Infrastructure Code (Terraform via GitHub)
+        # 4. Execute Infrastructure Code (Autonomous GitHub Ops)
         pr_url = apply_schema_update(
             REPO_NAME, GITHUB_TOKEN, table_ref, ai_suggestions, trace_id
         )
@@ -364,10 +439,8 @@ def ai_agent_main(cloud_event):
         )
 
     except Exception as e:
-        # Catch-all to prevent function crash loops, but log heavily
         error_msg = str(e)
         log_event("CRITICAL", f"Unhandled AI Agent Error: {error_msg}", trace_id)
-        # Attempt to log the failure to BigQuery if possible
         try:
             log_ai_action(trace_id, "CRASH", "System", "FAILED", error_msg, None)
         except:
