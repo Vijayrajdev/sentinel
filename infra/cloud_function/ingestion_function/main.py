@@ -218,17 +218,30 @@ def get_routing_rule(file_name: str, trace_id: str) -> Optional[Dict[str, Any]]:
 def archive_file(source_bucket: str, file_name: str, folder: str, trace_id: str):
     _, storage = get_clients()
     if not ARCHIVE_BUCKET: return
+    
     try:
-        blob = storage.bucket(source_bucket).blob(file_name)
-        dest = storage.bucket(ARCHIVE_BUCKET)
-        ts = datetime.datetime.utcnow().strftime("%Y%m%d%H%M%S")
+        # 1. Define your bucket and blob objects
+        src_bucket = storage.bucket(source_bucket)
+        dest_bucket = storage.bucket(ARCHIVE_BUCKET)
+        source_blob = src_bucket.blob(file_name) # This is the BLOB we want to copy
+        
+        # 2. Prepare the destination path
+        ts = datetime.datetime.now(datetime.timezone.utc).strftime("%Y%m%d%H%M%S")
         new_name = f"{folder}/{os.path.basename(file_name)}_{ts}"
-        blob.copy_blob(dest, new_name)
-        blob.delete()
+        
+        # 3. FIX: Use the blob object as the first argument
+        # Syntax: destination_bucket.copy_blob(source_blob, destination_bucket, new_name)
+        new_blob = dest_bucket.copy_blob(source_blob, dest_bucket, new_name)
+        
+        # 4. Delete the original only after successful copy
+        source_blob.delete()
+        
         log_event("INFO", f"📦 Archived: {new_name}", trace_id)
+        
     except Exception as e:
         error_msg = str(e)
         log_event("ERROR", f"❌ Archival Failed: {error_msg}", trace_id)
+        pass
 
 def audit_log(trace_id, file_name, status, row_count=None, target_table=None, error_msg=None):
     bq, _ = get_clients()
@@ -243,6 +256,7 @@ def audit_log(trace_id, file_name, status, row_count=None, target_table=None, er
     except Exception as e:
         error_msg = str(e)
         log_event("ERROR", f"❌ Inserting Audit Failed: {error_msg}", trace_id)
+        pass
 
 def handle_failure(bucket, file_name, status, error_msg, trace_id):
     try:
