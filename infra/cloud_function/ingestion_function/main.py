@@ -54,7 +54,7 @@ class TableNotFoundError(Exception):
 # ==============================================================================
 def get_clients():
     """Lazy initialization of GCP clients."""
-    global bq_client, storage_client
+    global bq_client, storage_client, publisher_client
     if not bq_client:
         bq_client = bigquery.Client()
     if not storage_client:
