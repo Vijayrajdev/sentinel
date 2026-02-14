@@ -7,7 +7,7 @@ locals {
     "ingestion_log" = {
       partition_type = null  
     }
-  },
+  }
   tables_raw = {
     "orders_raw" = {
       partition_type = null
