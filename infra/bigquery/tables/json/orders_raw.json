@@ -1,0 +1,32 @@
+[
+  {
+    "name": "order_id",
+    "type": "STRING",
+    "mode": "REQUIRED",
+    "description": "Unique ID for this specific order"
+  },
+  {
+    "name": "customer_name",
+    "type": "STRING",
+    "mode": "REQUIRED",
+    "description": "Name of the customer"
+  },
+  {
+    "name": "amount",
+    "type": "STRING",
+    "mode": "REQUIRED",
+    "description": "order amount"
+  },
+  {
+    "name": "status",
+    "type": "STRING",
+    "mode": "REQUIRED",
+    "description": "Status of the order"
+  },
+  {
+    "name": "order_date",
+    "type": "STRING",
+    "mode": "NULLABLE",
+    "description": "When the order made"
+  }
+]
