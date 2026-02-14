@@ -40,3 +40,10 @@ module "cloud_function" {
   function_name           = var.function_name
   function_entry_point    = var.function_entry_point
 }
+
+# ==========================================
+# MODULE 5: Create Pub/Sub
+# ==========================================
+module "pub_sub" {
+  source     = "./pub_sub"
+}
