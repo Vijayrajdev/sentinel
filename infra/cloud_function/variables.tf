@@ -19,7 +19,7 @@ variable "ingestion_function_name" {
 variable "sentinel_forge_function_name" {
   description = "Name of the Cloud Function"
   type        = string
-  default     = "sentinel-data-engineer"
+  default     = "sentinel-forge"
 }
 
 variable "ingestion_function_entry_point" {
@@ -48,12 +48,6 @@ variable "ingestion_archive_bucket_name" {
 variable "code_bucket_name" {
   description = "Name of the existing Code bucket"
   type        = string
-}
-
-variable "github_token" {
-  description = "GitHub Personal Access Token"
-  type        = string
-  sensitive   = true
 }
 
 variable "repo_name" {
