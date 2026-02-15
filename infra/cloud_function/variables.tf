@@ -19,7 +19,7 @@ variable "ingestion_function_name" {
 variable "sentinel_forge_function_name" {
   description = "Name of the Cloud Function"
   type        = string
-  default     = "sentinel-data-engineer"
+  default     = "sentinel-forge"
 }
 
 variable "ingestion_function_entry_point" {
