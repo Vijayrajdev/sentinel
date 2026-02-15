@@ -94,6 +94,47 @@ def log_ai_action(
         log_event("ERROR", f"Audit Log Crash: {e}", trace_id)
 
 
+def find_defining_tf_file(repo, branch_sha, table_id, trace_id) -> Optional[str]:
+    """
+    Scans ALL .tf files in TF_BASE_PATH to see if the table is already defined.
+    Returns the path of the file if found, otherwise None.
+    """
+    log_event(
+        "INFO",
+        f"🔍 Deep Scan: Searching for existing definition of '{table_id}'...",
+        trace_id,
+    )
+
+    try:
+        tree = repo.get_git_tree(branch_sha, recursive=True)
+        # Filter for .tf files in the base path
+        tf_files = [
+            e
+            for e in tree.tree
+            if e.path.startswith(TF_BASE_PATH) and e.path.endswith(".tf")
+        ]
+
+        for element in tf_files:
+            blob = repo.get_git_blob(element.sha)
+            content = base64.b64decode(blob.content).decode("utf-8")
+
+            # Smart Regex: Look for 'table_id = "my_table"' OR 'table_id="my_table"'
+            # Matches: resource "..." { table_id = "xyz" } OR module "..." { table_id = "xyz" }
+            pattern = rf'table_id\s*=\s*["\']{re.escape(table_id)}["\']'
+
+            if re.search(pattern, content):
+                log_event(
+                    "INFO", f"✅ Found existing definition in: {element.path}", trace_id
+                )
+                return element.path
+
+    except Exception as e:
+        log_event("WARNING", f"Deep Scan failed: {e}", trace_id)
+
+    log_event("INFO", f"⚪ Table definition NOT found. Will create new file.", trace_id)
+    return None
+
+
 # ==============================================================================
 # 🕵️ REPO INTELLIGENCE
 # ==============================================================================
@@ -249,7 +290,7 @@ def apply_infrastructure_update(
     repo_name: str,
     token: str,
     table_ref: str,
-    new_cols: List[str],  # Passed directly
+    new_cols: List[str],
     trace_id: str,
     sample_data: List[Dict] = None,
 ) -> Union[str, None]:
@@ -266,11 +307,25 @@ def apply_infrastructure_update(
     # 1. FETCH REFERENCES
     ref_tf, ref_json = fetch_reference_files(repo, default_branch.commit.sha, trace_id)
 
-    # 2. PATHS
+    # 2. DETERMINE PATHS (Deep Scan Logic)
     clean_schema_base = SCHEMA_BASE_PATH.strip().rstrip("/")
     target_json_path = f"{clean_schema_base}/{table}.json"
-    clean_tf_base = TF_BASE_PATH.strip().rstrip("/")
-    target_tf_path = f"{clean_tf_base}/{table}.tf"
+
+    # 🕵️ Check if TF is already defined in ANY file
+    existing_tf_path = find_defining_tf_file(
+        repo, default_branch.commit.sha, table, trace_id
+    )
+
+    if existing_tf_path:
+        target_tf_path = existing_tf_path
+        tf_already_defined = True
+        tf_status_msg = "✅ Exists (Unchanged)"
+    else:
+        # If not found, default to standard naming
+        clean_tf_base = TF_BASE_PATH.strip().rstrip("/")
+        target_tf_path = f"{clean_tf_base}/{table}.tf"
+        tf_already_defined = False
+        tf_status_msg = "✨ Created"
 
     log_event(
         "INFO", f"🎯 Targets: JSON={target_json_path}, TF={target_tf_path}", trace_id
@@ -304,34 +359,32 @@ def apply_infrastructure_update(
     final_schema_list = []
     added_cols_for_pr = []
 
-    # 🛡️ AUDIT COLUMNS with STRICT DEFAULTS
+    # 🛡️ AUDIT COLUMNS
     audit_cols = [
         {
             "name": "batch_date",
             "type": "DATE",
             "mode": "NULLABLE",
-            "description": "Partition Column",
+            "description": "Partition",
             "default_value_expression": "'9999-12-31'",
         },
         {
             "name": "processed_dttm",
             "type": "TIMESTAMP",
             "mode": "NULLABLE",
-            "description": "Processing Time",
+            "description": "Audit",
             "default_value_expression": "CURRENT_TIMESTAMP()",
         },
     ]
 
     if not json_exists:
-        # BRAND NEW TABLE -> Full Gen
-        # If new_cols is missing (rare), assume sample keys
+        # BRAND NEW TABLE
         all_cols_to_gen = new_cols if new_cols else list(sample_data[0].keys())
-
         final_schema_list = generate_dynamic_schema(
             table, all_cols_to_gen, sample_data, ref_json, trace_id
         )
 
-        # Enforce Audit Columns
+        # Enforce Audit
         final_names = {c["name"] for c in final_schema_list}
         for ac in audit_cols:
             if ac["name"] not in final_names:
@@ -340,15 +393,12 @@ def apply_infrastructure_update(
         added_cols_for_pr = final_schema_list
 
     else:
-        # UPDATE EXISTING -> Smart Merge
-        # First, generate definitions for ONLY the new columns using AI
+        # UPDATE EXISTING
         ai_suggestions = generate_dynamic_schema(
             table, new_cols, sample_data, ref_json, trace_id
         )
-
         existing_names = {c["name"] for c in current_schema}
 
-        # Insert before audit columns
         insert_idx = len(current_schema)
         for idx, col in enumerate(current_schema):
             if col["name"] in ["batch_date", "processed_dttm"]:
@@ -367,25 +417,38 @@ def apply_infrastructure_update(
     # ----------------------------------------------------------------------
     # STEP B: TERRAFORM TF
     # ----------------------------------------------------------------------
-    tf_exists = False
-    try:
-        repo.get_contents(target_tf_path, ref=branch_name)
-        tf_exists = True
-        log_event("INFO", "📂 Terraform file exists.", trace_id)
-    except GithubException:
-        tf_exists = False
-
     tf_changed = False
     new_tf_content = ""
 
-    if not tf_exists:
-        log_event("INFO", "✨ Terraform missing. Generating from scratch...", trace_id)
-        rel_schema_path = f"./json/{table}.json"
-        new_tf_content = generate_dynamic_tf(
-            table, dataset, rel_schema_path, ref_tf, trace_id
+    # Logic: Only create TF if it DOES NOT EXIST (tf_already_defined is False)
+    # If it already exists, we assume the TF is fine and we just updated the schema JSON it points to.
+
+    if tf_already_defined:
+        log_event(
+            "INFO",
+            "✅ Terraform resource already exists. No TF changes needed.",
+            trace_id,
         )
-        if new_tf_content and len(new_tf_content.strip()) > 10:
-            tf_changed = True
+    else:
+        # We need to check if the file target_tf_path physically exists (double check in case Deep Scan missed a phantom file)
+        try:
+            repo.get_contents(target_tf_path, ref=branch_name)
+            tf_exists_physical = True
+            tf_status_msg = "✅ Exists (Unchanged)"
+        except GithubException:
+            tf_exists_physical = False
+
+        if not tf_exists_physical:
+            log_event(
+                "INFO", "✨ Terraform missing. Generating from scratch...", trace_id
+            )
+            rel_schema_path = f"./json/{table}.json"
+            new_tf_content = generate_dynamic_tf(
+                table, dataset, rel_schema_path, ref_tf, trace_id
+            )
+            if new_tf_content and len(new_tf_content.strip()) > 10:
+                tf_changed = True
+                tf_status_msg = "✨ Created"
 
     # ----------------------------------------------------------------------
     # STEP C: COMMIT & PR
@@ -427,7 +490,7 @@ def apply_infrastructure_update(
         )
 
     # ----------------------------------------------------------------------
-    # STEP D: DYNAMIC PR TEMPLATES
+    # STEP D: PR TEMPLATES
     # ----------------------------------------------------------------------
     col_table = "| Column Name | Type | Description |\n|---|---|---|\n"
     for col in added_cols_for_pr[:15]:
@@ -437,60 +500,39 @@ def apply_infrastructure_update(
     if len(added_cols_for_pr) > 15:
         col_table += f"| ... ({len(added_cols_for_pr)-15} more) | | |\n"
 
-    # TEMPLATE 1: NEW TABLE CREATION
+    # Determine Title & Header
     if not json_exists:
         pr_title = f"feat(data): Create New Table {table}"
-        pr_body = f"""
-# 🚀 Sentinel Forge: New Table Creation
-*Trace ID:* `{trace_id}`
+        header = f"# 🚀 Sentinel Forge: New Table Creation\n*Trace ID:* `{trace_id}`"
+        summary = "The AI Agent has detected a new data entity and generated the full infrastructure code."
+    else:
+        pr_title = f"fix(data): Schema Drift in {table}"
+        header = f"# 🚨 Sentinel Forge: Schema Drift Detected\n*Trace ID:* `{trace_id}`"
+        summary = f"New columns were detected in the ingestion source for `{table}`."
 
-### 📦 Resource Summary
-The AI Agent has detected a new data entity and generated the full infrastructure code.
+    pr_body = f"""
+{header}
+
+### 📦 Summary
+{summary}
 
 | Resource | Status | Path |
 |---|---|---|
-| **Terraform** | ✨ Created | `{target_tf_path}` |
-| **Schema** | ✨ Created | `{target_json_path}` |
+| **Terraform** | {tf_status_msg} | `{target_tf_path}` |
+| **Schema** | {'✨ Created' if not json_exists else '♻️ Updated'} | `{target_json_path}` |
 
-### 🔍 Schema Definition
-**Total Columns:** {len(final_schema_list)}
+### 🔍 Schema Definition ({len(added_cols_for_pr)} Cols)
 {col_table}
 
 ### 🛡️ Governance Enforcement
 * **Partitioning:** `batch_date` (Default: `9999-12-31`)
 * **Audit:** `processed_dttm` (Default: `CURRENT_TIMESTAMP()`)
-* **Type Safety:** All data columns enforced as `STRING` (Raw Layer Standard).
+* **Type Safety:** All data columns enforced as `STRING`.
 
 ### ✅ Action Required
-Merge this PR. Terraform will provision the new BigQuery Table.
+Merge this PR. Terraform will apply the changes.
 """
 
-    # TEMPLATE 2: SCHEMA DRIFT (UPDATE)
-    else:
-        pr_title = f"fix(data): Schema Drift in {table}"
-        pr_body = f"""
-# 🚨 Sentinel Forge: Schema Drift Detected
-*Trace ID:* `{trace_id}`
-
-### 📉 Drift Report
-New columns were detected in the ingestion source for `{table}`.
-
-| Resource | Status | Path |
-|---|---|---|
-| **Schema** | ♻️ Updated | `{target_json_path}` |
-| **Terraform** | ✅ Unchanged | `{target_tf_path}` |
-
-### 🆕 Added Columns ({len(added_cols_for_pr)})
-{col_table}
-
-### 🛡️ Audit Integrity
-The new columns have been inserted **before** the audit columns (`batch_date`, `processed_dttm`) to maintain schema stability.
-
-### ✅ Action Required
-Merge this PR to update the BigQuery Schema.
-"""
-
-    # Create PR
     pr = repo.create_pull(
         title=pr_title, body=pr_body, head=branch_name, base=repo.default_branch
     )
