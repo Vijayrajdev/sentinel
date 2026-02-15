@@ -30,6 +30,18 @@
     "description": "When the order made"
   },
   {
+    "name": "email",
+    "type": "STRING",
+    "mode": "NULLABLE",
+    "description": "Email address of the customer placing the order."
+  },
+  {
+    "name": "product_id",
+    "type": "STRING",
+    "mode": "NULLABLE",
+    "description": "Unique identifier for the product in the order."
+  },
+  {
     "name": "batch_date",
     "type": "DATE",
     "mode": "REQUIRED",
