@@ -50,12 +50,6 @@ variable "code_bucket_name" {
   type        = string
 }
 
-variable "github_token" {
-  description = "GitHub Personal Access Token"
-  type        = string
-  sensitive   = true
-}
-
 variable "repo_name" {
   description = "Name of the existing Github Repo"
   type        = string

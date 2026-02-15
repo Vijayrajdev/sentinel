@@ -39,7 +39,6 @@ module "cloud_function" {
   ingestion_landing_bucket_name     = var.ingestion_landing_bucket_name
   ingestion_function_name           = var.ingestion_function_name
   ingestion_function_entry_point    = var.ingestion_function_entry_point
-  github_token                      = var.github_token
   repo_name                         = var.repo_name
   pubsub_topic                      = var.pubsub_topic
   pubsub_topic_id                   = var.pubsub_topic_id
