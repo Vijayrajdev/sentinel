@@ -38,15 +38,24 @@ logging.basicConfig(level=logging.INFO)
 # ==============================================================================
 class SchemaDriftError(Exception):
     """Raised when file contains columns not present in BigQuery Table."""
+
     def __init__(self, message, new_columns, sample_rows=None):
         super().__init__(message)
         self.new_columns = new_columns
         self.sample_rows = sample_rows
 
 
+# --- MODIFIED EXCEPTION ---
 class TableNotFoundError(Exception):
     """Raised when the target BigQuery Table does not exist."""
-    pass
+
+    def __init__(self, message, columns=None, sample_rows=None):
+        super().__init__(message)
+        self.columns = columns
+        self.sample_rows = sample_rows
+
+
+# --------------------------
 
 
 # ==============================================================================
@@ -89,6 +98,7 @@ def get_csv_headers(bucket: str, file_name: str, delimiter: str = ",") -> List[s
     headers = next(reader)
     return headers
 
+
 def trigger_ai_agent(bucket, file_name, table_ref, new_columns, sample_data, trace_id):
     """
     NEW: Publishes schema drift event to Pub/Sub for the AI Agent.
@@ -130,9 +140,7 @@ def validate_schema(final_table_ref: str, file_headers: List[str], trace_id: str
     try:
         table = bq.get_table(final_table_ref)
     except NotFound:
-        raise TableNotFoundError(
-            f"Target table '{final_table_ref}' does not exist. Please create via Terraform."
-        )
+        raise TableNotFoundError(f"Target table '{final_table_ref}' does not exist.")
 
     # Get column names from BQ
     bq_columns = {schema_field.name for schema_field in table.schema}
@@ -142,7 +150,6 @@ def validate_schema(final_table_ref: str, file_headers: List[str], trace_id: str
     unknown_cols = list(file_columns - bq_columns)
 
     if unknown_cols:
-        # UPDATED: We raise the error with the list of columns
         raise SchemaDriftError(
             f"Schema Drift Detected. New columns: {unknown_cols}",
             new_columns=unknown_cols,
@@ -202,6 +209,35 @@ def load_raw_strings(
         # Re-raise with the samples attached
         raise SchemaDriftError(str(e), e.new_columns, sample_rows)
         # --- NEW LOGIC END ---
+
+    # --- MODIFIED BLOCK: Handle Missing Table by capturing samples ---
+    except TableNotFoundError as e:
+        log_event(
+            "WARNING",
+            "⚠️ Table missing. Capturing sample data for AI to create table...",
+            trace_id,
+        )
+
+        # 1. Capture samples (Same logic as Drift, but keep ALL columns)
+        blob = storage.bucket(bucket).blob(file_name)
+        content = blob.download_as_text(start=0, end=4096)
+        lines = content.split("\n")
+        reader = csv.reader(lines, delimiter=delimiter)
+        _ = next(reader)  # Skip header
+
+        sample_rows = []
+        for i in range(5):
+            try:
+                row = next(reader)
+                if len(row) == len(headers):
+                    row_dict = dict(zip(headers, row))
+                    sample_rows.append(row_dict)  # Keep all columns for new table
+            except StopIteration:
+                break
+
+        # 2. Re-raise with headers and samples attached
+        raise TableNotFoundError(str(e), columns=headers, sample_rows=sample_rows)
+    # ---------------------------------------------------------------
 
     # 3. Prepare Staging Load
     staging_table_id = f"{PROJECT_ID}.{rule['target_dataset']}.staging_{rule['target_table']}_{uuid.uuid4().hex[:8]}"
@@ -481,6 +517,8 @@ def process_file(cloud_event):
     log_event("INFO", f"🚀 Started Processing: {file_name}", trace_id)
     log_event("INFO", f"🆔 Ingestion ID: {ingestion_id}", trace_id)
 
+    final_table_ref = "UNKNOWN"
+
     try:
         # 1. ROUTER
         rule = get_routing_rule(file_name, trace_id)
@@ -550,21 +588,34 @@ def process_file(cloud_event):
             start_time,
             target_folder="schema_pending",
         )
-    
+
+    # --- MODIFIED EXCEPTION BLOCK: Table Not Found ---
     except TableNotFoundError as e:
-        error_msg = str(e)
-        log_event("ERROR", f"❌ Validation Error: {error_msg}", trace_id)
-        # Table missing -> "unprocessed"
+        error_msg = f"Table Missing: {str(e)}"
+        log_event("WARNING", f"⚠️ {error_msg}. Summoning AI to create it.", trace_id)
+
+        # 1. Trigger AI (Passing headers as new_columns and sample rows)
+        trigger_ai_agent(
+            bucket_name,
+            file_name,
+            final_table_ref,
+            e.columns,  # For new table, all columns are "new"
+            e.sample_rows,
+            trace_id,
+        )
+
+        # 2. Move to 'schema_pending' to wait for Terraform creation
         handle_failure(
             bucket_name,
             file_name,
-            "FAILED",
+            "TABLE_MISSING",
             error_msg,
             trace_id,
             ingestion_id,
             start_time,
-            target_folder="unprocessed",
+            target_folder="schema_pending",
         )
+    # -------------------------------------------------
 
     except Exception as e:
         error_msg = str(e)
