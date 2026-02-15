@@ -14,7 +14,7 @@ from github import Github, GithubException
 from google.cloud import bigquery
 
 # ==============================================================================
-# CONFIGURATION
+# ⚙️ ENTERPRISE CONFIGURATION
 # ==============================================================================
 PROJECT_ID = os.environ.get("GCP_PROJECT")
 REGION = os.environ.get("GCP_REGION", "us-central1")
@@ -28,11 +28,11 @@ TF_BASE_PATH = os.environ.get("TF_BASE_PATH", "infra/bigquery/tables/")
 
 bq_client: Optional[bigquery.Client] = None
 
-# Initialize Vertex AI
+# Initialize Vertex AI (Gemini 1.5 Pro for massive context window)
 try:
     if PROJECT_ID:
         vertexai.init(project=PROJECT_ID, location=REGION)
-        model = GenerativeModel("gemini-2.5-pro")
+        model = GenerativeModel("gemini-1.5-pro-preview-0409")
 except Exception as e:
     logging.error(f"Failed to initialize Vertex AI: {e}")
     model = None
@@ -41,7 +41,7 @@ logging.basicConfig(level=logging.INFO)
 
 
 # ==============================================================================
-# HELPER FUNCTIONS
+# 📝 OBSERVABILITY & LOGGING (The "Black Box")
 # ==============================================================================
 def get_bq_client():
     global bq_client
@@ -51,7 +51,7 @@ def get_bq_client():
 
 
 def log_event(severity: str, message: str, trace_id: str, **kwargs):
-    """Structured JSON logging for Cloud Logging."""
+    """Structured JSON logging for Cloud Logging (Technical Logs)."""
     entry = {
         "severity": severity,
         "message": message,
@@ -67,21 +67,24 @@ def log_ai_action(
     action: str,
     resource: str,
     status: str,
-    details: Any,
+    details: Dict[str, Any],
     link: Optional[str] = None,
 ):
-    """Writes a permanent record of the AI's actions to BigQuery."""
+    """
+    Writes a permanent, legally auditable record to BigQuery.
+    'details' contains the exact diff of what was changed.
+    """
     client = get_bq_client()
 
     row = {
         "operation_id": uuid.uuid4().hex,
         "timestamp": datetime.datetime.now(datetime.timezone.utc).isoformat(),
-        "ai_agent_id": "Sentinel-Forge-v2",
+        "ai_agent_id": "sentinel-forge",
         "resource_group": "GitHub Repo",
-        "resource_type": "Schema & TF",
+        "resource_type": "Infrastructure",
         "resource_id": resource,
         "action_type": action,
-        "change_payload": json.dumps(details),
+        "change_payload": json.dumps(details),  # Stores full diff
         "outcome_status": status,
         "reference_link": link,
     }
@@ -94,88 +97,8 @@ def log_ai_action(
         log_event("ERROR", f"Audit Log Crash: {e}", trace_id)
 
 
-def find_defining_tf_file(repo, branch_sha, table_id, trace_id) -> Optional[str]:
-    """
-    Scans ALL .tf files in TF_BASE_PATH to see if the table is already defined.
-    Returns the path of the file if found, otherwise None.
-    """
-    log_event(
-        "INFO",
-        f"🔍 Deep Scan: Searching for existing definition of '{table_id}'...",
-        trace_id,
-    )
-
-    try:
-        tree = repo.get_git_tree(branch_sha, recursive=True)
-        # Filter for .tf files in the base path
-        tf_files = [
-            e
-            for e in tree.tree
-            if e.path.startswith(TF_BASE_PATH) and e.path.endswith(".tf")
-        ]
-
-        for element in tf_files:
-            blob = repo.get_git_blob(element.sha)
-            content = base64.b64decode(blob.content).decode("utf-8")
-
-            # Smart Regex: Look for 'table_id = "my_table"' OR 'table_id="my_table"'
-            # Matches: resource "..." { table_id = "xyz" } OR module "..." { table_id = "xyz" }
-            pattern = rf'table_id\s*=\s*["\']{re.escape(table_id)}["\']'
-
-            if re.search(pattern, content):
-                log_event(
-                    "INFO", f"✅ Found existing definition in: {element.path}", trace_id
-                )
-                return element.path
-
-    except Exception as e:
-        log_event("WARNING", f"Deep Scan failed: {e}", trace_id)
-
-    log_event("INFO", f"⚪ Table definition NOT found. Will create new file.", trace_id)
-    return None
-
-
 # ==============================================================================
-# 🕵️ REPO INTELLIGENCE
-# ==============================================================================
-def fetch_reference_files(repo, branch_sha, trace_id) -> Tuple[str, str]:
-    """
-    Scans the repo to find ONE existing .tf file and ONE existing .json file
-    to use as 'Style Guides'.
-    """
-    log_event("INFO", "📚 Scanning repo for Reference Style Guides...", trace_id)
-    ref_tf_content = ""
-    ref_json_content = ""
-
-    try:
-        tree = repo.get_git_tree(branch_sha, recursive=True)
-
-        # 1. Find a Reference Terraform File
-        for element in tree.tree:
-            if element.path.startswith(TF_BASE_PATH) and element.path.endswith(".tf"):
-                blob = repo.get_git_blob(element.sha)
-                ref_tf_content = base64.b64decode(blob.content).decode("utf-8")
-                log_event("INFO", f"✅ Found Reference TF: {element.path}", trace_id)
-                break
-
-        # 2. Find a Reference Schema File
-        for element in tree.tree:
-            if element.path.startswith(SCHEMA_BASE_PATH) and element.path.endswith(
-                ".json"
-            ):
-                blob = repo.get_git_blob(element.sha)
-                ref_json_content = base64.b64decode(blob.content).decode("utf-8")
-                log_event("INFO", f"✅ Found Reference JSON: {element.path}", trace_id)
-                break
-
-    except Exception as e:
-        log_event("WARNING", f"Reference fetch warning: {e}", trace_id)
-
-    return ref_tf_content, ref_json_content
-
-
-# ==============================================================================
-# 🧠 CORE INTELLIGENCE
+# 🧠 INTELLIGENCE AGENT: SCHEMA DESIGNER
 # ==============================================================================
 def generate_dynamic_schema(
     table_name: str,
@@ -185,42 +108,38 @@ def generate_dynamic_schema(
     trace_id: str,
 ) -> List[Dict]:
     """
-    Generates JSON schema by mimicking the style of 'reference_json'.
+    Agent Role: Data Architect
+    Goal: Create valid BigQuery JSON schema matching strict enterprise standards.
     """
     if not model:
+        # Fallback if AI service is down
         return [{"name": c, "type": "STRING", "mode": "NULLABLE"} for c in new_cols]
 
     log_event("INFO", f"🧠 Generating Schema for {len(new_cols)} columns...", trace_id)
 
-    # If no reference JSON exists, use a simple prompt
-    style_instruction = ""
+    style_guide = ""
     if reference_json:
-        style_instruction = f"""
-    STYLE GUIDE (Follow this existing file's format exactly):
-    ```json
-    {reference_json[:2000]} 
-    ```
-    """
+        style_guide = (
+            f"STYLE GUIDE (Mimic this format):\n```json\n{reference_json[:3000]}\n```"
+        )
 
     prompt = f"""
     You are a Data Architect.
-    
     Task: Generate a BigQuery Schema JSON for table "{table_name}".
     
-    Input Data:
-    - New Columns to Add: {new_cols}
+    Input:
+    - New Columns: {new_cols}
     - Sample Data: {json.dumps(sample_data[:3])}
     
-    {style_instruction}
+    {style_guide}
     
     Requirements:
     1. Output strictly a JSON list of objects.
     2. All types must be 'STRING' (Raw Layer Standard).
     3. Mode must be 'NULLABLE'.
-    4. Add descriptions based on the column name.
+    4. Descriptions are mandatory. Infer them from column names.
     
-    Output:
-    JSON Array only.
+    Output: JSON Array only.
     """
 
     try:
@@ -234,48 +153,160 @@ def generate_dynamic_schema(
         return [{"name": c, "type": "STRING", "mode": "NULLABLE"} for c in new_cols]
 
 
-def generate_dynamic_tf(
-    table_id: str, dataset_id: str, schema_path: str, reference_tf: str, trace_id: str
+# ==============================================================================
+# 🧠 INTELLIGENCE AGENT: TERRAFORM ARCHITECT
+# ==============================================================================
+def analyze_tf_repo_state(repo, branch_sha, table_id, trace_id) -> Dict[str, Any]:
+    """
+    Agent Role: Repo Scanner
+    Goal: Determine WHERE to put the Terraform code (New File vs. Existing File).
+    """
+    log_event(
+        "INFO", f"🔍 Analyzing Terraform State for table '{table_id}'...", trace_id
+    )
+
+    state = {
+        "is_defined": False,
+        "defined_in_file": None,
+        "host_file": None,
+        "host_file_content": None,
+    }
+
+    try:
+        tree = repo.get_git_tree(branch_sha, recursive=True)
+        tf_files = [
+            e
+            for e in tree.tree
+            if e.path.startswith(TF_BASE_PATH) and e.path.endswith(".tf")
+        ]
+
+        best_candidate_file = None
+        max_tables_in_file = 0
+
+        for element in tf_files:
+            blob = repo.get_git_blob(element.sha)
+            content = base64.b64decode(blob.content).decode("utf-8")
+
+            # CHECK 1: Is table already defined?
+            if f'"{table_id}"' in content or f"'{table_id}'" in content:
+                # Use AI to confirm it's a Definition, not just a comment
+                if ask_ai_is_definition(content, table_id):
+                    state["is_defined"] = True
+                    state["defined_in_file"] = element.path
+                    log_event(
+                        "INFO", f"✅ Table already defined in {element.path}", trace_id
+                    )
+                    return state
+
+            # CHECK 2: Is this a good "Host File"?
+            if 'resource "google_bigquery_table"' in content and "for_each" in content:
+                count = content.count("table_id")
+                if count > max_tables_in_file:
+                    max_tables_in_file = count
+                    best_candidate_file = element.path
+                    state["host_file_content"] = content
+
+        if best_candidate_file:
+            state["host_file"] = best_candidate_file
+            log_event(
+                "INFO", f"🏠 Identified Host File: {best_candidate_file}", trace_id
+            )
+        else:
+            log_event(
+                "INFO", "⚪ No suitable host file found. Will create new.", trace_id
+            )
+
+    except Exception as e:
+        log_event("WARNING", f"Repo analysis failed: {e}", trace_id)
+
+    return state
+
+
+def ask_ai_is_definition(content: str, table_id: str) -> bool:
+    """Helper: Asks AI if the table is truly defined in this file."""
+    if not model:
+        return True
+    prompt = f"""
+    Does this Terraform code define a BigQuery table named "{table_id}"?
+    Check for:
+    1. resource "google_bigquery_table" "..." {{ table_id = "{table_id}" }}
+    2. locals maps where "{table_id}" is a key.
+    
+    Code:
+    {content[:5000]}
+    
+    Return TRUE or FALSE.
+    """
+    try:
+        res = model.generate_content(prompt)
+        return "TRUE" in res.text.upper()
+    except:
+        return False
+
+
+def generate_tf_patch_or_create(
+    table_id: str,
+    dataset_id: str,
+    schema_path: str,
+    host_file_content: Optional[str],
+    trace_id: str,
 ) -> str:
     """
-    Generates Terraform code by mimicking the style of 'reference_tf'.
+    Agent Role: Terraform Engineer
+    Goal: Write HCL code. Either a full new file OR an injected snippet into an existing file.
     """
     if not model:
         return ""
 
-    log_event("INFO", f"🏗️ Generating Terraform Resource for {table_id}...", trace_id)
+    action = "CREATE_NEW" if not host_file_content else "PATCH_EXISTING"
+    log_event("INFO", f"🏗️ Terraform Action: {action}", trace_id)
 
-    prompt = f"""
-    You are a Terraform Expert.
-    
-    Task: Write the Terraform configuration for a new BigQuery table.
-    
-    Context:
-    - Resource Name: {table_id.replace('.', '_').replace('-', '_')}
-    - Table ID: {table_id}
-    - Dataset ID: {dataset_id}
-    - Schema File Path: {schema_path}
-    
-    REFERENCE STYLE (Copy this coding style exactly):
-    ```hcl
-    {reference_tf[:3000]}
-    ```
-    
-    Instructions:
-    1. Copy the indentation, variable usage, and labeling strategy.
-    2. Ensure `deletion_protection = false`.
-    3. Include `time_partitioning` (DAY) if the reference has it.
-    
-    Output:
-    Return ONLY the HCL code block. No markdown.
-    """
+    if action == "PATCH_EXISTING":
+        prompt = f"""
+        You are a Terraform Expert.
+        
+        Task: Add a new BigQuery table definition to the existing file below.
+        
+        New Table Details:
+        - Table ID: "{table_id}"
+        - Schema File: "{schema_path}" (Use relative path logic existing in file)
+        - Partitioning: DAY (field: batch_date)
+        
+        EXISTING FILE:
+        ```hcl
+        {host_file_content}
+        ```
+        
+        INSTRUCTIONS:
+        1. Analyze the file structure.
+        2. If it uses a `locals` map for tables, add the new table to that map.
+        3. If it uses individual resources, add a new `resource` block at the end.
+        4. Maintain strict indentation and style.
+        5. Return the **FULL UPDATED FILE CONTENT**. Do not truncate.
+        
+        Output: HCL Code only.
+        """
+    else:
+        # Create New File from Scratch
+        prompt = f"""
+        You are a Terraform Expert.
+        
+        Task: Create a new Terraform file for BigQuery Table "{table_id}".
+        
+        Details:
+        - Resource Name: {table_id.replace('.', '_')}
+        - Dataset ID: {dataset_id}
+        - Schema: file("${{path.module}}/json/{table_id}.json")
+        - Options: deletion_protection=false, partitioning=DAY(batch_date)
+        
+        Output: HCL Code only.
+        """
 
     try:
         response = model.generate_content(prompt)
         text = response.text.strip()
         if text.startswith("```"):
             text = text.split("\n", 1)[1].rsplit("\n", 1)[0]
-
         text = text.replace("```hcl", "").replace("```", "")
         return text
     except Exception as e:
@@ -284,7 +315,7 @@ def generate_dynamic_tf(
 
 
 # ==============================================================================
-# 🚀 ORCHESTRATION (The "Hands")
+# 🚀 ORCHESTRATION LAYER (The "Manager")
 # ==============================================================================
 def apply_infrastructure_update(
     repo_name: str,
@@ -293,48 +324,48 @@ def apply_infrastructure_update(
     new_cols: List[str],
     trace_id: str,
     sample_data: List[Dict] = None,
-) -> Union[str, None]:
+) -> Dict[str, Any]:
 
     parts = table_ref.split(".")
     dataset = parts[-2]
     table = parts[-1]
 
-    log_event("INFO", f"🐙 Connecting to GitHub Repo: {repo_name}", trace_id)
+    log_event("INFO", f"🐙 Connecting to GitHub: {repo_name}", trace_id)
     g = Github(token)
     repo = g.get_repo(repo_name)
     default_branch = repo.get_branch(repo.default_branch)
 
-    # 1. FETCH REFERENCES
-    ref_tf, ref_json = fetch_reference_files(repo, default_branch.commit.sha, trace_id)
+    # 1. ANALYZE REPO STATE
+    tf_state = analyze_tf_repo_state(repo, default_branch.commit.sha, table, trace_id)
 
-    # 2. DETERMINE PATHS (Deep Scan Logic)
+    # 2. DETERMINE TARGETS
     clean_schema_base = SCHEMA_BASE_PATH.strip().rstrip("/")
     target_json_path = f"{clean_schema_base}/{table}.json"
 
-    # 🕵️ Check if TF is already defined in ANY file
-    existing_tf_path = find_defining_tf_file(
-        repo, default_branch.commit.sha, table, trace_id
-    )
-
-    if existing_tf_path:
-        target_tf_path = existing_tf_path
-        tf_already_defined = True
-        tf_status_msg = "✅ Exists (Unchanged)"
+    # Decide TF Path & Action
+    if tf_state["is_defined"]:
+        target_tf_path = tf_state["defined_in_file"]
+        tf_action = "NONE"  # Already exists
+        host_content = None
+    elif tf_state["host_file"]:
+        target_tf_path = tf_state["host_file"]
+        tf_action = "PATCH"  # Add to existing file
+        host_content = tf_state["host_file_content"]
     else:
-        # If not found, default to standard naming
         clean_tf_base = TF_BASE_PATH.strip().rstrip("/")
         target_tf_path = f"{clean_tf_base}/{table}.tf"
-        tf_already_defined = False
-        tf_status_msg = "✨ Created"
+        tf_action = "CREATE"  # New file
+        host_content = None
 
     log_event(
-        "INFO", f"🎯 Targets: JSON={target_json_path}, TF={target_tf_path}", trace_id
+        "INFO",
+        f"🎯 Targets: JSON={target_json_path}, TF={target_tf_path} ({tf_action})",
+        trace_id,
     )
 
-    # 3. BRANCH
+    # 3. CREATE BRANCH
     branch_name = f"ai/ops-{table}-{uuid.uuid4().hex[:6]}"
     repo.create_git_ref(ref=f"refs/heads/{branch_name}", sha=default_branch.commit.sha)
-    log_event("INFO", f"🌿 Created Branch: {branch_name}", trace_id)
 
     # ----------------------------------------------------------------------
     # STEP A: SCHEMA JSON
@@ -348,18 +379,26 @@ def apply_infrastructure_update(
         current_schema = json.loads(base64.b64decode(c.content).decode("utf-8"))
         json_exists = True
         json_sha = c.sha
-        log_event("INFO", "📂 Schema file exists. Operation: UPDATE.", trace_id)
     except GithubException:
         json_exists = False
-        log_event(
-            "WARNING", "✨ Schema file missing. Operation: CREATE NEW TABLE.", trace_id
-        )
 
-    # AI Generation / Merging
+    # Fetch reference JSON for style
+    ref_json = ""
+    if not json_exists:
+        try:
+            tree = repo.get_git_tree(default_branch.commit.sha, recursive=True)
+            for e in tree.tree:
+                if e.path.endswith(".json") and "tables" in e.path:
+                    ref_json = base64.b64decode(
+                        repo.get_git_blob(e.sha).content
+                    ).decode("utf-8")
+                    break
+        except:
+            pass
+
+    # AI Schema Gen
     final_schema_list = []
     added_cols_for_pr = []
-
-    # 🛡️ AUDIT COLUMNS
     audit_cols = [
         {
             "name": "batch_date",
@@ -383,13 +422,11 @@ def apply_infrastructure_update(
         final_schema_list = generate_dynamic_schema(
             table, all_cols_to_gen, sample_data, ref_json, trace_id
         )
-
         # Enforce Audit
         final_names = {c["name"] for c in final_schema_list}
         for ac in audit_cols:
             if ac["name"] not in final_names:
                 final_schema_list.append(ac)
-
         added_cols_for_pr = final_schema_list
 
     else:
@@ -398,20 +435,19 @@ def apply_infrastructure_update(
             table, new_cols, sample_data, ref_json, trace_id
         )
         existing_names = {c["name"] for c in current_schema}
-
+        # Smart Insert
         insert_idx = len(current_schema)
         for idx, col in enumerate(current_schema):
             if col["name"] in ["batch_date", "processed_dttm"]:
                 insert_idx = idx
                 break
 
-        added_count = 0
+        count = 0
         for col_def in ai_suggestions:
             if col_def["name"] not in existing_names:
-                current_schema.insert(insert_idx + added_count, col_def)
+                current_schema.insert(insert_idx + count, col_def)
                 added_cols_for_pr.append(col_def)
-                added_count += 1
-
+                count += 1
         final_schema_list = current_schema
 
     # ----------------------------------------------------------------------
@@ -419,36 +455,22 @@ def apply_infrastructure_update(
     # ----------------------------------------------------------------------
     tf_changed = False
     new_tf_content = ""
+    tf_sha = None
 
-    # Logic: Only create TF if it DOES NOT EXIST (tf_already_defined is False)
-    # If it already exists, we assume the TF is fine and we just updated the schema JSON it points to.
+    if tf_action in ["PATCH", "CREATE"]:
+        if tf_action == "PATCH":
+            # Just to be safe, get SHA for update
+            blob = repo.get_contents(target_tf_path, ref=branch_name)
+            tf_sha = blob.sha
 
-    if tf_already_defined:
-        log_event(
-            "INFO",
-            "✅ Terraform resource already exists. No TF changes needed.",
-            trace_id,
+        # ASK AI to Patch or Create
+        rel_schema_path = f"json/{table}.json"
+        new_tf_content = generate_tf_patch_or_create(
+            table, dataset, rel_schema_path, host_content, trace_id
         )
-    else:
-        # We need to check if the file target_tf_path physically exists (double check in case Deep Scan missed a phantom file)
-        try:
-            repo.get_contents(target_tf_path, ref=branch_name)
-            tf_exists_physical = True
-            tf_status_msg = "✅ Exists (Unchanged)"
-        except GithubException:
-            tf_exists_physical = False
 
-        if not tf_exists_physical:
-            log_event(
-                "INFO", "✨ Terraform missing. Generating from scratch...", trace_id
-            )
-            rel_schema_path = f"./json/{table}.json"
-            new_tf_content = generate_dynamic_tf(
-                table, dataset, rel_schema_path, ref_tf, trace_id
-            )
-            if new_tf_content and len(new_tf_content.strip()) > 10:
-                tf_changed = True
-                tf_status_msg = "✨ Created"
+        if new_tf_content and len(new_tf_content) > 20:
+            tf_changed = True
 
     # ----------------------------------------------------------------------
     # STEP C: COMMIT & PR
@@ -461,7 +483,7 @@ def apply_infrastructure_update(
         log_event(
             "WARNING", "🛑 No actionable changes detected. Aborting PR.", trace_id
         )
-        return None
+        return {"status": "SKIPPED", "url": None, "details": "No changes needed"}
 
     if should_update_json:
         content_str = json.dumps(final_schema_list, indent=2)
@@ -476,22 +498,22 @@ def apply_infrastructure_update(
             )
         else:
             repo.create_file(target_json_path, msg, content_str, branch=branch_name)
-        log_event("INFO", f"💾 JSON Schema committed to {target_json_path}", trace_id)
 
     if tf_changed:
-        repo.create_file(
-            target_tf_path,
-            f"feat: create {table} terraform",
-            new_tf_content,
-            branch=branch_name,
-        )
-        log_event(
-            "INFO", f"💾 Terraform Resource committed to {target_tf_path}", trace_id
-        )
+        msg = f"feat: update infrastructure for {table}"
+        if tf_action == "PATCH":
+            repo.update_file(
+                target_tf_path, msg, new_tf_content, tf_sha, branch=branch_name
+            )
+        else:
+            repo.create_file(target_tf_path, msg, new_tf_content, branch=branch_name)
 
-    # ----------------------------------------------------------------------
-    # STEP D: PR TEMPLATES
-    # ----------------------------------------------------------------------
+    # 📝 PR Body Construction
+    pr_status_schema = "♻️ Updated" if json_exists else "✨ Created"
+    pr_status_tf = "✅ Exists"
+    if tf_changed:
+        pr_status_tf = "♻️ Patched" if tf_action == "PATCH" else "✨ Created"
+
     col_table = "| Column Name | Type | Description |\n|---|---|---|\n"
     for col in added_cols_for_pr[:15]:
         col_table += (
@@ -500,34 +522,28 @@ def apply_infrastructure_update(
     if len(added_cols_for_pr) > 15:
         col_table += f"| ... ({len(added_cols_for_pr)-15} more) | | |\n"
 
-    # Determine Title & Header
-    if not json_exists:
-        pr_title = f"feat(data): Create New Table {table}"
-        header = f"# 🚀 Sentinel Forge: New Table Creation\n*Trace ID:* `{trace_id}`"
-        summary = "The AI Agent has detected a new data entity and generated the full infrastructure code."
-    else:
-        pr_title = f"fix(data): Schema Drift in {table}"
-        header = f"# 🚨 Sentinel Forge: Schema Drift Detected\n*Trace ID:* `{trace_id}`"
-        summary = f"New columns were detected in the ingestion source for `{table}`."
+    title_prefix = "fix" if json_exists else "feat"
+    pr_title = f"{title_prefix}(data): Ops for {table}"
 
     pr_body = f"""
-{header}
+# 🤖 Sentinel Forge Update
+*Trace ID:* `{trace_id}`
 
-### 📦 Summary
-{summary}
-
-| Resource | Status | Path |
+### 🏗️ Infrastructure Actions
+| Resource | Action | Path |
 |---|---|---|
-| **Terraform** | {tf_status_msg} | `{target_tf_path}` |
-| **Schema** | {'✨ Created' if not json_exists else '♻️ Updated'} | `{target_json_path}` |
+| **Schema** | {pr_status_schema} | `{target_json_path}` |
+| **Terraform** | {pr_status_tf} | `{target_tf_path}` |
 
-### 🔍 Schema Definition ({len(added_cols_for_pr)} Cols)
+### 🔍 Changes
+Added **{len(added_cols_for_pr)}** columns to the Raw Layer.
+
 {col_table}
 
 ### 🛡️ Governance Enforcement
-* **Partitioning:** `batch_date` (Default: `9999-12-31`)
-* **Audit:** `processed_dttm` (Default: `CURRENT_TIMESTAMP()`)
-* **Type Safety:** All data columns enforced as `STRING`.
+* **Audit Columns:** `batch_date`, `processed_dttm` enforced.
+* **Defaults:** Strict SQL defaults applied for partitioning and traceability.
+* **Type Safety:** All columns set to `STRING`.
 
 ### ✅ Action Required
 Merge this PR. Terraform will apply the changes.
@@ -538,7 +554,19 @@ Merge this PR. Terraform will apply the changes.
     )
 
     log_event("INFO", f"✅ PR Created Successfully: {pr.html_url}", trace_id)
-    return pr.html_url
+
+    # Return structured details for Audit Log
+    return {
+        "status": "SUCCESS",
+        "url": pr.html_url,
+        "details": {
+            "schema_action": "UPDATE" if json_exists else "CREATE",
+            "terraform_action": tf_action,
+            "columns_added": len(added_cols_for_pr),
+            "target_tf": target_tf_path,
+            "target_json": target_json_path,
+        },
+    }
 
 
 # ==============================================================================
@@ -546,21 +574,15 @@ Merge this PR. Terraform will apply the changes.
 # ==============================================================================
 @functions_framework.cloud_event
 def ai_agent_main(cloud_event):
-    """
-    Triggered by Pub/Sub message from Sentinel Ingestor.
-    """
     trace_id = "unknown"
     table_ref = "unknown"
-
     try:
-        # 1. Parse Pub/Sub Message
         if "data" in cloud_event.data["message"]:
             pubsub_message = base64.b64decode(
                 cloud_event.data["message"]["data"]
             ).decode("utf-8")
             data = json.loads(pubsub_message)
         else:
-            log_event("ERROR", "Received empty Pub/Sub message.", trace_id)
             return
 
         trace_id = data.get("trace_id", f"unknown-{uuid.uuid4()}")
@@ -568,50 +590,40 @@ def ai_agent_main(cloud_event):
         new_cols = data.get("new_column_headers", [])
         sample_data = data.get("sample_data_rows", [])
 
-        log_event("INFO", f"🤖 AI Agent Waking Up. Target: {table_ref}", trace_id)
+        log_event("INFO", f"🤖 Agent Waking Up. Target: {table_ref}", trace_id)
 
-        # 2. Validation
+        # 1. Config Check
         if not GITHUB_TOKEN or not REPO_NAME:
-            log_event("CRITICAL", "Missing GITHUB_TOKEN or REPO_NAME.", trace_id)
+            log_event("CRITICAL", "Missing Config.", trace_id)
             return
 
-        # 3. Handle Empty Column List (Case: Ingestor saw Table Missing, sent samples)
+        # 2. Logic: If new table, infer cols from sample
+        if not new_cols and sample_data:
+            new_cols = list(sample_data[0].keys())
         if not new_cols:
-            if sample_data:
-                new_cols = list(sample_data[0].keys())
-                log_event(
-                    "INFO",
-                    f"Inferred {len(new_cols)} columns from sample data.",
-                    trace_id,
-                )
-            else:
-                log_event(
-                    "WARNING", "No columns or sample data provided. Aborting.", trace_id
-                )
-                return
+            return
 
-        # 4. EXECUTE INFRASTRUCTURE UPDATE
-        # Note: We pass 'new_cols' directly. The decision to ask Gemini happens inside apply_infrastructure_update
-        # depending on whether we are creating a new table (Full Gen) or appending (Drift).
-        pr_url = apply_infrastructure_update(
+        # 3. EXECUTE
+        result = apply_infrastructure_update(
             REPO_NAME, GITHUB_TOKEN, table_ref, new_cols, trace_id, sample_data
         )
 
-        # 5. Final Audit Log
-        status = "SUCCESS" if pr_url else "SKIPPED"
+        # 4. AUDIT LOG
         log_ai_action(
             trace_id=trace_id,
             action="CREATE_PR",
             resource=table_ref,
-            status=status,
-            details={"cols_processed": len(new_cols)},
-            link=pr_url,
+            status=result["status"],
+            details=result["details"],  # Stores the full map of what happened
+            link=result["url"],
         )
 
     except Exception as e:
         error_msg = str(e)
-        log_event("CRITICAL", f"Unhandled AI Agent Error: {error_msg}", trace_id)
+        log_event("CRITICAL", f"Error: {e}", trace_id)
         try:
-            log_ai_action(trace_id, "CRASH", "System", "FAILED", error_msg, None)
+            log_ai_action(
+                trace_id, "CRASH", "System", "FAILED", {"error": error_msg}, None
+            )
         except:
             pass
