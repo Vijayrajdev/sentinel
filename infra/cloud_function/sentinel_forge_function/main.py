@@ -32,7 +32,7 @@ bq_client: Optional[bigquery.Client] = None
 try:
     if PROJECT_ID:
         vertexai.init(project=PROJECT_ID, location=REGION)
-        model = GenerativeModel("gemini-1.5-pro-preview-0409")
+        model = GenerativeModel("gemini-2.5-pro")
 except Exception as e:
     logging.error(f"Failed to initialize Vertex AI: {e}")
     model = None
