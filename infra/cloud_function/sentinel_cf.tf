@@ -8,11 +8,11 @@ data "archive_file" "ingestion_function_zip" {
   output_path = "${path.module}/../tmp/ingestion_function.zip"
 }
 
-# Zip the 'data_engineer_function' folder into a single file
-data "archive_file" "data_engineer_function_zip" {
+# Zip the 'sentinel_forge_function' folder into a single file
+data "archive_file" "sentinel_forge_function_zip" {
   type        = "zip"
-  source_dir  = "${path.module}/data_engineer_function"
-  output_path = "${path.module}/../tmp/data_engineer_function.zip"
+  source_dir  = "${path.module}/sentinel_forge_function"
+  output_path = "${path.module}/../tmp/sentinel_forge_function.zip"
 }
 
 # Upload the ingestion Zip file to your Code Bucket
@@ -24,11 +24,11 @@ resource "google_storage_bucket_object" "ingestion_source_code" {
 }
 
 # Upload the data engineer Zip file to your Code Bucket
-resource "google_storage_bucket_object" "data_engineer_source_code" {
+resource "google_storage_bucket_object" "sentinel_forge_source_code" {
   # Use MD5 in filename to force redeployment when code changes
-  name   = "data_engineer_function/src-${data.archive_file.data_engineer_function_zip.output_md5}.zip"
+  name   = "sentinel_forge_function/src-${data.archive_file.sentinel_forge_function_zip.output_md5}.zip"
   bucket = var.code_bucket_name
-  source = data.archive_file.data_engineer_function_zip.output_path
+  source = data.archive_file.sentinel_forge_function_zip.output_path
 }
 
 # ==============================================================================
@@ -63,6 +63,7 @@ resource "google_cloudfunctions2_function" "sentinel_ingestor" {
     min_instance_count = 0
     available_memory   = "256M"
     timeout_seconds    = 540
+
     
     # Environment Variables accessed by os.environ.get() in Python
     environment_variables = {
@@ -106,8 +107,8 @@ resource "google_cloud_run_service_iam_member" "invoker" {
 }
 
 # Sentinel Data Engineer
-resource "google_cloudfunctions2_function" "sentinel_data_engineer" {
-  name        = var.data_engineer_function_name
+resource "google_cloudfunctions2_function" "sentinel_forge" {
+  name        = var.sentinel_forge_function_name
   location    = var.region
   description = "AI Agent that fixes schema drift via GitHub PRs"
 
@@ -116,12 +117,12 @@ resource "google_cloudfunctions2_function" "sentinel_data_engineer" {
   # ----------------------------------------------------------------------------
   build_config {
     runtime     = "python310"
-    entry_point = var.data_engineer_function_entry_point
+    entry_point = var.sentinel_forge_function_entry_point
     
     source {
       storage_source {
         bucket = var.code_bucket_name
-        object = google_storage_bucket_object.data_engineer_source_code.name
+        object = google_storage_bucket_object.sentinel_forge_source_code.name
       }
     }
   }
@@ -134,14 +135,23 @@ resource "google_cloudfunctions2_function" "sentinel_data_engineer" {
     min_instance_count = 0
     available_memory   = "512M"
     timeout_seconds    = 540
+
+    # Secret: Github Personal Access Token
+    secret_environment_variables {
+      key        = "GITHUB_TOKEN" 
+      project_id = var.project_id
+      secret     = var.secret_id
+      version    = "latest"
+    }
     
     # Environment Variables accessed by os.environ.get() in Python
     environment_variables = {
-      GCP_PROJECT     = var.project_id
-      GCP_REGION      = var.region
-      GITHUB_TOKEN    = var.github_token
-      REPO_NAME       = var.repo_name
-      AI_AUDIT_TABLE  = "sentinel_audit.ai_ops_log"
+      GCP_PROJECT        = var.project_id
+      GCP_REGION         = var.region
+      REPO_NAME          = var.repo_name
+      AI_AUDIT_TABLE     = "sentinel_audit.ai_ops_log"
+      SCHEMA_BASE_PATH   = var.schema_base_path
+      TF_BASE_PATH       = var.tf_base_path
     }
 
     # The Service Account that gives the function permission to use BigQuery/Storage

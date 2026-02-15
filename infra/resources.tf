@@ -43,6 +43,9 @@ module "cloud_function" {
   repo_name                         = var.repo_name
   pubsub_topic                      = var.pubsub_topic
   pubsub_topic_id                   = var.pubsub_topic_id
+  tf_base_path                      = var.tf_base_path
+  schema_base_path                  = var.schema_base_path
+  secret_id                         = var.secret_id
 }
 
 # ==========================================
@@ -53,4 +56,14 @@ module "pub_sub" {
 
   # Pass variables from Root -> Module
   pubsub_topic                      = var.pubsub_topic
+}
+
+# ==========================================
+# MODULE 5: Create Secret Container
+# ==========================================
+module "secret" {
+  source     = "./secret_manager"
+
+  # Pass variables from Root -> Module
+  secret_id                         = var.secret_id
 }

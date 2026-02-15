@@ -16,7 +16,7 @@ variable "ingestion_function_name" {
   default     = "sentinel-ingestor"
 }
 
-variable "data_engineer_function_name" {
+variable "sentinel_forge_function_name" {
   description = "Name of the Cloud Function"
   type        = string
   default     = "sentinel-data-engineer"
@@ -28,7 +28,7 @@ variable "ingestion_function_entry_point" {
   default     = "process_file"
 }
 
-variable "data_engineer_function_entry_point" {
+variable "sentinel_forge_function_entry_point" {
   description = "The Python function to call (must match main.py)"
   type        = string
   default     = "ai_agent_main"
@@ -51,8 +51,9 @@ variable "code_bucket_name" {
 }
 
 variable "github_token" {
-  description = "Name of the existing Code bucket"
+  description = "GitHub Personal Access Token"
   type        = string
+  sensitive   = true
 }
 
 variable "repo_name" {
@@ -68,4 +69,20 @@ variable "pubsub_topic" {
 variable "pubsub_topic_id" {
   description = "Full ID of the Pub/Sub topic"
   type        = string
+}
+
+variable "schema_base_path" {
+  description = "Terraform schema base path"
+  type        = string
+}
+
+variable "tf_base_path" {
+  description = "Terraform base path"
+  type        = string
+}
+
+variable "secret_id" {
+  description = "Sentinel github token secret id"
+  type        = string
+  sensitive   = true
 }
