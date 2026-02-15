@@ -30,6 +30,16 @@
     "description": "When the order made"
   },
   {
+    "name": "email",
+    "type": "STRING",
+    "mode": "NULLABLE"
+  },
+  {
+    "name": "product_id",
+    "type": "STRING",
+    "mode": "NULLABLE"
+  },
+  {
     "name": "batch_date",
     "type": "DATE",
     "mode": "REQUIRED",
