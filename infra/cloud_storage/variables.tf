@@ -16,10 +16,10 @@ variable "ingestion_function_name" {
   default     = "sentinel-ingestor"
 }
 
-variable "data_engineer_function_name" {
+variable "sentinel_forge_function_name" {
   description = "Name of the Cloud Function"
   type        = string
-  default     = "sentinel-data-engineer"
+  default     = "sentinel-forge"
 }
 
 variable "ingestion_function_entry_point" {
@@ -28,7 +28,7 @@ variable "ingestion_function_entry_point" {
   default     = "process_file"
 }
 
-variable "data_engineer_function_entry_point" {
+variable "sentinel_forge_function_entry_point" {
   description = "The Python function to call (must match main.py)"
   type        = string
   default     = "ai_agent_main"
