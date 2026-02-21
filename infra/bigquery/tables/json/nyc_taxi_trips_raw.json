@@ -118,13 +118,13 @@
     "type": "DATE",
     "mode": "NULLABLE",
     "description": "Partition Column",
-    "default_value_expression": "'9999-12-31'"
+    "defaultValueExpression": "DATE '9999-12-31'"
   },
   {
     "name": "processed_dttm",
     "type": "TIMESTAMP",
     "mode": "NULLABLE",
     "description": "Processing Time",
-    "default_value_expression": "CURRENT_TIMESTAMP()"
+    "defaultValueExpression": "CURRENT_TIMESTAMP()"
   }
 ]
