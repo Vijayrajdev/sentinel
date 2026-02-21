@@ -6,11 +6,8 @@ import os
 import uuid
 import datetime
 import re
+import csv
 from typing import Dict, Optional, Any, List, Tuple
-
-import pandas as pd
-import gcsfs
-import pyarrow.parquet as pq
 
 from google.cloud import bigquery
 from google.cloud import storage
@@ -20,6 +17,7 @@ from google.api_core.exceptions import NotFound
 # ==============================================================================
 # CONFIGURATION
 # ==============================================================================
+# Global clients for reuse (warm starts)
 bq_client: Optional[bigquery.Client] = None
 storage_client: Optional[storage.Client] = None
 publisher_client: Optional[pubsub_v1.PublisherClient] = None
@@ -31,6 +29,7 @@ LOGS_TABLE = os.environ.get("LOGS_TABLE", "ingestion_log")
 ARCHIVE_BUCKET = os.environ.get("ARCHIVE_BUCKET")
 PUBSUB_TOPIC_DRIFT = os.environ.get("PUBSUB_TOPIC_DRIFT")
 
+# Standard logging setup
 logging.basicConfig(level=logging.INFO)
 
 
@@ -38,24 +37,32 @@ logging.basicConfig(level=logging.INFO)
 # CUSTOM EXCEPTIONS
 # ==============================================================================
 class SchemaDriftError(Exception):
+    """Raised when file contains columns not present in BigQuery Table."""
+
     def __init__(self, message, new_columns, sample_rows=None):
         super().__init__(message)
         self.new_columns = new_columns
         self.sample_rows = sample_rows
 
 
+# --- MODIFIED EXCEPTION ---
 class TableNotFoundError(Exception):
+    """Raised when the target BigQuery Table does not exist."""
+
     def __init__(self, message, columns=None, sample_rows=None):
         super().__init__(message)
         self.columns = columns
         self.sample_rows = sample_rows
 
 
+# --------------------------
+
+
 # ==============================================================================
-# HELPER FUNCTIONS
+# HELPER FUNCTIONS (v2)
 # ==============================================================================
 def get_clients():
-    """Lazy initialization of GCP clients to leverage warm starts."""
+    """Lazy initialization of GCP clients."""
     global bq_client, storage_client, publisher_client
     if not bq_client:
         bq_client = bigquery.Client()
@@ -67,7 +74,7 @@ def get_clients():
 
 
 def log_event(severity: str, message: str, trace_id: str, **kwargs):
-    """Structured JSON logging for Google Cloud Logging."""
+    """Structured JSON logging for Cloud Logging."""
     entry = {
         "severity": severity,
         "message": message,
@@ -78,72 +85,24 @@ def log_event(severity: str, message: str, trace_id: str, **kwargs):
     print(json.dumps(entry))
 
 
-def get_file_metadata(
-    bucket: str, file_name: str, rule: Dict[str, Any], trace_id: str
-) -> Tuple[List[str], List[Dict]]:
-    """
-    Extracts headers and 5 sample rows using dynamic metadata from the ingestion_master table.
-    """
-    # 1. Parse File Config
-    file_ext = rule.get("file_format")
-    if not file_ext:
-        file_ext = os.path.splitext(file_name)[1].lower().replace(".", "")
-    else:
-        file_ext = str(file_ext).lower().replace(".", "")
+def get_csv_headers(bucket: str, file_name: str, delimiter: str = ",") -> List[str]:
+    """Downloads the first line of the file to extract headers."""
+    _, storage, _ = get_clients()
+    blob = storage.bucket(bucket).blob(file_name)
 
-    delimiter = rule.get("delimiter") or ","
-    quote_char = rule.get("quote_char") or '"'
+    # Download first 4KB to get the header row
+    data = blob.download_as_bytes(start=0, end=4096).decode("utf-8")
+    first_line = data.split("\n")[0]
 
-    # Handle skip rows cleanly. BQ skips X rows. Pandas needs skiprows=X-1 to read the header.
-    raw_skip = rule.get("skip_header_rows")
-    skip_header_rows = (
-        int(raw_skip) if pd.notna(raw_skip) and raw_skip is not None else 1
-    )
-    pd_skip_rows = max(0, skip_header_rows - 1)
-
-    uri = f"gs://{bucket}/{file_name}"
-
-    log_event(
-        "INFO",
-        f"📄 Extracting via Pandas. Type: {file_ext}, Delim: '{delimiter}', Skip: {pd_skip_rows}",
-        trace_id,
-    )
-
-    try:
-        if file_ext == "csv":
-            df = pd.read_csv(
-                uri,
-                nrows=5,
-                sep=delimiter,
-                quotechar=quote_char,
-                skiprows=pd_skip_rows,
-                dtype=str,
-            )
-        elif file_ext in ["json", "ndjson"]:
-            df = pd.read_json(uri, lines=True, nrows=5, dtype=str)
-        elif file_ext == "parquet":
-            fs = gcsfs.GCSFileSystem()
-            with fs.open(uri, "rb") as f:
-                pf = pq.ParquetFile(f)
-                df = pf.read_row_group(0).to_pandas().head(5).astype(str)
-        elif file_ext in ["xlsx", "xls"]:
-            df = pd.read_excel(uri, nrows=5, skiprows=pd_skip_rows, dtype=str)
-        else:
-            raise ValueError(f"Unsupported file format: {file_ext}")
-
-        headers = df.columns.tolist()
-
-        # Clean Pandas DataFrame for JSON serialization
-        df = df.where(pd.notnull(df), None)
-        samples = df.to_dict(orient="records")
-
-        return headers, samples
-    except Exception as e:
-        raise Exception(f"Failed to read metadata from {file_name}: {str(e)}")
+    reader = csv.reader([first_line], delimiter=delimiter)
+    headers = next(reader)
+    return headers
 
 
 def trigger_ai_agent(bucket, file_name, table_ref, new_columns, sample_data, trace_id):
-    """Summons the AI Agent via Pub/Sub when structural drift is detected."""
+    """
+    NEW: Publishes schema drift event to Pub/Sub for the AI Agent.
+    """
     _, _, publisher = get_clients()
 
     if not PUBSUB_TOPIC_DRIFT:
@@ -170,8 +129,12 @@ def trigger_ai_agent(bucket, file_name, table_ref, new_columns, sample_data, tra
 
 
 def validate_schema(final_table_ref: str, file_headers: List[str], trace_id: str):
-    """Validates incoming file headers against BigQuery destination."""
+    """
+    Strictly checks if table exists and if file headers match table schema.
+    Raises SchemaDriftError (with column details) or TableNotFoundError.
+    """
     bq, _, _ = get_clients()
+
     log_event("INFO", f"🔍 Validating schema for: {final_table_ref}", trace_id)
 
     try:
@@ -179,8 +142,11 @@ def validate_schema(final_table_ref: str, file_headers: List[str], trace_id: str
     except NotFound:
         raise TableNotFoundError(f"Target table '{final_table_ref}' does not exist.")
 
+    # Get column names from BQ
     bq_columns = {schema_field.name for schema_field in table.schema}
     file_columns = set(file_headers)
+
+    # Check for Unknown Columns (Drift)
     unknown_cols = list(file_columns - bq_columns)
 
     if unknown_cols:
@@ -193,7 +159,7 @@ def validate_schema(final_table_ref: str, file_headers: List[str], trace_id: str
 
 
 # ==============================================================================
-# CORE LOGIC: DYNAMIC LOADER
+# CORE LOGIC: RAW STRING LOADER
 # ==============================================================================
 def load_raw_strings(
     bucket: str,
@@ -202,108 +168,114 @@ def load_raw_strings(
     final_table_ref: str,
     trace_id: str,
 ) -> Dict[str, int]:
-    bq, _, _ = get_clients()
-    uri = f"gs://{bucket}/{file_name}"
+    """
+    Loads CSV to BigQuery via Staging.
+    Calculates Good/Bad record counts using SQL.
+    Returns Dictionary of counts.
+    """
+    bq, storage, _ = get_clients()
 
-    # Configuration extraction from routing rule
-    file_ext = rule.get("file_format")
-    if not file_ext:
-        file_ext = os.path.splitext(file_name)[1].lower().replace(".", "")
-    else:
-        file_ext = str(file_ext).lower().replace(".", "")
+    # 1. Read Headers
+    delimiter = rule.get("delimiter", ",")
+    headers = get_csv_headers(bucket, file_name, delimiter)
 
-    delimiter = rule.get("delimiter") or ","
-    quote_char = rule.get("quote_char") or '"'
-
-    raw_skip = rule.get("skip_header_rows")
-    skip_header_rows = (
-        int(raw_skip) if pd.notna(raw_skip) and raw_skip is not None else 1
-    )
-
-    write_disp = str(rule.get("write_disposition") or "WRITE_APPEND").upper()
-
-    # 1. Read Headers and Samples
-    headers, sample_rows = get_file_metadata(bucket, file_name, rule, trace_id)
-
-    # 2. Validate Schema
+    # 2. Validate Schema (With AI Sample Capture)
     try:
         validate_schema(final_table_ref, headers, trace_id)
     except SchemaDriftError as e:
-        log_event("WARNING", "⚠️ Drift detected. Re-routing samples to AI...", trace_id)
-        filtered_samples = [
-            {k: row.get(k) for k in e.new_columns} for row in sample_rows
-        ]
-        raise SchemaDriftError(str(e), e.new_columns, filtered_samples)
+        # --- NEW LOGIC START: Capture Sample Data for AI ---
+        log_event(
+            "WARNING", "⚠️ Drift detected. Capturing sample data for AI...", trace_id
+        )
+
+        blob = storage.bucket(bucket).blob(file_name)
+        content = blob.download_as_text(start=0, end=4096)  # Read first 4KB
+        lines = content.split("\n")
+        reader = csv.reader(lines, delimiter=delimiter)
+        _ = next(reader)  # Skip header
+
+        sample_rows = []
+        for i in range(5):  # Get 5 rows
+            try:
+                row = next(reader)
+                if len(row) == len(headers):
+                    row_dict = dict(zip(headers, row))
+                    # Only keep data for the NEW columns
+                    filtered_row = {k: row_dict.get(k) for k in e.new_columns}
+                    sample_rows.append(filtered_row)
+            except StopIteration:
+                break
+
+        # Re-raise with the samples attached
+        raise SchemaDriftError(str(e), e.new_columns, sample_rows)
+        # --- NEW LOGIC END ---
+
+    # --- MODIFIED BLOCK: Handle Missing Table by capturing samples ---
     except TableNotFoundError as e:
-        log_event("WARNING", "⚠️ Table missing. Re-routing samples to AI...", trace_id)
+        log_event(
+            "WARNING",
+            "⚠️ Table missing. Capturing sample data for AI to create table...",
+            trace_id,
+        )
+
+        # 1. Capture samples (Same logic as Drift, but keep ALL columns)
+        blob = storage.bucket(bucket).blob(file_name)
+        content = blob.download_as_text(start=0, end=4096)
+        lines = content.split("\n")
+        reader = csv.reader(lines, delimiter=delimiter)
+        _ = next(reader)  # Skip header
+
+        sample_rows = []
+        for i in range(5):
+            try:
+                row = next(reader)
+                if len(row) == len(headers):
+                    row_dict = dict(zip(headers, row))
+                    sample_rows.append(row_dict)  # Keep all columns for new table
+            except StopIteration:
+                break
+
+        # 2. Re-raise with headers and samples attached
         raise TableNotFoundError(str(e), columns=headers, sample_rows=sample_rows)
+    # ---------------------------------------------------------------
 
     # 3. Prepare Staging Load
     staging_table_id = f"{PROJECT_ID}.{rule['target_dataset']}.staging_{rule['target_table']}_{uuid.uuid4().hex[:8]}"
-    log_event(
-        "INFO",
-        f"⏳ Loading data to staging table: {staging_table_id} using {file_ext} parser.",
-        trace_id,
-    )
 
     try:
-        if file_ext == "csv":
-            job_config = bigquery.LoadJobConfig(
-                source_format=bigquery.SourceFormat.CSV,
-                skip_leading_rows=skip_header_rows,
-                field_delimiter=delimiter,
-                quote_character=quote_char,
-                write_disposition=bigquery.WriteDisposition.WRITE_TRUNCATE,
-                schema=[bigquery.SchemaField(h, "STRING") for h in headers],
-                autodetect=False,
-            )
-            bq.load_table_from_uri(
-                uri, staging_table_id, job_config=job_config
-            ).result()
+        job_config = bigquery.LoadJobConfig(
+            source_format=bigquery.SourceFormat.CSV,
+            skip_leading_rows=rule.get("skip_header_rows", 1),
+            field_delimiter=delimiter,
+            write_disposition=bigquery.WriteDisposition.WRITE_TRUNCATE,
+            # Force all columns to STRING
+            schema=[bigquery.SchemaField(h, "STRING") for h in headers],
+            autodetect=False,
+        )
 
-        elif file_ext in ["json", "ndjson"]:
-            job_config = bigquery.LoadJobConfig(
-                source_format=bigquery.SourceFormat.NEWLINE_DELIMITED_JSON,
-                write_disposition=bigquery.WriteDisposition.WRITE_TRUNCATE,
-                schema=[bigquery.SchemaField(h, "STRING") for h in headers],
-                ignore_unknown_values=True,
-            )
-            bq.load_table_from_uri(
-                uri, staging_table_id, job_config=job_config
-            ).result()
-
-        elif file_ext == "parquet":
-            job_config = bigquery.LoadJobConfig(
-                source_format=bigquery.SourceFormat.PARQUET,
-                write_disposition=bigquery.WriteDisposition.WRITE_TRUNCATE,
-            )
-            bq.load_table_from_uri(
-                uri, staging_table_id, job_config=job_config
-            ).result()
-
-        elif file_ext in ["xlsx", "xls"]:
-            pd_skip_rows = max(0, skip_header_rows - 1)
-            df = pd.read_excel(uri, skiprows=pd_skip_rows, dtype=str)
-            job_config = bigquery.LoadJobConfig(
-                write_disposition=bigquery.WriteDisposition.WRITE_TRUNCATE,
-                schema=[bigquery.SchemaField(h, "STRING") for h in headers],
-            )
-            bq.load_table_from_dataframe(
-                df, staging_table_id, job_config=job_config
-            ).result()
+        log_event(
+            "INFO", f"⏳ Loading data to staging table: {staging_table_id}", trace_id
+        )
+        uri = f"gs://{bucket}/{file_name}"
+        load_job = bq.load_table_from_uri(uri, staging_table_id, job_config=job_config)
+        load_job.result()  # Wait for staging load
 
         # 4. CALCULATE QUALITY METRICS
         log_event("INFO", "📊 Calculating Good/Bad record counts...", trace_id)
-        conditions = [
-            f"(COALESCE(CAST(`{col}` AS STRING), '') = '')" for col in headers
-        ]
+
+        conditions = [f"(COALESCE(`{col}`, '') = '')" for col in headers]
         bad_record_condition = " OR ".join(conditions)
 
         quality_query = f"""
-            SELECT COUNT(*) as total_cnt, COUNTIF({bad_record_condition}) as bad_cnt
+            SELECT 
+                COUNT(*) as total_cnt,
+                COUNTIF({bad_record_condition}) as bad_cnt
             FROM `{staging_table_id}`
         """
-        res = bq.query(quality_query).result()
+
+        query_job = bq.query(quality_query)
+        res = query_job.result()
+
         metrics = {"total": 0, "bad": 0, "good": 0}
         for row in res:
             metrics["total"] = row.total_cnt
@@ -312,24 +284,26 @@ def load_raw_strings(
 
         log_event("INFO", f"📈 Quality Metrics: {json.dumps(metrics)}", trace_id)
 
-        # 5. FINAL INSERT
-        safe_cols = [f"`{c}`" for c in headers]
+        # ======================================================================
+        # 5. FINAL INSERT (UPDATED FOR SAFETY)
+        # ======================================================================
+        # Logic: Map columns BY NAME. This ensures that even if 'warehouse_id'
+        # is physically after 'batch_date' in the table, it goes to the right place.
+        # Audit columns (batch_date) are NOT in 'col_names', so BQ uses Defaults.
+
+        col_names = headers
+        # Wrap in backticks to handle spaces or special characters
+        safe_cols = [f"`{c}`" for c in col_names]
         cols_string = ", ".join(safe_cols)
 
-        # Handle WRITE_TRUNCATE dynamically
-        if write_disp == "WRITE_TRUNCATE":
-            log_event(
-                "INFO",
-                f"🧹 Truncating {final_table_ref} as per rule write_disposition...",
-                trace_id,
-            )
-            bq.query(f"TRUNCATE TABLE `{final_table_ref}`").result()
-
+        # ⚠️ CRITICAL: We list columns in INSERT (...) AND SELECT (...)
+        # This forces name-based mapping instead of position-based mapping.
         insert_query = f"""
             INSERT INTO `{final_table_ref}` ({cols_string})
             SELECT {cols_string}
             FROM `{staging_table_id}`
         """
+
         log_event(
             "INFO", f"⏳ Executing Smart Insert into {final_table_ref}...", trace_id
         )
@@ -338,54 +312,65 @@ def load_raw_strings(
         return metrics
 
     finally:
+        # Cleanup Staging
         log_event("INFO", f"🧹 Cleaning up staging table: {staging_table_id}", trace_id)
         bq.delete_table(staging_table_id, not_found_ok=True)
 
 
-def get_routing_rule(
-    bucket_name: str, file_name: str, trace_id: str
-) -> Optional[Dict[str, Any]]:
-    """Fetches rules from BigQuery. Checks specific landing bucket if defined."""
+def get_routing_rule(file_name: str, trace_id: str) -> Optional[Dict[str, Any]]:
     bq, _, _ = get_clients()
-    query = f"SELECT * FROM `{PROJECT_ID}.{METADATA_DATASET}.{MASTER_TABLE}` WHERE is_active = TRUE"
+    log_event("INFO", "🔍 Looking up routing rules...", trace_id)
+
+    query = f"""
+        SELECT * FROM `{PROJECT_ID}.{METADATA_DATASET}.{MASTER_TABLE}` 
+        WHERE is_active = TRUE
+    """
     results = bq.query(query).result()
     for row in results:
-        rule_bucket = row.get("landing_bucket")
-        if rule_bucket and pd.notna(rule_bucket) and rule_bucket != bucket_name:
-            continue
-
         if re.search(row["file_pattern"], file_name):
+            log_event(
+                "INFO",
+                f"✅ Found Rule: Pattern '{row['file_pattern']}' -> Table '{row['target_table']}'",
+                trace_id,
+            )
             return dict(row)
+
+    log_event("WARNING", "⚠️ No matching routing rule found.", trace_id)
     return None
 
 
 def archive_file(
-    source_bucket: str,
-    file_name: str,
-    folder: str,
-    trace_id: str,
-    dest_archive_bucket: str = None,
+    source_bucket: str, file_name: str, folder: str, trace_id: str
 ) -> Optional[str]:
-    """Moves file to target archive bucket."""
+    """Moves file to archive bucket and returns the NEW URI."""
     _, storage, _ = get_clients()
-
-    target_bucket_name = dest_archive_bucket or ARCHIVE_BUCKET
-    if not target_bucket_name or pd.isna(target_bucket_name):
+    if not ARCHIVE_BUCKET:
+        log_event(
+            "WARNING", "⚠️ ARCHIVE_BUCKET env var not set. Skipping archive.", trace_id
+        )
         return None
 
     src_bucket = storage.bucket(source_bucket)
-    dest_bucket = storage.bucket(target_bucket_name)
+    dest_bucket = storage.bucket(ARCHIVE_BUCKET)
     source_blob = src_bucket.blob(file_name)
 
     if not source_blob.exists():
+        log_event(
+            "WARNING",
+            f"⚠️ Cannot archive {file_name}, file not found (phantom?).",
+            trace_id,
+        )
         return None
 
     ts = datetime.datetime.now(datetime.timezone.utc).strftime("%Y%m%d%H%M%S")
     new_name = f"{folder}/{os.path.basename(file_name)}_{ts}"
-    new_uri = f"gs://{target_bucket_name}/{new_name}"
+    new_uri = f"gs://{ARCHIVE_BUCKET}/{new_name}"
+
+    log_event("INFO", f"📦 Archiving file to: {new_uri}", trace_id)
 
     dest_bucket.copy_blob(source_blob, dest_bucket, new_name)
     source_blob.delete()
+
     return new_uri
 
 
@@ -396,12 +381,21 @@ def audit_log(
     file_uri,
     status,
     start_time,
-    metrics=None,
+    metrics: Dict[str, int] = None,
     target_table=None,
     error_msg=None,
 ):
-    """Writes standardized audit trace into BigQuery."""
+    """
+    Logs status AND Quality Metrics (Total, Processed, Good, Bad) to BigQuery.
+    """
     bq, _, _ = get_clients()
+
+    if isinstance(start_time, datetime.datetime):
+        start_time_str = start_time.isoformat()
+    else:
+        start_time_str = str(start_time)
+
+    # Initialize defaults if metrics is None (e.g., failure before load)
     if metrics is None:
         metrics = {"total": 0, "good": 0, "bad": 0}
 
@@ -412,14 +406,11 @@ def audit_log(
         "status": status,
         "target_table": target_table,
         "error_message": error_msg[:2000] if error_msg else None,
-        "start_time": (
-            start_time.isoformat()
-            if isinstance(start_time, datetime.datetime)
-            else str(start_time)
-        ),
+        "start_time": start_time_str,
         "end_time": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+        # --- NEW COLUMNS ---
         "total_records": metrics.get("total", 0),
-        "processed_records": metrics.get("total", 0),
+        "processed_records": metrics.get("total", 0),  # We attempted to load total
         "good_records": metrics.get("good", 0),
         "bad_records": metrics.get("bad", 0),
     }
@@ -429,13 +420,16 @@ def audit_log(
         write_disposition=bigquery.WriteDisposition.WRITE_APPEND,
         ignore_unknown_values=True,
     )
+
     table_id = f"{PROJECT_ID}.{METADATA_DATASET}.{LOGS_TABLE}"
 
     try:
+        log_event("INFO", "📝 Writing Audit Log...", trace_id)
         json_data = json.dumps(row) + "\n"
-        bq.load_table_from_file(
-            io.StringIO(json_data), table_id, job_config=job_config
-        ).result()
+        file_obj = io.StringIO(json_data)
+        job = bq.load_table_from_file(file_obj, table_id, job_config=job_config)
+        job.result()
+        log_event("INFO", "🟢 Audit Log Saved Successfully", trace_id)
     except Exception as e:
         print(f"CRITICAL: FAILED TO WRITE AUDIT LOG: {e}")
 
@@ -449,25 +443,41 @@ def handle_failure(
     ingestion_id,
     start_time,
     target_folder="exempted",
-    archive_bucket=None,
 ):
-    """Fallback handler for clean archiving of broken files."""
+    """
+    Safe failure handling. Moves file to specific folder (unprocessed vs exempted).
+    """
     try:
-        final_uri = (
-            archive_file(bucket, file_name, target_folder, trace_id, archive_bucket)
-            or f"gs://{bucket}/{file_name} (Archive Failed)"
-        )
-        audit_log(
+        log_event(
+            "INFO",
+            f"🛑 Handling Failure: Status={status}, TargetFolder={target_folder}",
             trace_id,
-            ingestion_id,
-            file_name,
-            final_uri,
-            status,
-            start_time,
+        )
+
+        final_uri = None
+        try:
+            final_uri = archive_file(bucket, file_name, target_folder, trace_id)
+        except Exception as e:
+            log_event("WARNING", f"Could not archive failed file: {e}", trace_id)
+
+        if not final_uri:
+            final_uri = f"gs://{bucket}/{file_name} (Failed to Archive)"
+
+        audit_log(
+            trace_id=trace_id,
+            ingestion_id=ingestion_id,
+            file_name=file_name,
+            file_uri=final_uri,
+            status=status,
+            start_time=start_time,
+            metrics=None,  # No metrics for failed runs
             error_msg=error_msg,
         )
+
+        log_event("INFO", "🏁 Failure Handled Cleanly.", trace_id)
+
     except Exception as e:
-        print(f"CRITICAL: Error handler crashed: {e}")
+        print(f"CRITICAL: Error handler crashed. Swallowing error to stop loop. {e}")
 
 
 # ==============================================================================
@@ -475,6 +485,7 @@ def handle_failure(
 # ==============================================================================
 @functions_framework.cloud_event
 def process_file(cloud_event):
+    # Context Initialization
     start_time = datetime.datetime.now(datetime.timezone.utc)
     ingestion_id = uuid.uuid4().hex
     trace_id = f"projects/{PROJECT_ID}/traces/{ingestion_id}"
@@ -483,26 +494,34 @@ def process_file(cloud_event):
     bucket_name = data.get("bucket")
     file_name = data.get("name")
 
-    # Circuit Breakers
+    # --- CIRCUIT BREAKER 1: Ignore Folders ---
     if not file_name or file_name.endswith("/"):
         return
-    if any(
-        folder in file_name
-        for folder in ["processed/", "exempted/", "unprocessed/", "schema_pending/"]
+
+    # --- CIRCUIT BREAKER 2: Ignore Output Files ---
+    if (
+        "processed/" in file_name
+        or "exempted/" in file_name
+        or "unprocessed/" in file_name
+        or "schema_pending/" in file_name
     ):
+        print(f"🚫 Ignoring internal event: {file_name}")
         return
 
+    # --- CIRCUIT BREAKER 3: Phantom File Check ---
     _, storage, _ = get_clients()
     if not storage.bucket(bucket_name).blob(file_name).exists():
+        print(f"👻 File not found: {file_name}. Stopping to prevent retry loop.")
         return
 
     log_event("INFO", f"🚀 Started Processing: {file_name}", trace_id)
+    log_event("INFO", f"🆔 Ingestion ID: {ingestion_id}", trace_id)
+
     final_table_ref = "UNKNOWN"
-    rule_archive_bucket = None
 
     try:
-        # 1. Routing
-        rule = get_routing_rule(bucket_name, file_name, trace_id)
+        # 1. ROUTER
+        rule = get_routing_rule(file_name, trace_id)
         if not rule:
             handle_failure(
                 bucket_name,
@@ -512,39 +531,43 @@ def process_file(cloud_event):
                 trace_id,
                 ingestion_id,
                 start_time,
+                target_folder="exempted",
             )
             return
 
-        rule_archive_bucket = rule.get("archive_bucket")
         final_table_ref = (
             f"{PROJECT_ID}.{rule['target_dataset']}.{rule['target_table']}"
         )
+        log_event("INFO", f"🎯 Target Table identified: {final_table_ref}", trace_id)
 
-        # 2. Extract & Load
+        # 2. LOADER (Includes strict Schema Validation + Metric Calculation)
+        # Returns dict: {'total': 100, 'good': 98, 'bad': 2}
         metrics = load_raw_strings(
             bucket_name, file_name, rule, final_table_ref, trace_id
         )
 
-        # 3. Clean Archive
-        final_uri = archive_file(
-            bucket_name, file_name, "processed", trace_id, rule_archive_bucket
-        )
+        # 3. ARCHIVER (Success Case)
+        final_uri = archive_file(bucket_name, file_name, "processed", trace_id)
 
-        # 4. Audit
+        # 4. AUDIT
         audit_log(
-            trace_id,
-            ingestion_id,
-            file_name,
-            final_uri,
-            "SUCCESS",
-            start_time,
-            metrics,
-            final_table_ref,
+            trace_id=trace_id,
+            ingestion_id=ingestion_id,
+            file_name=file_name,
+            file_uri=final_uri,
+            status="SUCCESS",
+            start_time=start_time,
+            metrics=metrics,
+            target_table=final_table_ref,
         )
+        log_event("INFO", "✅ Ingestion Complete Successfully.", trace_id)
 
     except SchemaDriftError as e:
+        # --- Handle Drift with AI ---
         error_msg = f"Drift Detected: {e.new_columns}"
         log_event("WARNING", f"⚠️ {error_msg}", trace_id)
+
+        # 1. Trigger AI (Passing the samples we captured in load_raw_strings)
         trigger_ai_agent(
             bucket_name,
             file_name,
@@ -553,6 +576,8 @@ def process_file(cloud_event):
             e.sample_rows,
             trace_id,
         )
+
+        # 2. Move to 'schema_pending' instead of 'unprocessed'
         handle_failure(
             bucket_name,
             file_name,
@@ -561,16 +586,25 @@ def process_file(cloud_event):
             trace_id,
             ingestion_id,
             start_time,
-            "schema_pending",
-            rule_archive_bucket,
+            target_folder="schema_pending",
         )
 
+    # --- MODIFIED EXCEPTION BLOCK: Table Not Found ---
     except TableNotFoundError as e:
         error_msg = f"Table Missing: {str(e)}"
         log_event("WARNING", f"⚠️ {error_msg}. Summoning AI to create it.", trace_id)
+
+        # 1. Trigger AI (Passing headers as new_columns and sample rows)
         trigger_ai_agent(
-            bucket_name, file_name, final_table_ref, e.columns, e.sample_rows, trace_id
+            bucket_name,
+            file_name,
+            final_table_ref,
+            e.columns,  # For new table, all columns are "new"
+            e.sample_rows,
+            trace_id,
         )
+
+        # 2. Move to 'schema_pending' to wait for Terraform creation
         handle_failure(
             bucket_name,
             file_name,
@@ -579,13 +613,14 @@ def process_file(cloud_event):
             trace_id,
             ingestion_id,
             start_time,
-            "schema_pending",
-            rule_archive_bucket,
+            target_folder="schema_pending",
         )
+    # -------------------------------------------------
 
     except Exception as e:
         error_msg = str(e)
         log_event("ERROR", f"❌ System Pipeline Failed: {error_msg}", trace_id)
+        # System crashes -> "exempted"
         handle_failure(
             bucket_name,
             file_name,
@@ -594,6 +629,5 @@ def process_file(cloud_event):
             trace_id,
             ingestion_id,
             start_time,
-            "exempted",
-            rule_archive_bucket,
+            target_folder="exempted",
         )
