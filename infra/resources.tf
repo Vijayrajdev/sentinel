@@ -71,12 +71,12 @@ module "secret" {
 # ==========================================
 # MODULE 6: Create Cloud Composer
 # ==========================================
-module "composer" {
-  source     = "./composer"
+# module "composer" {
+#   source     = "./composer"
 
-  # Pass variables from Root -> Module
-  airflow_sa_email                         = var.airflow_sa_email
-  region                                   = var.region
-  project_id                               = var.project_id
-  composer_bucket_name                     = var.composer_bucket_name
-}
+#   # Pass variables from Root -> Module
+#   airflow_sa_email                         = var.airflow_sa_email
+#   region                                   = var.region
+#   project_id                               = var.project_id
+#   composer_bucket_name                     = var.composer_bucket_name
+# }
