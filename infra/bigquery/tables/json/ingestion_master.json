@@ -1,86 +1,50 @@
 [
   {
     "name": "file_pattern",
-    "mode": "REQUIRED",
     "type": "STRING",
-    "description": "Regex pattern to match incoming files (e.g., '^sales_.*\\.csv$')",
-    "fields": []
+    "mode": "REQUIRED",
+    "description": "Regex pattern to match incoming files (e.g., '^sales_.*\\.csv$')"
   },
   {
     "name": "target_dataset",
-    "mode": "REQUIRED",
     "type": "STRING",
-    "description": "Destination BigQuery Dataset (e.g., 'sentinel_raw_landing')",
-    "fields": []
+    "mode": "REQUIRED",
+    "description": "Destination BigQuery Dataset (e.g., 'sentinel_raw_landing')"
   },
   {
     "name": "target_table",
-    "mode": "REQUIRED",
     "type": "STRING",
-    "description": "Destination Table Name (e.g., 'raw_sales')",
-    "fields": []
+    "mode": "REQUIRED",
+    "description": "Destination Table Name (e.g., 'raw_sales')"
   },
   {
     "name": "file_format",
-    "mode": "NULLABLE",
     "type": "STRING",
-    "description": "Expected format: CSV, JSON, AVRO, PARQUET, XLSX (Default: CSV)",
-    "fields": []
+    "mode": "NULLABLE",
+    "description": "Expected format: CSV, JSON, AVRO, PARQUET (Default: CSV)"
   },
   {
     "name": "delimiter",
-    "mode": "NULLABLE",
     "type": "STRING",
-    "description": "Field delimiter for CSVs (Default: ',')",
-    "fields": []
-  },
-  {
-    "name": "quote_char",
     "mode": "NULLABLE",
-    "type": "STRING",
-    "description": "Quote character for CSVs (e.g., '\"')",
-    "fields": []
+    "description": "Field delimiter for CSVs (Default: ',')"
   },
   {
     "name": "skip_header_rows",
-    "mode": "NULLABLE",
     "type": "INTEGER",
-    "description": "Number of rows to skip (Default: 1)",
-    "fields": []
-  },
-  {
-    "name": "landing_bucket",
     "mode": "NULLABLE",
-    "type": "STRING",
-    "description": "Specific source bucket to monitor (Optional)",
-    "fields": []
-  },
-  {
-    "name": "archive_bucket",
-    "mode": "NULLABLE",
-    "type": "STRING",
-    "description": "Specific destination archive bucket (Optional)",
-    "fields": []
-  },
-  {
-    "name": "write_disposition",
-    "mode": "NULLABLE",
-    "type": "STRING",
-    "description": "'WRITE_APPEND' (default) or 'WRITE_TRUNCATE'",
-    "fields": []
+    "description": "Number of rows to skip (Default: 1)"
   },
   {
     "name": "is_active",
-    "mode": "REQUIRED",
     "type": "BOOLEAN",
-    "description": "Flag to enable/disable ingestion for this pattern",
-    "fields": []
+    "mode": "REQUIRED",
+    "description": "Flag to enable/disable ingestion for this pattern"
   },
   {
     "name": "created_at",
-    "mode": "NULLABLE",
     "type": "TIMESTAMP",
-    "description": "When this rule was created",
-    "fields": []
+    "mode": "NULLABLE",
+    "description": "When this rule was created"
   }
 ]
