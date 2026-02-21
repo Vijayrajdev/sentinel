@@ -1,0 +1,46 @@
+[
+  {
+    "name": "order_id",
+    "type": "STRING",
+    "mode": "NULLABLE",
+    "description": "Unique identifier for each customer order."
+  },
+  {
+    "name": "customer_name",
+    "type": "STRING",
+    "mode": "NULLABLE",
+    "description": "Name of the customer who placed the order."
+  },
+  {
+    "name": "amount",
+    "type": "STRING",
+    "mode": "NULLABLE",
+    "description": "Total monetary value of the order, stored as a string."
+  },
+  {
+    "name": "status",
+    "type": "STRING",
+    "mode": "NULLABLE",
+    "description": "Current status of the order (e.g., COMPLETED, PENDING, SHIPPED)."
+  },
+  {
+    "name": "order_date",
+    "type": "STRING",
+    "mode": "NULLABLE",
+    "description": "Date when the order was placed, stored as a string."
+  },
+  {
+    "name": "batch_date",
+    "type": "DATE",
+    "mode": "NULLABLE",
+    "description": "Partition",
+    "default_value_expression": "'9999-12-31'"
+  },
+  {
+    "name": "processed_dttm",
+    "type": "TIMESTAMP",
+    "mode": "NULLABLE",
+    "description": "Audit",
+    "default_value_expression": "CURRENT_TIMESTAMP()"
+  }
+]
