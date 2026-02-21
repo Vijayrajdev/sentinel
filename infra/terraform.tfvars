@@ -9,3 +9,5 @@ pubsub_topic_id                  = "projects/sentinel-486707/topics/schema-drift
 schema_base_path                 = "infra/bigquery/tables/json/"
 tf_base_path                     = "infra/bigquery/tables/"
 secret_id                        = "sentinel-github-token"
+airflow_sa_email                 = "sentinel-dbt-worker@sentinel-486707.iam.gserviceaccount.com"
+composer_bucket_name             = "sentinel-composer-data"

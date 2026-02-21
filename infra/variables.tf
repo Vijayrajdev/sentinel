@@ -80,3 +80,13 @@ variable "secret_id" {
   type        = string
   sensitive   = true
 }
+
+variable "airflow_sa_email" {
+  description = "The Service Account email created in the GCP Console for Composer"
+  type        = string
+}
+
+variable "composer_bucket_name" {
+  description = "Name of the existing Composer bucket"
+  type        = string
+}
