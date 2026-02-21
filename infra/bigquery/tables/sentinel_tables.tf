@@ -2,21 +2,27 @@
 locals {
   tables_audit = {
     "ingestion_master" = {
-      partition_type = null 
+      partitioning = null
     }
     "ingestion_log" = {
-      partition_type = null  
+      partitioning = null
     }
     "ai_ops_log" = {
-      partition_type = null
+      partitioning = null
     }
   }
   tables_raw = {
     "orders_raw" = {
-      partition_type = null
+      partitioning = null
     }
     "nyc_taxi_trips_raw" = {
-      partition_type = null
+      partitioning = null
+    }
+    "customer_raw" = {
+      partitioning = {
+        type  = "DAY"
+        field = "batch_date"
+      }
     }
   }
 }
@@ -24,18 +30,19 @@ locals {
 resource "google_bigquery_table" "sentinel_audit_tables" {
   for_each = local.tables_audit
 
-  dataset_id    = "sentinel_audit"
-  table_id      = each.key
-  friendly_name = "sentinel_${each.key}"
+  dataset_id          = "sentinel_audit"
+  table_id            = each.key
+  friendly_name       = "sentinel_${each.key}"
   deletion_protection = false
 
   # 1. The Dynamic Block
-  # This creates the 'time_partitioning' block ONLY if partition_type is not null
+  # This creates the 'time_partitioning' block ONLY if partitioning is not null
   dynamic "time_partitioning" {
-    for_each = each.value.partition_type != null ? [1] : []
-    
+    for_each = each.value.partitioning != null ? { main = each.value.partitioning } : {}
+
     content {
-      type = each.value.partition_type
+      type  = time_partitioning.value.type
+      field = try(time_partitioning.value.field, null)
     }
   }
 
@@ -56,12 +63,13 @@ resource "google_bigquery_table" "sentinel_raw_tables" {
   deletion_protection = false
 
   # 1. The Dynamic Block
-  # This creates the 'time_partitioning' block ONLY if partition_type is not null
+  # This creates the 'time_partitioning' block ONLY if partitioning is not null
   dynamic "time_partitioning" {
-    for_each = each.value.partition_type != null ? [1] : []
-    
+    for_each = each.value.partitioning != null ? { main = each.value.partitioning } : {}
+
     content {
-      type = each.value.partition_type
+      type  = time_partitioning.value.type
+      field = try(time_partitioning.value.field, null)
     }
   }
 
