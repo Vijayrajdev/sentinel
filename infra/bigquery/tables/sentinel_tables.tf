@@ -24,6 +24,7 @@ resource "google_bigquery_table" "sentinel_audit_tables" {
   dataset_id    = "sentinel_audit"
   table_id      = each.key
   friendly_name = "sentinel_${each.key}"
+  deletion_protection = false
 
   # 1. The Dynamic Block
   # This creates the 'time_partitioning' block ONLY if partition_type is not null
