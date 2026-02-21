@@ -28,7 +28,7 @@ TF_BASE_PATH = os.environ.get("TF_BASE_PATH", "infra/bigquery/tables/")
 
 bq_client: Optional[bigquery.Client] = None
 
-# Initialize Vertex AI (Gemini 1.5 Pro for massive context window)
+# Initialize Vertex AI (Gemini 2.5 Pro for massive context window)
 try:
     if PROJECT_ID:
         vertexai.init(project=PROJECT_ID, location=REGION)
@@ -74,6 +74,11 @@ def log_ai_action(
     Writes a permanent, legally auditable record to BigQuery.
     'details' contains the exact diff of what was changed.
     """
+    log_event(
+        "INFO",
+        f"▶️ 🔏 [Audit Ledger] Starting permanent audit log recording for action: {action}...",
+        trace_id,
+    )
     client = get_bq_client()
 
     row = {
@@ -92,9 +97,21 @@ def log_ai_action(
     try:
         errors = client.insert_rows_json(AI_AUDIT_TABLE, [row])
         if errors:
-            log_event("ERROR", f"Failed to write audit log: {errors}", trace_id)
+            log_event(
+                "ERROR",
+                f"❌ 🔏 [Audit Ledger] Failed to write audit log: {errors}",
+                trace_id,
+            )
+        else:
+            log_event(
+                "INFO",
+                "✅ 🔏 [Audit Ledger] Successfully committed transaction to audit table.",
+                trace_id,
+            )
     except Exception as e:
-        log_event("ERROR", f"Audit Log Crash: {e}", trace_id)
+        log_event("ERROR", f"☠️ 🔏 [Audit Ledger] Audit Log Crash: {e}", trace_id)
+    finally:
+        log_event("INFO", "⏹️ 🔏 [Audit Ledger] Finished audit log routine.", trace_id)
 
 
 # ==============================================================================
@@ -111,14 +128,38 @@ def generate_dynamic_schema(
     Agent Role: Data Architect
     Goal: Create valid BigQuery JSON schema matching strict enterprise standards.
     """
+    log_event(
+        "INFO",
+        f"▶️ 🧩 [Schema Design] Initiating dynamic schema generation for '{table_name}'...",
+        trace_id,
+    )
+
     if not model:
-        # Fallback if AI service is down
+        log_event(
+            "WARNING",
+            "⚠️ 🧩 [Schema Design] AI Service unavailable. Falling back to basic programmatic schema.",
+            trace_id,
+        )
+        log_event(
+            "INFO",
+            "⏹️ 🧩 [Schema Design] Finished schema generation (Fallback mode).",
+            trace_id,
+        )
         return [{"name": c, "type": "STRING", "mode": "NULLABLE"} for c in new_cols]
 
-    log_event("INFO", f"🧠 Generating Schema for {len(new_cols)} columns...", trace_id)
+    log_event(
+        "INFO",
+        f"🧠 🧩 [Schema Design] Instructing AI to map {len(new_cols)} incoming columns...",
+        trace_id,
+    )
 
     style_guide = ""
     if reference_json:
+        log_event(
+            "INFO",
+            "🎨 🧩 [Schema Design] Injecting reference JSON style guide into AI context...",
+            trace_id,
+        )
         style_guide = (
             f"STYLE GUIDE (Mimic this format):\n```json\n{reference_json[:3000]}\n```"
         )
@@ -143,13 +184,35 @@ def generate_dynamic_schema(
     """
 
     try:
+        log_event(
+            "INFO", "⏳ 🧩 [Schema Design] Awaiting AI generation response...", trace_id
+        )
         response = model.generate_content(prompt)
         text = response.text.strip()
+
         if text.startswith("```"):
             text = text.split("\n", 1)[1].rsplit("\n", 1)[0]
-        return json.loads(text)
+
+        parsed_schema = json.loads(text)
+        log_event(
+            "INFO",
+            f"✅ 🧩 [Schema Design] AI successfully formulated JSON schema with {len(parsed_schema)} fields.",
+            trace_id,
+        )
+        log_event("INFO", "⏹️ 🧩 [Schema Design] Finished schema generation.", trace_id)
+        return parsed_schema
+
     except Exception as e:
-        log_event("ERROR", f"Schema Generation Failed: {e}", trace_id)
+        log_event(
+            "ERROR",
+            f"❌ 🧩 [Schema Design] Schema Generation Failed: {e}. Falling back to basic generation.",
+            trace_id,
+        )
+        log_event(
+            "INFO",
+            "⏹️ 🧩 [Schema Design] Finished schema generation (Fallback mode).",
+            trace_id,
+        )
         return [{"name": c, "type": "STRING", "mode": "NULLABLE"} for c in new_cols]
 
 
@@ -162,7 +225,9 @@ def analyze_tf_repo_state(repo, branch_sha, table_id, trace_id) -> Dict[str, Any
     Goal: Determine WHERE to put the Terraform code (New File vs. Existing File).
     """
     log_event(
-        "INFO", f"🔍 Analyzing Terraform State for table '{table_id}'...", trace_id
+        "INFO",
+        f"▶️ 🕵️‍♂️ [Repo Scan] Initiating deep repository scan for Terraform state of '{table_id}'...",
+        trace_id,
     )
 
     state = {
@@ -173,12 +238,21 @@ def analyze_tf_repo_state(repo, branch_sha, table_id, trace_id) -> Dict[str, Any
     }
 
     try:
+        log_event(
+            "INFO", "🌳 🕵️‍♂️ [Repo Scan] Fetching Git tree architecture...", trace_id
+        )
         tree = repo.get_git_tree(branch_sha, recursive=True)
         tf_files = [
             e
             for e in tree.tree
             if e.path.startswith(TF_BASE_PATH) and e.path.endswith(".tf")
         ]
+
+        log_event(
+            "INFO",
+            f"📂 🕵️‍♂️ [Repo Scan] Discovered {len(tf_files)} potential target `.tf` files.",
+            trace_id,
+        )
 
         best_candidate_file = None
         max_tables_in_file = 0
@@ -189,12 +263,24 @@ def analyze_tf_repo_state(repo, branch_sha, table_id, trace_id) -> Dict[str, Any
 
             # CHECK 1: Is table already defined?
             if f'"{table_id}"' in content or f"'{table_id}'" in content:
+                log_event(
+                    "INFO",
+                    f"👀 🕵️‍♂️ [Repo Scan] Detected potential string match for '{table_id}' in {element.path}. Consulting AI for semantic validation...",
+                    trace_id,
+                )
                 # Use AI to confirm it's a Definition, not just a comment
                 if ask_ai_is_definition(content, table_id):
                     state["is_defined"] = True
                     state["defined_in_file"] = element.path
                     log_event(
-                        "INFO", f"✅ Table already defined in {element.path}", trace_id
+                        "INFO",
+                        f"✅ 🕵️‍♂️ [Repo Scan] AI Verified: Table is already defined in {element.path}",
+                        trace_id,
+                    )
+                    log_event(
+                        "INFO",
+                        "⏹️ 🕵️‍♂️ [Repo Scan] Finished analysis (Definition Found).",
+                        trace_id,
                     )
                     return state
 
@@ -209,16 +295,27 @@ def analyze_tf_repo_state(repo, branch_sha, table_id, trace_id) -> Dict[str, Any
         if best_candidate_file:
             state["host_file"] = best_candidate_file
             log_event(
-                "INFO", f"🏠 Identified Host File: {best_candidate_file}", trace_id
+                "INFO",
+                f"🏠 🕵️‍♂️ [Repo Scan] Identified optimal existing Host File for injection: {best_candidate_file}",
+                trace_id,
             )
         else:
             log_event(
-                "INFO", "⚪ No suitable host file found. Will create new.", trace_id
+                "INFO",
+                "⚪ 🕵️‍♂️ [Repo Scan] No suitable host file found. Instructing system to create a brand new file.",
+                trace_id,
             )
 
     except Exception as e:
-        log_event("WARNING", f"Repo analysis failed: {e}", trace_id)
+        log_event(
+            "WARNING",
+            f"⚠️ 🕵️‍♂️ [Repo Scan] Repo analysis encountered an anomaly: {e}",
+            trace_id,
+        )
 
+    log_event(
+        "INFO", "⏹️ 🕵️‍♂️ [Repo Scan] Finished comprehensive repository analysis.", trace_id
+    )
     return state
 
 
@@ -255,13 +352,36 @@ def generate_tf_patch_or_create(
     Agent Role: Terraform Engineer
     Goal: Write HCL code. Either a full new file OR an injected snippet into an existing file.
     """
+    log_event(
+        "INFO",
+        f"▶️ 🏗️ [TF Architect] Initiating Terraform HCL synthesis for '{table_id}'...",
+        trace_id,
+    )
+
     if not model:
+        log_event(
+            "WARNING",
+            "⚠️ 🏗️ [TF Architect] AI Service offline. Returning empty block.",
+            trace_id,
+        )
+        log_event(
+            "INFO", "⏹️ 🏗️ [TF Architect] Finished TF generation (Abort).", trace_id
+        )
         return ""
 
     action = "CREATE_NEW" if not host_file_content else "PATCH_EXISTING"
-    log_event("INFO", f"🏗️ Terraform Action: {action}", trace_id)
+    log_event(
+        "INFO",
+        f"🛠️ 🏗️ [TF Architect] Determining infrastructure action vector: {action}",
+        trace_id,
+    )
 
     if action == "PATCH_EXISTING":
+        log_event(
+            "INFO",
+            "🩹 🏗️ [TF Architect] Constructing prompt for intelligent HCL injection (Patch)...",
+            trace_id,
+        )
         prompt = f"""
         You are a Terraform Expert.
         
@@ -288,6 +408,11 @@ def generate_tf_patch_or_create(
         """
     else:
         # Create New File from Scratch
+        log_event(
+            "INFO",
+            "✨ 🏗️ [TF Architect] Constructing prompt for brand new HCL definition (Create)...",
+            trace_id,
+        )
         prompt = f"""
         You are a Terraform Expert.
         
@@ -303,14 +428,34 @@ def generate_tf_patch_or_create(
         """
 
     try:
+        log_event(
+            "INFO",
+            "⏳ 🏗️ [TF Architect] Awaiting AI infrastructure generation...",
+            trace_id,
+        )
         response = model.generate_content(prompt)
         text = response.text.strip()
+
         if text.startswith("```"):
             text = text.split("\n", 1)[1].rsplit("\n", 1)[0]
         text = text.replace("```hcl", "").replace("```", "")
+
+        log_event(
+            "INFO",
+            "✅ 🏗️ [TF Architect] AI successfully generated and formatted Terraform HCL block.",
+            trace_id,
+        )
+        log_event("INFO", "⏹️ 🏗️ [TF Architect] Finished TF generation.", trace_id)
         return text
     except Exception as e:
-        log_event("ERROR", f"TF Generation Failed: {e}", trace_id)
+        log_event(
+            "ERROR",
+            f"❌ 🏗️ [TF Architect] Terraform HCL Generation Failed: {e}",
+            trace_id,
+        )
+        log_event(
+            "INFO", "⏹️ 🏗️ [TF Architect] Finished TF generation (Failure).", trace_id
+        )
         return ""
 
 
@@ -326,19 +471,39 @@ def apply_infrastructure_update(
     sample_data: List[Dict] = None,
 ) -> Dict[str, Any]:
 
+    log_event(
+        "INFO",
+        f"▶️ 🚀 [Orchestrator] Commencing primary infrastructure workflow for '{table_ref}'...",
+        trace_id,
+    )
+
     parts = table_ref.split(".")
     dataset = parts[-2]
     table = parts[-1]
 
-    log_event("INFO", f"🐙 Connecting to GitHub: {repo_name}", trace_id)
+    log_event(
+        "INFO",
+        f"🐙 🚀 [Orchestrator] Establishing secure handshake with GitHub Repository: {repo_name}...",
+        trace_id,
+    )
     g = Github(token)
     repo = g.get_repo(repo_name)
     default_branch = repo.get_branch(repo.default_branch)
 
     # 1. ANALYZE REPO STATE
+    log_event(
+        "INFO",
+        "🗺️ 🚀 [Orchestrator] Step 1: Executing Repository State Analysis...",
+        trace_id,
+    )
     tf_state = analyze_tf_repo_state(repo, default_branch.commit.sha, table, trace_id)
 
     # 2. DETERMINE TARGETS
+    log_event(
+        "INFO",
+        "🎯 🚀 [Orchestrator] Step 2: Determining Target Asset Paths...",
+        trace_id,
+    )
     clean_schema_base = SCHEMA_BASE_PATH.strip().rstrip("/")
     target_json_path = f"{clean_schema_base}/{table}.json"
 
@@ -359,17 +524,32 @@ def apply_infrastructure_update(
 
     log_event(
         "INFO",
-        f"🎯 Targets: JSON={target_json_path}, TF={target_tf_path} ({tf_action})",
+        f"📍 🚀 [Orchestrator] Targets locked: JSON => {target_json_path} | TF => {target_tf_path} (Action: {tf_action})",
         trace_id,
     )
 
     # 3. CREATE BRANCH
+    log_event(
+        "INFO",
+        "🌿 🚀 [Orchestrator] Step 3: Spinning up isolated Git branch...",
+        trace_id,
+    )
     branch_name = f"ai/ops-{table}-{uuid.uuid4().hex[:6]}"
     repo.create_git_ref(ref=f"refs/heads/{branch_name}", sha=default_branch.commit.sha)
+    log_event(
+        "INFO",
+        f"🌱 🚀 [Orchestrator] Branch `{branch_name}` created successfully.",
+        trace_id,
+    )
 
     # ----------------------------------------------------------------------
     # STEP A: SCHEMA JSON
     # ----------------------------------------------------------------------
+    log_event(
+        "INFO",
+        "🧬 🚀 [Orchestrator] Step 4A: Generating JSON Schema Definition...",
+        trace_id,
+    )
     json_exists = False
     current_schema = []
     json_sha = None
@@ -379,8 +559,18 @@ def apply_infrastructure_update(
         current_schema = json.loads(base64.b64decode(c.content).decode("utf-8"))
         json_exists = True
         json_sha = c.sha
+        log_event(
+            "INFO",
+            "📂 🚀 [Orchestrator] Pre-existing schema detected. Will perform merge.",
+            trace_id,
+        )
     except GithubException:
         json_exists = False
+        log_event(
+            "INFO",
+            "✨ 🚀 [Orchestrator] No pre-existing schema. Will generate from scratch.",
+            trace_id,
+        )
 
     # Fetch reference JSON for style
     ref_json = ""
@@ -392,6 +582,11 @@ def apply_infrastructure_update(
                     ref_json = base64.b64decode(
                         repo.get_git_blob(e.sha).content
                     ).decode("utf-8")
+                    log_event(
+                        "INFO",
+                        "🖼️ 🚀 [Orchestrator] Located reference schema template for AI style transfer.",
+                        trace_id,
+                    )
                     break
         except:
             pass
@@ -405,19 +600,24 @@ def apply_infrastructure_update(
             "type": "DATE",
             "mode": "NULLABLE",
             "description": "Partition",
-            "default_value_expression": "'9999-12-31'",
+            "defaultValueExpression": "DATE '9999-12-31'",
         },
         {
             "name": "processed_dttm",
             "type": "TIMESTAMP",
             "mode": "NULLABLE",
             "description": "Audit",
-            "default_value_expression": "CURRENT_TIMESTAMP()",
+            "defaultValueExpression": "CURRENT_TIMESTAMP()",
         },
     ]
 
     if not json_exists:
         # BRAND NEW TABLE
+        log_event(
+            "INFO",
+            "🆕 🚀 [Orchestrator] Drafting entirely new schema definition...",
+            trace_id,
+        )
         all_cols_to_gen = new_cols if new_cols else list(sample_data[0].keys())
         final_schema_list = generate_dynamic_schema(
             table, all_cols_to_gen, sample_data, ref_json, trace_id
@@ -431,6 +631,11 @@ def apply_infrastructure_update(
 
     else:
         # UPDATE EXISTING
+        log_event(
+            "INFO",
+            "♻️ 🚀 [Orchestrator] Splicing new columns into existing schema...",
+            trace_id,
+        )
         ai_suggestions = generate_dynamic_schema(
             table, new_cols, sample_data, ref_json, trace_id
         )
@@ -450,9 +655,20 @@ def apply_infrastructure_update(
                 count += 1
         final_schema_list = current_schema
 
+    log_event(
+        "INFO",
+        f"✅ 🚀 [Orchestrator] Step 4A Complete. Total added columns: {len(added_cols_for_pr)}",
+        trace_id,
+    )
+
     # ----------------------------------------------------------------------
     # STEP B: TERRAFORM TF
     # ----------------------------------------------------------------------
+    log_event(
+        "INFO",
+        "🧱 🚀 [Orchestrator] Step 4B: Designing Terraform Configurations...",
+        trace_id,
+    )
     tf_changed = False
     new_tf_content = ""
     tf_sha = None
@@ -471,21 +687,41 @@ def apply_infrastructure_update(
 
         if new_tf_content and len(new_tf_content) > 20:
             tf_changed = True
+            log_event(
+                "INFO",
+                "✅ 🚀 [Orchestrator] Valid HCL code captured from AI.",
+                trace_id,
+            )
 
     # ----------------------------------------------------------------------
     # STEP C: COMMIT & PR
     # ----------------------------------------------------------------------
+    log_event(
+        "INFO",
+        "📦 🚀 [Orchestrator] Step 5: Preparing GitHub Commits & Pull Request...",
+        trace_id,
+    )
     should_update_json = (not json_exists) or (
         json_exists and len(added_cols_for_pr) > 0
     )
 
     if not should_update_json and not tf_changed:
         log_event(
-            "WARNING", "🛑 No actionable changes detected. Aborting PR.", trace_id
+            "WARNING",
+            "🛑 🚀 [Orchestrator] No actionable changes detected in payload. Aborting Git operations.",
+            trace_id,
+        )
+        log_event(
+            "INFO",
+            "⏹️ 🚀 [Orchestrator] Finished orchestrator flow (Skipped).",
+            trace_id,
         )
         return {"status": "SKIPPED", "url": None, "details": "No changes needed"}
 
     if should_update_json:
+        log_event(
+            "INFO", "💾 🚀 [Orchestrator] Committing JSON Schema payload...", trace_id
+        )
         content_str = json.dumps(final_schema_list, indent=2)
         msg = (
             f"fix: update {table} schema"
@@ -500,6 +736,9 @@ def apply_infrastructure_update(
             repo.create_file(target_json_path, msg, content_str, branch=branch_name)
 
     if tf_changed:
+        log_event(
+            "INFO", "💾 🚀 [Orchestrator] Committing Terraform HCL payload...", trace_id
+        )
         msg = f"feat: update infrastructure for {table}"
         if tf_action == "PATCH":
             repo.update_file(
@@ -509,6 +748,7 @@ def apply_infrastructure_update(
             repo.create_file(target_tf_path, msg, new_tf_content, branch=branch_name)
 
     # 📝 PR Body Construction
+    log_event("INFO", "✉️ 🚀 [Orchestrator] Formatting dynamic PR body...", trace_id)
     pr_status_schema = "♻️ Updated" if json_exists else "✨ Created"
     pr_status_tf = "✅ Exists"
     if tf_changed:
@@ -549,11 +789,25 @@ Added **{len(added_cols_for_pr)}** columns to the Raw Layer.
 Merge this PR. Terraform will apply the changes.
 """
 
+    log_event(
+        "INFO",
+        "📤 🚀 [Orchestrator] Transmitting PR creation request to GitHub API...",
+        trace_id,
+    )
     pr = repo.create_pull(
         title=pr_title, body=pr_body, head=branch_name, base=repo.default_branch
     )
 
-    log_event("INFO", f"✅ PR Created Successfully: {pr.html_url}", trace_id)
+    log_event(
+        "INFO",
+        f"🏆 🚀 [Orchestrator] PR Created Successfully! Link: {pr.html_url}",
+        trace_id,
+    )
+    log_event(
+        "INFO",
+        "⏹️ 🚀 [Orchestrator] Finished comprehensive infrastructure update workflow.",
+        trace_id,
+    )
 
     # Return structured details for Audit Log
     return {
@@ -576,7 +830,9 @@ Merge this PR. Terraform will apply the changes.
 def ai_agent_main(cloud_event):
     trace_id = "unknown"
     table_ref = "unknown"
+
     try:
+        # Gateway Initialization
         if "data" in cloud_event.data["message"]:
             pubsub_message = base64.b64decode(
                 cloud_event.data["message"]["data"]
@@ -586,29 +842,73 @@ def ai_agent_main(cloud_event):
             return
 
         trace_id = data.get("trace_id", f"unknown-{uuid.uuid4()}")
+        log_event(
+            "INFO",
+            f"▶️ 🔌 [Gateway] Cloud Event received. Waking up Sentinel Forge...",
+            trace_id,
+        )
+
         table_ref = data.get("table_ref")
         new_cols = data.get("new_column_headers", [])
         sample_data = data.get("sample_data_rows", [])
 
-        log_event("INFO", f"🤖 Agent Waking Up. Target: {table_ref}", trace_id)
+        log_event(
+            "INFO", f"🎯 🔌 [Gateway] Processing target entity: {table_ref}", trace_id
+        )
 
         # 1. Config Check
+        log_event(
+            "INFO",
+            "🔐 🔌 [Gateway] Validating environmental configurations and secrets...",
+            trace_id,
+        )
         if not GITHUB_TOKEN or not REPO_NAME:
-            log_event("CRITICAL", "Missing Config.", trace_id)
+            log_event(
+                "CRITICAL",
+                "☠️ 🔌 [Gateway] CRITICAL: Missing GITHUB_TOKEN or REPO_NAME configuration.",
+                trace_id,
+            )
+            log_event(
+                "INFO",
+                "⏹️ 🔌 [Gateway] Aborting mission due to missing configs.",
+                trace_id,
+            )
             return
 
         # 2. Logic: If new table, infer cols from sample
         if not new_cols and sample_data:
+            log_event(
+                "INFO",
+                "🔮 🔌 [Gateway] No 'new' columns provided. Inferring baseline schema from sample payload...",
+                trace_id,
+            )
             new_cols = list(sample_data[0].keys())
+
         if not new_cols:
+            log_event(
+                "WARNING",
+                "⚠️ 🔌 [Gateway] No columns derived. Operation voided.",
+                trace_id,
+            )
+            log_event("INFO", "⏹️ 🔌 [Gateway] Terminating gracefully.", trace_id)
             return
 
         # 3. EXECUTE
+        log_event(
+            "INFO",
+            "⚡ 🔌 [Gateway] Passing control vector to the Orchestration Layer...",
+            trace_id,
+        )
         result = apply_infrastructure_update(
             REPO_NAME, GITHUB_TOKEN, table_ref, new_cols, trace_id, sample_data
         )
 
         # 4. AUDIT LOG
+        log_event(
+            "INFO",
+            "🔏 🔌 [Gateway] Finalizing operation. Generating closing audit log...",
+            trace_id,
+        )
         log_ai_action(
             trace_id=trace_id,
             action="CREATE_PR",
@@ -618,12 +918,27 @@ def ai_agent_main(cloud_event):
             link=result["url"],
         )
 
+        log_event(
+            "INFO",
+            "✨ ⏹️ [Gateway] Sentinel Forge completely finished lifecycle.",
+            trace_id,
+        )
+
     except Exception as e:
         error_msg = str(e)
-        log_event("CRITICAL", f"Error: {e}", trace_id)
+        log_event(
+            "CRITICAL",
+            f"🚨 🔌 [Gateway] Unhandled System Exception: {error_msg}",
+            trace_id,
+        )
         try:
             log_ai_action(
                 trace_id, "CRASH", "System", "FAILED", {"error": error_msg}, None
             )
         except:
             pass
+        log_event(
+            "INFO",
+            "☠️ ⏹️ [Gateway] Terminated under critical failure condition.",
+            trace_id,
+        )
