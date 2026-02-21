@@ -24,3 +24,20 @@ resource "google_storage_bucket" "code_bucket" {
   location      = var.region
   force_destroy = true
 }
+
+# --------------------------------------------------------
+# 3. COMPOSER BUCKET (Where DBT code lives)
+# --------------------------------------------------------
+resource "google_storage_bucket" "composer_storage" {
+  # Bucket names must be globally unique, so we append the project ID
+  name                        = var.composer_bucket_name
+  location                    = var.region 
+  storage_class               = "STANDARD" 
+  uniform_bucket_level_access = true
+  force_destroy               = false 
+
+  labels = {
+    env         = "dev"
+    system      = "orchestration"
+  }
+}

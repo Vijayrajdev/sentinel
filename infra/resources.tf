@@ -23,6 +23,7 @@ module "buckets" {
   code_bucket_name                  = var.code_bucket_name
   ingestion_archive_bucket_name     = var.ingestion_archive_bucket_name
   ingestion_landing_bucket_name     = var.ingestion_landing_bucket_name
+  composer_bucket_name              = var.composer_bucket_name
 }
 
 # ==========================================
@@ -66,3 +67,16 @@ module "secret" {
   # Pass variables from Root -> Module
   secret_id                         = var.secret_id
 }
+
+# ==========================================
+# MODULE 6: Create Cloud Composer
+# ==========================================
+# module "composer" {
+#   source     = "./composer"
+
+#   # Pass variables from Root -> Module
+#   airflow_sa_email                         = var.airflow_sa_email
+#   region                                   = var.region
+#   project_id                               = var.project_id
+#   composer_bucket_name                     = var.composer_bucket_name
+# }
