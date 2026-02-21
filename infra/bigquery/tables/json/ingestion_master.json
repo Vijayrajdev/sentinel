@@ -1,50 +1,86 @@
 [
   {
     "name": "file_pattern",
-    "type": "STRING",
     "mode": "REQUIRED",
-    "description": "Regex pattern to match incoming files (e.g., '^sales_.*\\.csv$')"
+    "type": "STRING",
+    "description": "Regex pattern to match incoming files (e.g., '^sales_.*\\.csv$')",
+    "fields": []
   },
   {
     "name": "target_dataset",
-    "type": "STRING",
     "mode": "REQUIRED",
-    "description": "Destination BigQuery Dataset (e.g., 'sentinel_raw_landing')"
+    "type": "STRING",
+    "description": "Destination BigQuery Dataset (e.g., 'sentinel_raw_landing')",
+    "fields": []
   },
   {
     "name": "target_table",
-    "type": "STRING",
     "mode": "REQUIRED",
-    "description": "Destination Table Name (e.g., 'raw_sales')"
+    "type": "STRING",
+    "description": "Destination Table Name (e.g., 'raw_sales')",
+    "fields": []
   },
   {
     "name": "file_format",
-    "type": "STRING",
     "mode": "NULLABLE",
-    "description": "Expected format: CSV, JSON, AVRO, PARQUET (Default: CSV)"
+    "type": "STRING",
+    "description": "Expected format: CSV, JSON, AVRO, PARQUET, XLSX (Default: CSV)",
+    "fields": []
   },
   {
     "name": "delimiter",
-    "type": "STRING",
     "mode": "NULLABLE",
-    "description": "Field delimiter for CSVs (Default: ',')"
+    "type": "STRING",
+    "description": "Field delimiter for CSVs (Default: ',')",
+    "fields": []
+  },
+  {
+    "name": "quote_char",
+    "mode": "NULLABLE",
+    "type": "STRING",
+    "description": "Quote character for CSVs (e.g., '\"')",
+    "fields": []
   },
   {
     "name": "skip_header_rows",
-    "type": "INTEGER",
     "mode": "NULLABLE",
-    "description": "Number of rows to skip (Default: 1)"
+    "type": "INTEGER",
+    "description": "Number of rows to skip (Default: 1)",
+    "fields": []
+  },
+  {
+    "name": "landing_bucket",
+    "mode": "NULLABLE",
+    "type": "STRING",
+    "description": "Specific source bucket to monitor (Optional)",
+    "fields": []
+  },
+  {
+    "name": "archive_bucket",
+    "mode": "NULLABLE",
+    "type": "STRING",
+    "description": "Specific destination archive bucket (Optional)",
+    "fields": []
+  },
+  {
+    "name": "write_disposition",
+    "mode": "NULLABLE",
+    "type": "STRING",
+    "description": "'WRITE_APPEND' (default) or 'WRITE_TRUNCATE'",
+    "fields": []
   },
   {
     "name": "is_active",
-    "type": "BOOLEAN",
     "mode": "REQUIRED",
-    "description": "Flag to enable/disable ingestion for this pattern"
+    "type": "BOOLEAN",
+    "description": "Flag to enable/disable ingestion for this pattern",
+    "fields": []
   },
   {
     "name": "created_at",
-    "type": "TIMESTAMP",
     "mode": "NULLABLE",
-    "description": "When this rule was created"
+    "type": "TIMESTAMP",
+    "description": "When this rule was created",
+    "fields": []
   }
 ]
