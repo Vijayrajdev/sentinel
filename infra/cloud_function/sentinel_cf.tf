@@ -61,7 +61,7 @@ resource "google_cloudfunctions2_function" "sentinel_ingestor" {
   service_config {
     max_instance_count = 2
     min_instance_count = 0
-    available_memory   = "256M"
+    available_memory   = "1024Mi"
     timeout_seconds    = 540
 
     
