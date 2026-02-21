@@ -2,21 +2,30 @@
 locals {
   tables_audit = {
     "ingestion_master" = {
-      partition_type = null 
+      partition_type  = null
+      partition_field = null
     }
     "ingestion_log" = {
-      partition_type = null  
+      partition_type  = null
+      partition_field = null
     }
     "ai_ops_log" = {
-      partition_type = null
+      partition_type  = null
+      partition_field = null
     }
   }
   tables_raw = {
     "orders_raw" = {
-      partition_type = null
+      partition_type  = null
+      partition_field = null
     }
     "nyc_taxi_trips_raw" = {
-      partition_type = null
+      partition_type  = null
+      partition_field = null
+    }
+    "customer_raw" = {
+      partition_type  = "DAY"
+      partition_field = "batch_date"
     }
   }
 }
@@ -24,18 +33,19 @@ locals {
 resource "google_bigquery_table" "sentinel_audit_tables" {
   for_each = local.tables_audit
 
-  dataset_id    = "sentinel_audit"
-  table_id      = each.key
-  friendly_name = "sentinel_${each.key}"
+  dataset_id          = "sentinel_audit"
+  table_id            = each.key
+  friendly_name       = "sentinel_${each.key}"
   deletion_protection = false
 
   # 1. The Dynamic Block
   # This creates the 'time_partitioning' block ONLY if partition_type is not null
   dynamic "time_partitioning" {
     for_each = each.value.partition_type != null ? [1] : []
-    
+
     content {
-      type = each.value.partition_type
+      type  = each.value.partition_type
+      field = lookup(each.value, "partition_field", null)
     }
   }
 
@@ -59,9 +69,10 @@ resource "google_bigquery_table" "sentinel_raw_tables" {
   # This creates the 'time_partitioning' block ONLY if partition_type is not null
   dynamic "time_partitioning" {
     for_each = each.value.partition_type != null ? [1] : []
-    
+
     content {
-      type = each.value.partition_type
+      type  = each.value.partition_type
+      field = lookup(each.value, "partition_field", null)
     }
   }
 
