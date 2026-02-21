@@ -15,6 +15,9 @@ locals {
     "orders_raw" = {
       partition_type = null
     }
+    "nyc_taxi_trips_raw" = {
+      partition_type = null
+    }
   }
 }
 

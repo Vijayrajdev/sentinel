@@ -1,0 +1,130 @@
+[
+  {
+    "name": "VendorID",
+    "type": "STRING",
+    "mode": "NULLABLE",
+    "description": "TLC Provider associated with the trip record"
+  },
+  {
+    "name": "tpep_pickup_datetime",
+    "type": "STRING",
+    "mode": "NULLABLE",
+    "description": "Date and time when the meter was engaged"
+  },
+  {
+    "name": "tpep_dropoff_datetime",
+    "type": "STRING",
+    "mode": "NULLABLE",
+    "description": "Date and time when the meter was disengaged"
+  },
+  {
+    "name": "passenger_count",
+    "type": "STRING",
+    "mode": "NULLABLE",
+    "description": "Driver-entered passenger count"
+  },
+  {
+    "name": "trip_distance",
+    "type": "STRING",
+    "mode": "NULLABLE",
+    "description": "Elapsed trip distance in miles"
+  },
+  {
+    "name": "RatecodeID",
+    "type": "STRING",
+    "mode": "NULLABLE",
+    "description": "Final rate code in effect at the end of the trip"
+  },
+  {
+    "name": "store_and_fwd_flag",
+    "type": "STRING",
+    "mode": "NULLABLE",
+    "description": "Whether the trip record was held in vehicle memory (Y/N)"
+  },
+  {
+    "name": "PULocationID",
+    "type": "STRING",
+    "mode": "NULLABLE",
+    "description": "TLC Taxi Zone of pickup"
+  },
+  {
+    "name": "DOLocationID",
+    "type": "STRING",
+    "mode": "NULLABLE",
+    "description": "TLC Taxi Zone of dropoff"
+  },
+  {
+    "name": "payment_type",
+    "type": "STRING",
+    "mode": "NULLABLE",
+    "description": "Numeric code signifying how the passenger paid"
+  },
+  {
+    "name": "fare_amount",
+    "type": "STRING",
+    "mode": "NULLABLE",
+    "description": "Time-and-distance fare calculated by the meter"
+  },
+  {
+    "name": "extra",
+    "type": "STRING",
+    "mode": "NULLABLE",
+    "description": "Miscellaneous extras and surcharges"
+  },
+  {
+    "name": "mta_tax",
+    "type": "STRING",
+    "mode": "NULLABLE",
+    "description": "MTA tax automatically triggered"
+  },
+  {
+    "name": "tip_amount",
+    "type": "STRING",
+    "mode": "NULLABLE",
+    "description": "Credit card tips"
+  },
+  {
+    "name": "tolls_amount",
+    "type": "STRING",
+    "mode": "NULLABLE",
+    "description": "Total amount of all tolls paid in trip"
+  },
+  {
+    "name": "improvement_surcharge",
+    "type": "STRING",
+    "mode": "NULLABLE",
+    "description": "Improvement surcharge assessed trips at the flag drop"
+  },
+  {
+    "name": "total_amount",
+    "type": "STRING",
+    "mode": "NULLABLE",
+    "description": "Total amount charged to passengers"
+  },
+  {
+    "name": "congestion_surcharge",
+    "type": "STRING",
+    "mode": "NULLABLE",
+    "description": "Amount collected in trip for NYS congestion surcharge"
+  },
+  {
+    "name": "airport_fee",
+    "type": "STRING",
+    "mode": "NULLABLE",
+    "description": "Fee for airport pickup/dropoff"
+  },
+  {
+    "name": "batch_date",
+    "type": "DATE",
+    "mode": "NULLABLE",
+    "description": "Partition Column",
+    "default_value_expression": "'9999-12-31'"
+  },
+  {
+    "name": "processed_dttm",
+    "type": "TIMESTAMP",
+    "mode": "NULLABLE",
+    "description": "Processing Time",
+    "default_value_expression": "CURRENT_TIMESTAMP()"
+  }
+]
