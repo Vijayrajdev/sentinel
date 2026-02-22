@@ -1,0 +1,6 @@
+config {
+  type: "declaration",
+  schema: "sentinel_raw",
+  name: "product_raw",
+  project: "sentinel-486707"
+}
