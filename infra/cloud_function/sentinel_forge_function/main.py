@@ -111,7 +111,7 @@ def log_ai_action(
 
 
 # ==============================================================================
-# 🧠 AGENT 1: SCHEMA DESIGNER
+# 🧠 AGENT 1: SCHEMA DESIGNER (Enhanced with defaultValueExpression check)
 # ==============================================================================
 def generate_dynamic_schema(
     table_name: str,
@@ -138,7 +138,16 @@ def generate_dynamic_schema(
             "⏹️ 🧩 [Schema Design] Finished schema generation (Fallback mode).",
             trace_id,
         )
-        return [{"name": c, "type": "STRING", "mode": "NULLABLE"} for c in new_cols]
+        # FEATURE ADDITION: Enforce defaultValueExpression in the programmatic fallback
+        return [
+            {
+                "name": c,
+                "type": "STRING",
+                "mode": "NULLABLE",
+                "defaultValueExpression": "NULL",
+            }
+            for c in new_cols
+        ]
 
     log_event(
         "INFO",
@@ -157,6 +166,7 @@ def generate_dynamic_schema(
             f"STYLE GUIDE (Mimic this format):\n```json\n{reference_json[:3000]}\n```"
         )
 
+    # FEATURE ADDITION: Prompt instruction 5 added to enforce defaultValueExpression
     prompt = f"""
     You are a Data Architect.
     Task: Generate a BigQuery Schema JSON for table "{table_name}".
@@ -172,6 +182,7 @@ def generate_dynamic_schema(
     2. All types must be 'STRING' (Raw Layer Standard).
     3. Mode must be 'NULLABLE'.
     4. Descriptions are mandatory. Infer them from column names.
+    5. EVERY single column MUST have a "defaultValueExpression" defined (e.g., use "NULL" for standard strings).
     
     Output: JSON Array only.
     """
@@ -205,11 +216,20 @@ def generate_dynamic_schema(
             "⏹️ 🧩 [Schema Design] Finished schema generation (Fallback mode).",
             trace_id,
         )
-        return [{"name": c, "type": "STRING", "mode": "NULLABLE"} for c in new_cols]
+        # FEATURE ADDITION: Enforce defaultValueExpression in error fallback
+        return [
+            {
+                "name": c,
+                "type": "STRING",
+                "mode": "NULLABLE",
+                "defaultValueExpression": "NULL",
+            }
+            for c in new_cols
+        ]
 
 
 # ==============================================================================
-# 🧠 AGENT 2: TERRAFORM ARCHITECT (Enhanced with Repo Mimicry for _hist)
+# 🧠 AGENT 2: TERRAFORM ARCHITECT
 # ==============================================================================
 def analyze_tf_repo_state(
     repo, branch_sha: str, table_id: str, trace_id: str
@@ -226,7 +246,7 @@ def analyze_tf_repo_state(
         "host_file": None,
         "host_file_content": None,
         "style_guide_tf": "",
-        "style_guide_tf_hist": "",  # Added for strict mimicry
+        "style_guide_tf_hist": "",
     }
 
     try:
@@ -253,7 +273,6 @@ def analyze_tf_repo_state(
             blob = repo.get_git_blob(element.sha)
             content = base64.b64decode(blob.content).decode("utf-8")
 
-            # Extract existing TF style guides for QA and Architect matching
             if "_hist" in content and not state["style_guide_tf_hist"]:
                 state["style_guide_tf_hist"] = content
                 log_event(
@@ -345,7 +364,7 @@ def generate_tf_patch_or_create(
     tf_state: Dict[str, Any],
     trace_id: str,
 ) -> str:
-    """Goal: Write HCL code. Now fully enforces _hist table creation without own generation."""
+    """Goal: Write HCL code. Enforces _hist creation AND reuses main schema path."""
     log_event(
         "INFO",
         f"▶️ 🏗️ [TF Architect] Initiating Terraform HCL synthesis for '{table_id}'...",
@@ -370,13 +389,12 @@ def generate_tf_patch_or_create(
         trace_id,
     )
 
-    # DYNAMIC HISTORY TABLE INJECTION (Strict Mimicry applied)
     style_guide_hist = tf_state.get("style_guide_tf_hist", "")
     hist_instruction = ""
     if table_id.endswith("_raw"):
         log_event(
             "INFO",
-            f"⏳ 🏗️ [TF Architect] Raw table detected. Injecting STRICT _hist infrastructure rules...",
+            f"⏳ 🏗️ [TF Architect] Raw table detected. Injecting STRICT _hist infrastructure rules with schema reuse...",
             trace_id,
         )
         mimic_rule = (
@@ -385,9 +403,10 @@ def generate_tf_patch_or_create(
             else "Configure with `expiration_ms = 2592000000` for 30 days."
         )
 
+        # FEATURE ADDITION: Enforce exactly matching the schema path for DRY architecture
         hist_instruction = f"""
         CRITICAL REQUIREMENT: Because '{table_id}' is a raw landing table, you MUST ALSO generate the Terraform resource for its history table named '{table_id}_hist'. 
-        - History Schema File: "{schema_path.replace('.json', '_hist.json')}"
+        - History Schema File: "{schema_path}" (CRITICAL: Reuse the EXACT SAME JSON schema path as the main table. DO NOT append _hist to the json filename).
         {mimic_rule}
         Ensure BOTH the main table AND the history table are included in your HCL output.
         """
@@ -450,7 +469,7 @@ def generate_tf_patch_or_create(
 
 
 # ==============================================================================
-# 🧠 AGENT 3: DATAFORM SCANNER (Semantic Context Gathering)
+# 🧠 AGENT 3: DATAFORM SCANNER
 # ==============================================================================
 def analyze_dataform_repo_state(
     repo, branch_sha: str, base_name: str, table_name: str, trace_id: str
@@ -471,7 +490,6 @@ def analyze_dataform_repo_state(
             if e.path.startswith("definitions/") and e.path.endswith(".sqlx")
         ]
 
-        # Intelligent aliases to find tables across varying folder names
         aliases = {table_name, base_name, base_name.rstrip("s"), base_name.rstrip("es")}
         aliases = {a for a in aliases if len(a) > 2}
 
@@ -483,7 +501,6 @@ def analyze_dataform_repo_state(
                     repo.get_git_blob(element.sha).content
                 ).decode("utf-8")
 
-                # Strict verification: verify the entity is actually declared/referenced in the SQL
                 if any(alias in content.lower() for alias in aliases):
                     state["existing_files"][element.path] = content
                     log_event(
@@ -492,7 +509,6 @@ def analyze_dataform_repo_state(
                         trace_id,
                     )
 
-                    # Extract the existing domain folder from the path structure
                     parts = element.path.split("/")
                     if len(parts) >= 4 and parts[1] in ["marts", "staging"]:
                         state["inferred_domain"] = parts[2]
@@ -514,7 +530,7 @@ def analyze_dataform_repo_state(
 
 
 # ==============================================================================
-# 🧠 AGENT 4: DATAFORM ARCHITECT (Pipeline Gen + Data Quality)
+# 🧠 AGENT 4: DATAFORM ARCHITECT
 # ==============================================================================
 def generate_ai_dataform_pipeline(
     table_name: str,
@@ -622,12 +638,23 @@ def generate_ai_dataform_pipeline(
             f"✅ 🪄 [DF Architect] AI successfully generated {len(pipeline_files)} SQLX files with embedded Data Quality checks.",
             trace_id,
         )
+
+        log_ai_action(
+            trace_id,
+            "GENERATE_DATAFORM_CODE",
+            table_name,
+            "SUCCESS",
+            {"files_generated": list(pipeline_files.keys())},
+        )
         log_event("INFO", "⏹️ 🪄 [DF Architect] Finished Dataform generation.", trace_id)
         return pipeline_files
 
     except Exception as e:
         log_event(
             "ERROR", f"❌ 🪄 [DF Architect] AI Code Generation Failed: {e}", trace_id
+        )
+        log_ai_action(
+            trace_id, "GENERATE_DATAFORM_CODE", table_name, "FAILED", {"error": str(e)}
         )
         log_event(
             "INFO",
@@ -638,7 +665,7 @@ def generate_ai_dataform_pipeline(
 
 
 # ==============================================================================
-# 🧠 AGENT 5: DATAFORM QA VERIFIER (Automated Reviewer)
+# 🧠 AGENT 5: DATAFORM QA VERIFIER
 # ==============================================================================
 def verify_dataform_pipeline(
     pipeline_files: Dict[str, str],
@@ -670,13 +697,13 @@ def verify_dataform_pipeline(
     REQUIRED COLUMNS: {clean_schema} | NEW COLUMNS: {new_cols}
     
     Checklist:
-    1. FOLDER STRUCTURE: If files exist in a domain folder, DO NOT change the path. Fix paths only if placed directly in `marts/` or `staging/`.
+    1. FOLDER STRUCTURE: If the files already exist in a domain folder, DO NOT change the path. Fix the path ONLY to include a logical domain folder if placed directly in `marts/` or `staging/`.
     2. SCHEMA VALIDATION: Are all required columns explicitly selected? (If missing, ADD THEM to the SQL SELECT block).
-    3. DATA QUALITY: Does the `config` block of `stg_` and `fct_` files contain an `assertions` dictionary? If missing, ADD THEM.
+    3. DATA QUALITY: Does the `config` block of `stg_` and `fct_` files contain an `assertions` dictionary (e.g., `uniqueKey`, `nonNull`)? If missing, ADD THEM based on schema logic.
     4. SYNTAX & IDEMPOTENCY: Verify Dataform syntax (`${{ref()}}`) and TRUNCATE logic in the operations file.
     
-    Fix any errors. Output STRICTLY a JSON object where keys are the corrected full file paths and values are the corrected SQLX string content. 
-    Output JSON ONLY.
+    Fix any errors found in paths or SQL content. Output STRICTLY a JSON object where keys are the corrected full file paths and values are the corrected SQLX string content. 
+    Output JSON ONLY. No explanation.
     """
 
     try:
@@ -714,7 +741,7 @@ def verify_dataform_pipeline(
 
 
 # ==============================================================================
-# 🧠 AGENT 6: SCHEMA QA VERIFIER (Automated Reviewer)
+# 🧠 AGENT 6: SCHEMA QA VERIFIER (Enhanced with defaultValueExpression verification)
 # ==============================================================================
 def verify_schema_json(
     schema_list: List[Dict], table_name: str, new_cols: List[str], trace_id: str
@@ -732,6 +759,7 @@ def verify_schema_json(
         )
         return schema_list
 
+    # FEATURE ADDITION: Explicit QA check for defaultValueExpression
     prompt = f"""
     You are a Senior Data QA Lead. Review this JSON BigQuery Schema generated by a junior engineer.
     
@@ -743,6 +771,7 @@ def verify_schema_json(
     2. Are all types strictly set to 'STRING' (except for 'batch_date' and 'processed_dttm' which should be DATE/TIMESTAMP)?
     3. Are all modes strictly set to 'NULLABLE'?
     4. Are 'batch_date' and 'processed_dttm' explicitly included at the end?
+    5. CRITICAL: Does EVERY single column have a "defaultValueExpression" defined? If missing, you MUST inject `"defaultValueExpression": "NULL"` into that column's object.
     
     Fix any errors found. Output STRICTLY a valid JSON list of objects representing the corrected BigQuery schema.
     Output JSON ONLY. No explanation.
@@ -759,7 +788,7 @@ def verify_schema_json(
         verified_schema = json.loads(text)
         log_event(
             "INFO",
-            f"✅ 🕵️‍♀️ [Schema QA] QA passed. Schema verified and validated.",
+            f"✅ 🕵️‍♀️ [Schema QA] QA passed. Schema verified and Default Values validated.",
             trace_id,
         )
         log_event("INFO", "⏹️ 🕵️‍♀️ [Schema QA] Finished automated review.", trace_id)
@@ -767,24 +796,29 @@ def verify_schema_json(
     except Exception as e:
         log_event(
             "WARNING",
-            f"⚠️ 🕵️‍♀️ [Schema QA] QA Verification Failed. Falling back to unverified schema. {e}",
+            f"⚠️ 🕵️‍♀️ [Schema QA] QA Verification Failed. Applying programmatic fallback for default values. {e}",
             trace_id,
         )
+        # FEATURE ADDITION: Programmatic fallback to ensure defaultValueExpression exists even if AI QA crashes
+        for col in schema_list:
+            if "defaultValueExpression" not in col:
+                col["defaultValueExpression"] = "NULL"
+
         log_event(
             "INFO",
-            "⏹️ 🕵️‍♀️ [Schema QA] Finished automated review (Fallback applied).",
+            "⏹️ 🕵️‍♀️ [Schema QA] Finished automated review (Programmatic Fallback applied).",
             trace_id,
         )
         return schema_list
 
 
 # ==============================================================================
-# 🧠 AGENT 7: TERRAFORM QA VERIFIER (Automated Reviewer)
+# 🧠 AGENT 7: TERRAFORM QA VERIFIER (Enhanced for exact Schema Reuse)
 # ==============================================================================
 def verify_terraform_hcl(
     hcl_content: str, table_id: str, tf_state: Dict[str, Any], trace_id: str
 ) -> str:
-    """Goal: Ensure Terraform code syntax is perfect and history table creation rules were followed."""
+    """Goal: Ensure Terraform code syntax is perfect and history table creation uses schema reuse."""
     log_event(
         "INFO",
         f"▶️ 🕵️‍♀️ [TF QA] Initiating automated peer-review of Terraform HCL...",
@@ -800,10 +834,12 @@ def verify_terraform_hcl(
 
     hist_rule = ""
     if is_raw_table:
+        # FEATURE ADDITION: QA check to ensure schema reuse is strictly adhered to
         hist_rule = f"""
         CRITICAL RULE: Because this is a raw table ({table_id}), there MUST be a corresponding '{table_id}_hist' google_bigquery_table resource defined.
         If it is missing, you MUST inject it based on this enterprise pattern:
         ```hcl\n{style_guide_hist[:1000]}\n```
+        CRITICAL SCHEMA REUSE: The history table MUST use the exact same schema file path as the main table. Do not allow the use of a separate _hist.json file.
         """
 
     prompt = f"""
@@ -953,9 +989,16 @@ def apply_infrastructure_update(
     )
     clean_schema_base = SCHEMA_BASE_PATH.strip().rstrip("/")
     target_json_path = f"{clean_schema_base}/{table}.json"
-    target_hist_json_path = (
-        f"{clean_schema_base}/{table}_hist.json" if is_raw_table else None
-    )
+
+    # FEATURE ADDITION: Enforce schema reuse for history tables explicitly by setting this to None.
+    # The Terraform Architect Agent now links the _hist table to target_json_path instead.
+    target_hist_json_path = None
+    if is_raw_table:
+        log_event(
+            "INFO",
+            "🎯 🚀 [Orchestrator] Enforcing DRY architecture: History table will reuse the main table's JSON schema.",
+            trace_id,
+        )
 
     if tf_state["is_defined"]:
         tf_action, target_tf_path, host_content = (
@@ -1175,7 +1218,7 @@ def apply_infrastructure_update(
     if should_update_json:
         log_event(
             "INFO",
-            "💾 🚀 [Orchestrator] Committing JSON Schema payloads (including History if applicable)...",
+            "💾 🚀 [Orchestrator] Committing JSON Schema payload...",
             trace_id,
         )
         msg = (
@@ -1184,7 +1227,7 @@ def apply_infrastructure_update(
             else f"feat(schema): create {table} schema layout"
         )
 
-        # Primary Schema Commit
+        # Primary Schema Commit (History schema logic dynamically points here now)
         if json_exists:
             repo.update_file(
                 target_json_path,
@@ -1201,30 +1244,7 @@ def apply_infrastructure_update(
                 branch=branch_name,
             )
 
-        # History Schema Commit (Automatically syncs exact same schema)
-        if is_raw_table and target_hist_json_path:
-            hist_msg = f"feat(schema): sync history table schema for {table}_hist"
-            try:
-                c_hist = repo.get_contents(target_hist_json_path, ref=branch_name)
-                repo.update_file(
-                    target_hist_json_path,
-                    hist_msg,
-                    json.dumps(final_schema_list, indent=2),
-                    c_hist.sha,
-                    branch=branch_name,
-                )
-            except GithubException:
-                repo.create_file(
-                    target_hist_json_path,
-                    hist_msg,
-                    json.dumps(final_schema_list, indent=2),
-                    branch=branch_name,
-                )
-            log_event(
-                "INFO",
-                f"💾 🚀 [Orchestrator] Synchronized history schema at {target_hist_json_path}",
-                trace_id,
-            )
+        # target_hist_json_path commit logic is bypassed natively because we assigned it to None earlier
 
     if tf_changed:
         log_event(
@@ -1263,6 +1283,7 @@ def apply_infrastructure_update(
     title_prefix = "fix" if json_exists or df_files_changed > 0 else "feat"
     pr_title = f"{title_prefix}(dataops): Automated Pipeline & DQ Healing for {table}"
 
+    # FEATURE ADDITION: Update PR Body to reflect DRY architecture and Default values
     pr_body = f"""
 # 🤖 Sentinel-Forge Automated Resolution
 **Trace ID:** `{trace_id}`
@@ -1274,7 +1295,7 @@ Sentinel-Forge has intercepted a pipeline anomaly and autonomously generated the
 | Layer | Status | Target Path |
 |---|---|---|
 | **BigQuery Schema** | {pr_status_schema} | `{target_json_path}` |
-| **History Schema Sync** | {"✅ Active" if is_raw_table else "⏭️ N/A"} | `{target_hist_json_path or "N/A"}` |
+| **History Schema Sync** | {"✅ Reused Main Schema" if is_raw_table else "⏭️ N/A"} | `{target_json_path if is_raw_table else "N/A"}` |
 | **Terraform HCL** | {pr_status_tf} | `{target_tf_path}` |
 | **Dataform SQLX** | {pr_status_df} | Semantic Domain Routing Applied |
 
@@ -1284,18 +1305,18 @@ Added **{len(added_cols_for_pr)}** columns to the Raw Layer.
 
 ### 🪄 Agent Activity Log
 1. **Scanner:** Mapped target domain folders semantically, preserving existing paths.
-2. **Architect:** Generated HCL and embedded strict **Data Quality Assertions** (`uniqueKey`, `nonNull`) into the `.sqlx` blocks.
-3. **Schema QA:** Verified JSON structure and ensured audit columns were present.
-4. **Terraform QA:** Verified syntax and enforced strict adherence to repo rules for `_hist` structures.
-5. **Dataform QA:** Validated SQL syntax, corrected folder structures, and enforced 100% column inclusion.
+2. **Architect:** Generated HCL and embedded strict **Data Quality Assertions** into `.sqlx` blocks.
+3. **Schema QA:** Verified JSON structure and rigorously enforced `defaultValueExpression` on all columns.
+4. **Terraform QA:** Enforced schema reuse (`DRY` principle) between main and `_hist` table resources.
+5. **Dataform QA:** Validated SQL syntax and enforced 100% column inclusion.
 
 **Commit Log:**
 {df_commit_log}
 
 ### 🛡️ Governance Checklist
+- [x] **Schema Integrity:** `defaultValueExpression` strictly enforced for all columns.
+- [x] **DRY Architecture:** History tables natively reuse raw landing schemas.
 - [x] **Data Quality:** Automated assertions added to Dataform `config` blocks.
-- [x] **Audit Columns:** `batch_date`, `processed_dttm` rigidly enforced.
-- [x] **Idempotency:** Operations file configured to TRUNCATE raw landing zone post-archive.
 
 ### ✅ Action Required
 Review the file changes and merge this Pull Request.
@@ -1323,15 +1344,19 @@ Review the file changes and merge this Pull Request.
             "action": "UPDATE" if json_exists else "CREATE",
             "target_table": table,
             "history_table_synced": (
-                f"{table}_hist" if is_raw_table else "Not a raw table"
+                f"{table}_hist (Reusing {target_json_path})"
+                if is_raw_table
+                else "Not a raw table"
             ),
             "columns_added_or_verified": [c["name"] for c in added_cols_for_pr],
             "total_schema_columns": len(final_schema_list),
+            "default_value_expressions_enforced": True,
         },
         "infrastructure_updates": {
             "action": tf_action,
             "files_modified": target_tf_path,
             "history_infrastructure_created": is_raw_table,
+            "schema_reuse_applied": is_raw_table,
         },
         "dataform_updates": {
             "total_files_processed": df_files_changed,
