@@ -1,0 +1,22 @@
+config {
+  type: "view",
+  schema: "sentinel_staging",
+  tags: ["staging", "ecommerce"],
+  assertions: {
+    uniqueKey: ["product_id"],
+    nonNull: ["product_id", "product_name", "batch_date", "processed_dttm"],
+    rowConditions: [
+      "base_price >= 0"
+    ]
+  }
+}
+
+SELECT
+  product_id,
+  product_name,
+  category,
+  SAFE_CAST(base_price AS NUMERIC) AS base_price,
+  batch_date,
+  processed_dttm
+FROM
+  ${ref("product_raw")}
