@@ -3,50 +3,70 @@
     "name": "order_id",
     "type": "STRING",
     "mode": "NULLABLE",
-    "description": "Unique ID for this specific order"
+    "description": "Unique ID for this specific order",
+    "defaultValueExpression": "NULL"
   },
   {
     "name": "customer_name",
     "type": "STRING",
     "mode": "NULLABLE",
-    "description": "Name of the customer"
+    "description": "Name of the customer",
+    "defaultValueExpression": "NULL"
   },
   {
     "name": "amount",
-    "type": "STRING",
+    "type": "NUMERIC",
     "mode": "NULLABLE",
-    "description": "order amount"
+    "description": "order amount",
+    "defaultValueExpression": "NULL"
   },
   {
     "name": "status",
     "type": "STRING",
     "mode": "NULLABLE",
-    "description": "Status of the order"
+    "description": "Status of the order",
+    "defaultValueExpression": "NULL"
   },
   {
     "name": "order_date",
+    "type": "DATETIME",
+    "mode": "NULLABLE",
+    "description": "When the order made",
+    "defaultValueExpression": "NULL"
+  },
+  {
+    "name": "email",
     "type": "STRING",
     "mode": "NULLABLE",
-    "description": "When the order made"
+    "description": "The email address of the customer.",
+    "defaultValueExpression": "NULL"
+  },
+  {
+    "name": "product_id",
+    "type": "STRING",
+    "mode": "NULLABLE",
+    "description": "The unique identifier for the product.",
+    "defaultValueExpression": "NULL"
+  },
+  {
+    "name": "warehouse_id",
+    "type": "STRING",
+    "mode": "NULLABLE",
+    "description": "Unique identifier for the warehouse associated with the order.",
+    "defaultValueExpression": "NULL"
   },
   {
     "name": "batch_date",
     "type": "DATE",
-    "mode": "REQUIRED",
+    "mode": "NULLABLE",
     "defaultValueExpression": "DATE '9999-12-31'",
     "description": "Record's batch date: Default '9999-12-31'"
   },
   {
     "name": "processed_dttm",
     "type": "TIMESTAMP",
-    "mode": "REQUIRED",
+    "mode": "NULLABLE",
     "defaultValueExpression": "CURRENT_TIMESTAMP()",
     "description": "When the record inserted"
-  },
-  {
-    "name": "warehouse_id",
-    "type": "STRING",
-    "mode": "NULLABLE",
-    "description": "Unique identifier for the warehouse associated with the order."
   }
 ]
