@@ -4,14 +4,19 @@ config {
   uniqueKey: ["order_id"],
   bigquery: {
     partitionBy: "order_date",
-    clusterBy: ["status", "warehouse_id"]
+    clusterBy: ["status", "warehouse_id", "product_id"]
   },
-  tags: ["daily", "sales"]
+  tags: ["sales", "orders", "marts"],
+  assertions: {
+    nonNull: ["order_id", "product_id", "warehouse_id", "order_date"]
+  }
 }
 
 SELECT
   order_id,
   customer_name,
+  email,
+  product_id,
   amount,
   status,
   order_date,
@@ -21,4 +26,4 @@ FROM
   ${ref("stg_orders")}
 
 -- This block ensures idempotency by only fetching new records
-${when(incremental(), `WHERE processed_dttm > (SELECT MAX(updated_at) FROM ${self()})` )}
+${when(incremental(), `WHERE processed_dttm > (SELECT MAX(updated_at) FROM ${self()})`)}
