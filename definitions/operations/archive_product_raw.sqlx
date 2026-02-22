@@ -1,0 +1,24 @@
+config {
+  type: "operations",
+  dependencies: [ "fct_product" ],
+  tags: ["operations", "archive"]
+}
+
+-- Append the processed and cleaned data to the history table.
+-- Assumes a history table 'product_raw_hist' exists with a compatible schema.
+INSERT INTO `sentinel-486707.raw_ecommerce.product_raw_hist` (
+  product_id,
+  product_name,
+  category,
+  base_price,
+  batch_date,
+  processed_dttm
+)
+SELECT
+  product_id,
+  product_name,
+  category,
+  base_price,
+  batch_date,
+  processed_dttm
+FROM ${ref("stg_product")};
