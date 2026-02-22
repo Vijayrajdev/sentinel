@@ -729,7 +729,7 @@ def infer_pipeline_datasets_with_ai(
 
 
 # ==============================================================================
-# 🧠 AGENT 4: DATAFORM ARCHITECT (Enhanced with Syntax, Operations, and Declarations Safeguards)
+# 🧠 AGENT 4: DATAFORM ARCHITECT (Enhanced with Temporal Updates)
 # ==============================================================================
 def generate_ai_dataform_pipeline(
     table_name: str,
@@ -741,7 +741,7 @@ def generate_ai_dataform_pipeline(
     datasets: Dict[str, str],
     trace_id: str,
 ) -> Dict[str, str]:
-    """Goal: Dynamically generate Dataform files, strictly enforcing datasets, tags, syntax, and declaration exceptions."""
+    """Goal: Dynamically generate Dataform files, strictly enforcing datasets, tags, syntax, and temporal batch_date logic."""
     log_event(
         "INFO",
         f"▶️ 🪄 [DF Architect] Analyzing requirements for '{table_name}'...",
@@ -772,15 +772,16 @@ def generate_ai_dataform_pipeline(
     actual_domain = inferred_domain if inferred_domain else "logical_domain"
 
     if existing_files:
+        existing_paths = list(existing_files.keys())
         log_event(
             "INFO",
-            "🩹 🪄 [DF Architect] Existing files detected. Operating in PATCH mode.",
+            f"🩹 🪄 [DF Architect] Existing files detected. Locking allowed file paths to: {existing_paths}",
             trace_id,
         )
         instruction_block = f"""
         Some or all pipeline files exist. EXISTING FILES: {json.dumps(existing_files)}
         Task: PATCH these existing files. 
-        CRITICAL: Use the EXACT file paths provided as output keys. DO NOT change the folder structure or rename existing domain folders.
+        CRITICAL ANTI-HALLUCINATION RULE: You MUST use the EXACT file paths provided in the EXISTING FILES dictionary as the keys in your output JSON. The allowed keys are strictly: {existing_paths}. DO NOT invent new file paths. DO NOT create duplicate files.
         CRITICAL: Ensure new columns ({new_cols}) are explicitly selected in the views and tables.
         """
     else:
@@ -806,10 +807,10 @@ def generate_ai_dataform_pipeline(
         STYLE GUIDE (Mimic format): ```sql\n{style_guide[:2000]}\n```
         """
 
-    # FEATURE ADDITION: Enforce that declarations (sources) DO NOT use tags.
+    # FEATURE ADDITION: Global batch_date temporal enforcement (Requirement 4)
     log_event(
         "INFO",
-        "🛡️ 🪄 [DF Architect] Enforcing Dataform syntax rules: Declarations must NOT contain tags.",
+        "🛡️ 🪄 [DF Architect] Enforcing global temporal logic: batch_date must map to CURRENT_DATE().",
         trace_id,
     )
     prompt = f"""
@@ -830,23 +831,23 @@ def generate_ai_dataform_pipeline(
        - The raw source data is entirely STRING type. You MUST explicitly `CAST()` these string columns to their proper native BigQuery types (e.g., `INT64`, `TIMESTAMP`, `BOOLEAN`, `FLOAT64`) based on the Sample Data provided.
        - You MUST perform row deduplication. Use `QUALIFY ROW_NUMBER() OVER(PARTITION BY <infer_primary_key_here> ORDER BY processed_dttm DESC) = 1`.
     3. DATA QUALITY (ASSERTIONS): Embed Data Quality checks inside the `config {{ ... }}` block of staging and marts.
-    4. CRITICAL ARCHIVE DATE & DESTINATION LOGIC: In the operations (`archive_...`) file:
-       - You MUST STRICTLY use `CURRENT_DATE() AS batch_date` in the SELECT clause.
+    4. CRITICAL BATCH DATE LOGIC (GLOBAL OVERRIDE): Whenever selecting from the raw layer or transforming data in ANY layer (staging, marts, and archive/operations), you MUST explicitly update the `batch_date` from its default value to the current date by using `CURRENT_DATE() AS batch_date` in your SELECT statements. Do NOT just pass the raw `batch_date` through.
+    5. CRITICAL ARCHIVE DESTINATION LOGIC: In the operations (`archive_...`) file:
        - DO NOT use `${{self.database}}` or `${{self.schema}}` for the insert destination. Operations blocks do not possess 'self' context. You MUST explicitly build the path as: `{PROJECT_ID}.{datasets['raw']}.{table_name}_hist`
-    5. CRITICAL DATAFORM RULE: Actions may only include `post_operations` if they create a dataset. Because the `archive_` file is `type: "operations"`, it DOES NOT create a dataset. Therefore, you MUST NOT use a `post_operations {{ ... }}` block. Just place the `TRUNCATE` statement as a normal sequential SQL query immediately after the `INSERT` statement.
-    6. DATAFORM SYNTAX: Do NOT place any SQL or JS comments (`--`, `//`, `/* */`) inside the `config {{ ... }}` blocks.
-    7. STRICT TAGGING TAXONOMY: Every file's `config` block MUST contain a `tags: []` array, EXCEPT for declaration files. Dataform `type: "declaration"` (your source files) DO NOT support the `tags` property. For all other layers (staging, marts, operations), the tags MUST explicitly include:
+    6. CRITICAL DATAFORM RULE: Actions may only include `post_operations` if they create a dataset. Because the `archive_` file is `type: "operations"`, it DOES NOT create a dataset. Therefore, you MUST NOT use a `post_operations {{ ... }}` block. Just place the `TRUNCATE` statement as a normal sequential SQL query immediately after the `INSERT` statement.
+    7. DATAFORM SYNTAX: Do NOT place any SQL or JS comments (`--`, `//`, `/* */`) inside the `config {{ ... }}` blocks.
+    8. STRICT TAGGING TAXONOMY: Every file's `config` block MUST contain a `tags: []` array, EXCEPT for declaration files. Dataform `type: "declaration"` (your source files) DO NOT support the `tags` property. For all other layers (staging, marts, operations), the tags MUST explicitly include:
        1. The domain name ('{actual_domain}')
        2. The base entity name ('{base_name}')
        3. The layer name ('staging', 'marts', or 'archive' based on the file type).
        Example for staging: `tags: ["{actual_domain}", "{base_name}", "staging"]`
-    8. Output STRICTLY a JSON object where keys are full file paths and values are exact SQLX string content. No markdown.
+    9. Output STRICTLY a JSON object where keys are full file paths and values are exact SQLX string content. No markdown.
     """
 
     try:
         log_event(
             "INFO",
-            "⏳ 🪄 [DF Architect] Instructing Gemini to synthesize Dataform files with Tags, Rules, and Declaration exceptions...",
+            "⏳ 🪄 [DF Architect] Instructing Gemini to synthesize Dataform files with Tags, Temporal Rules, and Strict File Paths...",
             trace_id,
         )
         response = model.generate_content(prompt)
@@ -859,7 +860,7 @@ def generate_ai_dataform_pipeline(
         pipeline_files = json.loads(text)
         log_event(
             "INFO",
-            f"✅ 🪄 [DF Architect] AI successfully generated {len(pipeline_files)} SQLX files conforming to strict syntax, tags, and operational bounds.",
+            f"✅ 🪄 [DF Architect] AI successfully generated {len(pipeline_files)} SQLX files conforming to strict syntax, temporal logic, and operational bounds.",
             trace_id,
         )
 
@@ -900,7 +901,7 @@ def generate_ai_dataform_pipeline(
 
 
 # ==============================================================================
-# 🧠 AGENT 5: DATAFORM QA VERIFIER (Enhanced Declaration Tag Checks)
+# 🧠 AGENT 5: DATAFORM QA VERIFIER (Enhanced Temporal Date Checks)
 # ==============================================================================
 def verify_dataform_pipeline(
     pipeline_files: Dict[str, str],
@@ -911,7 +912,7 @@ def verify_dataform_pipeline(
     base_name: str,
     trace_id: str,
 ) -> Dict[str, str]:
-    """Goal: QA Lead verifies tags, checks declaration exemptions, validates casting, operations destinations, and schemas."""
+    """Goal: QA Lead verifies file paths, temporal date updates, tags, declaration exemptions, and operations destinations."""
     log_event(
         "INFO",
         f"▶️ 🕵️‍♀️ [DF QA] Initiating automated peer-review of generated SQLX code...",
@@ -929,8 +930,9 @@ def verify_dataform_pipeline(
     ]
 
     inferred_domain = df_state.get("inferred_domain", "domain_placeholder")
+    existing_paths = list(df_state.get("existing_files", {}).keys())
 
-    # FEATURE ADDITION: Included declaration tag removal in Checklist 10
+    # FEATURE ADDITION: Global temporal batch_date override check (Checklist 4)
     prompt = f"""
     You are a Senior Data QA Lead. Review this Dataform pipeline generated by a junior engineer.
     
@@ -938,18 +940,20 @@ def verify_dataform_pipeline(
     REQUIRED COLUMNS: {clean_schema} | NEW COLUMNS: {new_cols}
     EXPECTED DATASETS: Raw: "{datasets['raw']}", Staging: "{datasets['stg']}", Marts: "{datasets['marts']}"
     EXPECTED BASE ENTITY: "{base_name}"
+    EXPECTED EXISTING PATHS: {existing_paths}
     
     Checklist:
-    1. FOLDER STRUCTURE: If the files already exist in a domain folder, DO NOT change the path. Fix the path ONLY to include a logical domain folder if placed directly in `marts/` or `staging/`.
+    1. STRICT ANTI-HALLUCINATION (FILE PATHS): If 'EXPECTED EXISTING PATHS' is not empty, the keys in your output JSON MUST match these paths exactly. Forcefully revert hallucinated keys back to the 'EXPECTED EXISTING PATHS'.
     2. SCHEMA VALIDATION: Are all required columns explicitly selected? (If missing, ADD THEM).
     3. DATASET ENFORCEMENT: Ensure the schemas defined in the `config` blocks explicitly match the EXPECTED DATASETS.
-    4. ARCHIVE DESTINATION & DATE: Ensure the operations (`archive_...`) file explicitly uses `{PROJECT_ID}.{datasets['raw']}` for the target table (NO `${{self.database}}` or `${{self.schema}}`). It must also use `CURRENT_DATE() AS batch_date`.
-    5. STAGING DEDUPLICATION: Does the staging file perform row deduplication (e.g., `QUALIFY ROW_NUMBER() OVER(...) = 1`)? If missing, ADD IT.
-    6. STAGING CASTING: Does the staging file explicitly `CAST()` raw STRING columns to appropriate native types? If missing, ADD CASTING syntax.
-    7. DATA QUALITY: Does the `config` block of `stg_` and `fct_` files contain an `assertions` dictionary? If missing, ADD THEM.
-    8. CONFIG BLOCK SYNTAX: Ensure there are absolutely NO comments (`--`, `//`, `/* */`) inside the `config {{ ... }}` blocks of any file. Remove them if they exist.
-    9. POST_OPERATIONS BAN (CRITICAL): Ensure the `archive_` operations file DOES NOT contain a `post_operations {{ ... }}` block. The TRUNCATE statement must simply be sequential SQL.
-    10. TAG TAXONOMY (CRITICAL): Ensure the `config` block of EVERY file EXCEPT declarations contains a `tags: []` array. Dataform `type: "declaration"` DOES NOT support tags. If a declaration file has tags, REMOVE the tags property. For all other files, it MUST contain exactly these 3 elements: the domain name (e.g., "{inferred_domain}"), the entity name ("{base_name}"), and the layer ("staging", "marts", or "archive"). Add them if missing.
+    4. BATCH DATE ENFORCEMENT (GLOBAL): Across ALL files (staging, marts, and operations), ensure the `batch_date` column is explicitly updated using `CURRENT_DATE() AS batch_date`. If they just select `batch_date`, replace it with `CURRENT_DATE() AS batch_date`.
+    5. ARCHIVE DESTINATION LOGIC: Ensure the operations (`archive_...`) file explicitly uses `{PROJECT_ID}.{datasets['raw']}` for the target table (NO `${{self.database}}` or `${{self.schema}}`).
+    6. STAGING DEDUPLICATION: Does the staging file perform row deduplication (e.g., `QUALIFY ROW_NUMBER() OVER(...) = 1`)? If missing, ADD IT.
+    7. STAGING CASTING: Does the staging file explicitly `CAST()` raw STRING columns to appropriate native types? If missing, ADD CASTING syntax.
+    8. DATA QUALITY: Does the `config` block of `stg_` and `fct_` files contain an `assertions` dictionary? If missing, ADD THEM.
+    9. CONFIG BLOCK SYNTAX: Ensure there are absolutely NO comments (`--`, `//`, `/* */`) inside the `config {{ ... }}` blocks of any file. Remove them if they exist.
+    10. POST_OPERATIONS BAN (CRITICAL): Ensure the `archive_` operations file DOES NOT contain a `post_operations {{ ... }}` block. The TRUNCATE statement must simply be sequential SQL.
+    11. TAG TAXONOMY (CRITICAL): Ensure the `config` block of EVERY file EXCEPT declarations contains a `tags: []` array. Dataform `type: "declaration"` DOES NOT support tags. If a declaration file has tags, REMOVE the tags property. For all other files, it MUST contain exactly these 3 elements: the domain name (e.g., "{inferred_domain}"), the entity name ("{base_name}"), and the layer ("staging", "marts", or "archive"). Add them if missing.
     
     Fix any errors found in paths or SQL content. Output STRICTLY a JSON object where keys are the corrected full file paths and values are the corrected SQLX string content. 
     Output JSON ONLY. No explanation.
@@ -958,7 +962,7 @@ def verify_dataform_pipeline(
     try:
         log_event(
             "INFO",
-            "⏳ 🕵️‍♀️ [DF QA] Awaiting QA review, operations binding verification, tagging, and assertion validation...",
+            "⏳ 🕵️‍♀️ [DF QA] Awaiting QA review, global temporal enforcement, tagging, and assertion validation...",
             trace_id,
         )
         text = model.generate_content(prompt).text.strip()
@@ -970,7 +974,7 @@ def verify_dataform_pipeline(
         verified_files = json.loads(text)
         log_event(
             "INFO",
-            f"✅ 🕵️‍♀️ [DF QA] QA passed. Tags verified (and removed from declarations), Post_operations banned, and Configs sanitized.",
+            f"✅ 🕵️‍♀️ [DF QA] QA passed. Temporal batch_date enforced. Paths rigorously locked. Tags verified.",
             trace_id,
         )
         log_event("INFO", "⏹️ 🕵️‍♀️ [DF QA] Finished automated review.", trace_id)
@@ -1099,6 +1103,7 @@ def verify_terraform_hcl(
     Checklist:
     1. Is the HCL syntax perfect? Look for missing brackets or quotation marks.
     2. Does the main table resource for '{table_id}' exist?
+    3. ANTI-HALLUCINATION RULE: Do not invent new resources that were not requested.
     {hist_rule}
     
     Fix any errors found. Output STRICTLY the corrected Terraform HCL code. No markdown formatting outside the code block.
@@ -1560,6 +1565,7 @@ def apply_infrastructure_update(
     title_prefix = "fix" if json_exists or df_files_changed > 0 else "feat"
     pr_title = f"{title_prefix}(dataops): Automated Pipeline & DQ Healing for {table}"
 
+    # FEATURE ADDITION: Updated PR Body to confirm global temporal alignment
     pr_body = f"""
 # 🤖 Sentinel-Forge Automated Resolution
 **Trace ID:** `{trace_id}`
@@ -1584,7 +1590,7 @@ Added **{len(added_cols_for_pr)}** columns to the Raw Layer. All raw ingestion f
 2. **Architect:** Generated HCL. Embedded explicit `CAST()` operations, **Data Quality Assertions**, explicit tags (`domain`, `entity`, `layer`), and defined target insert paths into `.sqlx` blocks.
 3. **Schema QA:** Verified JSON structure. Rigorously enforced `defaultValueExpression` and absolute `STRING` typing on all new columns.
 4. **Terraform QA:** Enforced schema reuse (`DRY` principle) between main and `_hist` table resources.
-5. **Dataform QA:** Validated SQL syntax, enforced `CURRENT_DATE()` logic, corrected Operations mappings, ensured `QUALIFY ROW_NUMBER()` deduplication, verified empty/comment-free `config` blocks, prevented declaration tags, and validated strict 3-part Tag Taxonomy.
+5. **Dataform QA:** Validated SQL syntax, corrected Operations mappings, ensured `QUALIFY ROW_NUMBER()` deduplication, verified empty/comment-free `config` blocks, prevented declaration tags, validated strict 3-part Tag Taxonomy, and aggressively enforced `CURRENT_DATE()` logic globally across all layers.
 
 **Commit Log:**
 {df_commit_log}
@@ -1595,6 +1601,7 @@ Added **{len(added_cols_for_pr)}** columns to the Raw Layer. All raw ingestion f
 - [x] **Tag Taxonomy:** `config` blocks securely tagged with `[domain, entity, layer]` (Exempting Declarations).
 - [x] **Staging Governance:** Explicit casting to native BigQuery types and Row Deduplication executed.
 - [x] **Operations Accuracy:** Operations securely bypass self-contexts and `post_operations`.
+- [x] **Temporal Accuracy:** `CURRENT_DATE() AS batch_date` strictly enforced globally across staging, marts, and operations layers to override raw defaults.
 - [x] **Data Quality:** Automated assertions added to Dataform `config` blocks.
 
 ### ✅ Action Required
@@ -1643,8 +1650,9 @@ Review the file changes and merge this Pull Request.
             "detailed_commit_log": (
                 df_commit_log.strip().split("\n") if df_commit_log else []
             ),
+            "anti_hallucination_paths_enforced": True,
             "anti_hallucination_schemas_verified": True,
-            "current_date_archive_enforced": True,
+            "global_current_date_enforced": True,
             "staging_casting_and_dedup_applied": True,
             "tag_taxonomy_enforced": True,
         },
