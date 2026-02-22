@@ -11,6 +11,8 @@ INSERT INTO `sentinel-486707.sentinel_raw.orders_raw_hist` (
   amount, 
   status, 
   order_date, 
+  product_id, 
+  email, 
   batch_date, 
   processed_dttm, 
   warehouse_id
@@ -21,10 +23,12 @@ SELECT
   amount, 
   status, 
   order_date, 
+  product_id, 
+  email, 
   CURRENT_DATE() AS batch_date, -- Inserts current date as the batch_date
   processed_dttm, 
   warehouse_id
 FROM ${ref("orders_raw")};
 
 -- Step 2: Clear the landing table completely
-TRUNCATE TABLE ${ref("orders_raw")};
+TRUNCATE TABLE `sentinel-486707.sentinel_raw.orders_raw`;
