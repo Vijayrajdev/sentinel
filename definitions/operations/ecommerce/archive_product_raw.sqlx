@@ -1,0 +1,25 @@
+config {
+  type: "operations",
+  schema: "sentinel_raw",
+  tags: ["archive", "ecommerce"],
+  dependencies: ["fct_product"]
+}
+
+-- This operation archives processed data from the raw table to a history table and then truncates the raw table.
+-- It runs after the fct_product mart table is successfully updated.
+
+-- 1. Insert records from the raw source into the history table.
+-- The 'batch_date' is intentionally overwritten with the current date to mark the date of archival as per requirements.
+INSERT INTO `${self.project}.${self.schema}.product_raw_hist` (product_id, product_name, category, base_price, batch_date, processed_dttm)
+SELECT
+  product_id,
+  product_name,
+  category,
+  base_price,
+  CURRENT_DATE() AS batch_date,
+  processed_dttm
+FROM
+  `${self.project}.${self.schema}.product_raw`;
+
+-- 2. Truncate the raw table to prepare for the next data ingestion cycle.
+TRUNCATE TABLE `${self.project}.${self.schema}.product_raw`;
