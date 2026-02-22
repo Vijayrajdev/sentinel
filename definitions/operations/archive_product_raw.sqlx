@@ -1,0 +1,28 @@
+config {
+  type: "operations",
+  schema: "sentinel_raw",
+  dependencies: ["fct_product"], -- Ensures this runs after the mart is successfully built
+  tags: ["operations", "archive"]
+}
+
+-- Step 1: Archive processed data to a history table. 
+-- A new batch_date is assigned to mark when the archival occurred.
+INSERT INTO `sentinel-486707.sentinel_raw.product_raw_hist` (
+    product_id,
+    product_name,
+    category,
+    base_price,
+    batch_date, 
+    processed_dttm
+) 
+SELECT
+    product_id,
+    product_name,
+    category,
+    base_price,
+    CURRENT_DATE() AS batch_date, -- CRITICAL REQUIREMENT: Use current date for the archival batch
+    processed_dttm
+FROM ${ref("product_raw")};
+
+-- Step 2: Truncate the raw source table after successful archival to prepare for the next batch.
+TRUNCATE TABLE ${ref("product_raw")};
