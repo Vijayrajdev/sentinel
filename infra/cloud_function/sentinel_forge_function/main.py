@@ -62,7 +62,6 @@ def log_event(severity: str, message: str, trace_id: str, **kwargs):
     print(json.dumps(entry))
 
 
-# FEATURE ADDITION: Dynamic resource_group and resource_type added to track Created/Updated state
 def log_ai_action(
     trace_id: str,
     action: str,
@@ -85,13 +84,13 @@ def log_ai_action(
         "operation_id": uuid.uuid4().hex,
         "timestamp": datetime.datetime.now(datetime.timezone.utc).isoformat(),
         "ai_agent_id": "sentinel-forge",
-        "resource_group": resource_group,  # FEATURE ADDITION: Now dynamically populated
-        "resource_type": resource_type,  # FEATURE ADDITION: Indicates if it was Created or Updated
+        "resource_group": resource_group,
+        "resource_type": resource_type,
         "resource_id": resource,
         "action_type": action,
         "change_payload": json.dumps(details),
         "outcome_status": status,
-        "reference_link": link,  # FEATURE ADDITION: Ensures the PR link strictly maps to the table column
+        "reference_link": link,
     }
 
     try:
@@ -181,7 +180,7 @@ def generate_dynamic_schema(
     
     Requirements:
     1. Output strictly a JSON list of objects.
-    2. All types must be 'STRING' (Raw Layer Standard).
+    2. ALL TYPES MUST STRICTLY BE 'STRING'. This is a raw landing zone. Type casting will happen in Dataform. Do NOT output INT64, BOOLEAN, or TIMESTAMP for these incoming columns.
     3. Mode must be 'NULLABLE'.
     4. Descriptions are mandatory. Infer them from column names.
     5. EVERY single column MUST have a "defaultValueExpression" defined (e.g., use "NULL" for standard strings).
@@ -485,6 +484,8 @@ def analyze_dataform_repo_state(
         "existing_files": {},
         "inferred_domain": None,
         "inferred_schema": None,
+        "inferred_stg_schema": None,
+        "inferred_marts_schema": None,
         "existing_schemas": set(),
     }
 
@@ -521,13 +522,17 @@ def analyze_dataform_repo_state(
                     if len(parts) >= 4 and parts[1] in ["marts", "staging"]:
                         state["inferred_domain"] = parts[2]
 
-                    if schemas_in_file and not state["inferred_schema"]:
-                        state["inferred_schema"] = schemas_in_file[0]
-                        log_event(
-                            "INFO",
-                            f"🔍 [DF Scanner] Inferred existing schema dataset: {state['inferred_schema']}",
-                            trace_id,
-                        )
+                    if schemas_in_file:
+                        if "sources" in path_lower and not state["inferred_schema"]:
+                            state["inferred_schema"] = schemas_in_file[0]
+                        elif (
+                            "staging" in path_lower and not state["inferred_stg_schema"]
+                        ):
+                            state["inferred_stg_schema"] = schemas_in_file[0]
+                        elif (
+                            "marts" in path_lower and not state["inferred_marts_schema"]
+                        ):
+                            state["inferred_marts_schema"] = schemas_in_file[0]
 
             elif not state["style_guide_sqlx"] and (
                 "stg_" in path_lower or "fct_" in path_lower
@@ -545,6 +550,87 @@ def analyze_dataform_repo_state(
 
 
 # ==============================================================================
+# 🧠 AGENT 8: DATASET ROUTING ANALYST (NEW FEATURE)
+# ==============================================================================
+def infer_pipeline_datasets_with_ai(
+    table_name: str,
+    existing_schemas: List[str],
+    inferred_raw: Optional[str],
+    trace_id: str,
+) -> Dict[str, str]:
+    """Goal: Use AI to analyze existing datasets and securely map them to the pipeline layers without hallucinating."""
+    log_event(
+        "INFO",
+        f"▶️ 🗺️ [Dataset Analyst] Initiating AI dataset routing for '{table_name}'...",
+        trace_id,
+    )
+
+    default_map = {
+        "raw": inferred_raw or "sentinel_raw",
+        "stg": "sentinel_staging",
+        "marts": "sentinel_marts",
+    }
+
+    if not model:
+        log_event(
+            "WARNING",
+            "⚠️ 🗺️ [Dataset Analyst] AI offline. Using standard defaults.",
+            trace_id,
+        )
+        log_event("INFO", "⏹️ 🗺️ [Dataset Analyst] Finished routing.", trace_id)
+        return default_map
+
+    prompt = f"""
+    You are a Cloud Data Architect. Your task is to map the data pipeline layers (raw, staging, marts) for the table "{table_name}" to the correct Google BigQuery datasets.
+    
+    EXISTING DATASETS IN REPOSITORY: {existing_schemas}
+    HINT (Previously used raw schema): {inferred_raw}
+    
+    Rules:
+    1. You MUST select from the "EXISTING DATASETS IN REPOSITORY" list if it is not empty.
+    2. STRICT RULE: DO NOT create or invent non-existing datasets. Match semantically (e.g., if existing is ['ecommerce_raw', 'ecommerce_stg', 'ecommerce_marts'], map them accordingly).
+    3. If the existing list is completely empty, fallback to standard enterprise naming: 'sentinel_raw', 'sentinel_staging', 'sentinel_marts'.
+    
+    Output STRICTLY a valid JSON object with exact keys: "raw", "stg", "marts". Do not include markdown formatting.
+    """
+
+    try:
+        log_event(
+            "INFO",
+            "⏳ 🗺️ [Dataset Analyst] Awaiting AI dataset routing analysis...",
+            trace_id,
+        )
+        response = model.generate_content(prompt)
+        text = response.text.strip()
+        if text.startswith("```"):
+            text = text.split("\n", 1)[1].rsplit("\n", 1)[0]
+        if text.startswith("json"):
+            text = text[4:]
+
+        datasets_map = json.loads(text)
+        log_event(
+            "INFO",
+            f"✅ 🗺️ [Dataset Analyst] AI successfully mapped datasets: {json.dumps(datasets_map)}",
+            trace_id,
+        )
+        log_event("INFO", "⏹️ 🗺️ [Dataset Analyst] Finished dataset routing.", trace_id)
+        return datasets_map
+
+    except Exception as e:
+        log_event(
+            "ERROR",
+            f"❌ 🗺️ [Dataset Analyst] AI Mapping Failed: {e}. Falling back to safe defaults.",
+            trace_id,
+        )
+        log_event(
+            "INFO",
+            "⏹️ 🗺️ [Dataset Analyst] Finished dataset routing (Fallback applied).",
+            trace_id,
+        )
+        return default_map
+
+
+# ==============================================================================
 # 🧠 AGENT 4: DATAFORM ARCHITECT
 # ==============================================================================
 def generate_ai_dataform_pipeline(
@@ -553,9 +639,11 @@ def generate_ai_dataform_pipeline(
     error_context: str,
     df_state: Dict[str, Any],
     new_cols: List[str],
+    sample_data: List[Dict],
+    datasets: Dict[str, str],
     trace_id: str,
 ) -> Dict[str, str]:
-    """Goal: Dynamically generate Dataform files, strictly enforcing existing schemas and CURRENT_DATE()."""
+    """Goal: Dynamically generate Dataform files, strictly enforcing datasets, casting, and deduplication."""
     log_event(
         "INFO",
         f"▶️ 🪄 [DF Architect] Analyzing requirements for '{table_name}'...",
@@ -581,9 +669,6 @@ def generate_ai_dataform_pipeline(
     existing_files = df_state.get("existing_files", {})
     style_guide = df_state.get("style_guide_sqlx", "")
     inferred_domain = df_state.get("inferred_domain", "")
-
-    inferred_schema = df_state.get("inferred_schema")
-    existing_schemas = df_state.get("existing_schemas", [])
 
     if existing_files:
         log_event(
@@ -620,32 +705,34 @@ def generate_ai_dataform_pipeline(
         STYLE GUIDE (Mimic format): ```sql\n{style_guide[:2000]}\n```
         """
 
-    schema_instruction = (
-        f"CRITICAL SCHEMA RULE: You MUST use '{inferred_schema}' as the exact schema block value. DO NOT invent new schemas (e.g., 'raw_ecommerce')."
-        if inferred_schema
-        else f"CRITICAL SCHEMA RULE: Valid existing schemas in repo are: {existing_schemas}. Choose appropriately. DO NOT invent new schemas."
-    )
-
     prompt = f"""
     You are an expert Analytics Engineer writing Google Cloud Dataform code (Core v3.x).
     
     Target Raw Table: "{table_name}" | Base Entity: "{base_name}" | GCP Project: "{PROJECT_ID}"
     Full Schema: {json.dumps(clean_schema)} | New Columns to add: {new_cols} | Error Context: "{error_context}"
+    Sample Data (Use this to infer column data types for casting): {json.dumps(sample_data[:2])}
     
     {instruction_block}
     
     Requirements:
-    1. {schema_instruction}
-    2. DATA QUALITY (ASSERTIONS): Embed Data Quality checks inside the `config {{ ... }}` block of staging and marts. Use `assertions: {{ uniqueKey: ["..."], nonNull: ["..."] }}` based on schema logic.
-    3. CRITICAL ARCHIVE DATE LOGIC: In the operations (`archive_...`) file, when inserting into the `_hist` table, you MUST STRICTLY use `CURRENT_DATE() AS batch_date` in the SELECT clause.
-    4. Operations file must depend on `fct_{base_name}` and TRUNCATE `{table_name}` after appending to `_hist`.
-    5. Output STRICTLY a JSON object where keys are full file paths and values are exact SQLX string content. No markdown.
+    1. STRICT DATASETS: You MUST explicitly declare schemas using these exact values determined by the AI Dataset Routing Agent:
+       - Source schema: "{datasets['raw']}"
+       - Staging (`stg_`) schema: "{datasets['stg']}"
+       - Marts (`fct_`) schema: "{datasets['marts']}"
+       DO NOT invent new schema names.
+    2. STAGING LAYER REQUIREMENTS (CRITICAL): 
+       - The raw source data is entirely STRING type. You MUST explicitly `CAST()` these string columns to their proper native BigQuery types (e.g., `INT64`, `TIMESTAMP`, `BOOLEAN`, `FLOAT64`) based on the Sample Data provided.
+       - You MUST perform row deduplication. Use `QUALIFY ROW_NUMBER() OVER(PARTITION BY <infer_primary_key_here> ORDER BY processed_dttm DESC) = 1`.
+    3. DATA QUALITY (ASSERTIONS): Embed Data Quality checks inside the `config {{ ... }}` block of staging and marts. Use `assertions: {{ uniqueKey: ["..."], nonNull: ["..."] }}` based on schema logic.
+    4. CRITICAL ARCHIVE DATE LOGIC: In the operations (`archive_...`) file, when inserting into the `_hist` table, you MUST STRICTLY use `CURRENT_DATE() AS batch_date` in the SELECT clause.
+    5. Operations file must depend on `fct_{base_name}` and TRUNCATE `{table_name}` after appending to `_hist`.
+    6. Output STRICTLY a JSON object where keys are full file paths and values are exact SQLX string content. No markdown.
     """
 
     try:
         log_event(
             "INFO",
-            "⏳ 🪄 [DF Architect] Instructing Gemini to synthesize Dataform files...",
+            "⏳ 🪄 [DF Architect] Instructing Gemini to synthesize Dataform files with Casting and Deduplication...",
             trace_id,
         )
         response = model.generate_content(prompt)
@@ -658,11 +745,10 @@ def generate_ai_dataform_pipeline(
         pipeline_files = json.loads(text)
         log_event(
             "INFO",
-            f"✅ 🪄 [DF Architect] AI successfully generated {len(pipeline_files)} SQLX files with strict schema and date enforcement.",
+            f"✅ 🪄 [DF Architect] AI successfully generated {len(pipeline_files)} SQLX files with strict schema, casting, and date enforcement.",
             trace_id,
         )
 
-        # FEATURE ADDITION: Explicit success logging for Dataform Generation
         log_ai_action(
             trace_id=trace_id,
             action="GENERATE_DATAFORM_CODE",
@@ -680,7 +766,6 @@ def generate_ai_dataform_pipeline(
         log_event(
             "ERROR", f"❌ 🪄 [DF Architect] AI Code Generation Failed: {e}", trace_id
         )
-        # FEATURE ADDITION: Explicit failure logging for Dataform Generation
         log_ai_action(
             trace_id=trace_id,
             action="GENERATE_DATAFORM_CODE",
@@ -706,10 +791,10 @@ def verify_dataform_pipeline(
     pipeline_files: Dict[str, str],
     schema_list: List[Dict],
     new_cols: List[str],
-    df_state: Dict[str, Any],
+    datasets: Dict[str, str],
     trace_id: str,
 ) -> Dict[str, str]:
-    """Goal: QA Lead verifies folder structure, column inclusion, accurate schemas, and CURRENT_DATE() logic."""
+    """Goal: QA Lead verifies casting, deduplication, folder structure, accurate schemas, and CURRENT_DATE() logic."""
     log_event(
         "INFO",
         f"▶️ 🕵️‍♀️ [DF QA] Initiating automated peer-review of generated SQLX code...",
@@ -726,20 +811,21 @@ def verify_dataform_pipeline(
         if c["name"] not in ["batch_date", "processed_dttm"]
     ]
 
-    inferred_schema = df_state.get("inferred_schema", "sentinel_raw")
-
     prompt = f"""
     You are a Senior Data QA Lead. Review this Dataform pipeline generated by a junior engineer.
     
     GENERATED FILES: {json.dumps(pipeline_files)}
     REQUIRED COLUMNS: {clean_schema} | NEW COLUMNS: {new_cols}
+    EXPECTED DATASETS: Raw: "{datasets['raw']}", Staging: "{datasets['stg']}", Marts: "{datasets['marts']}"
     
     Checklist:
     1. FOLDER STRUCTURE: If the files already exist in a domain folder, DO NOT change the path. Fix the path ONLY to include a logical domain folder if placed directly in `marts/` or `staging/`.
     2. SCHEMA VALIDATION: Are all required columns explicitly selected? (If missing, ADD THEM).
-    3. DATASET ENFORCEMENT: Ensure the raw source declaration strictly uses `schema: "{inferred_schema}"` and NOT a hallucinated schema.
+    3. DATASET ENFORCEMENT: Ensure the schemas defined in the `config` blocks explicitly match the EXPECTED DATASETS. Fix them if the junior hallucinated a schema name.
     4. ARCHIVE BATCH DATE: Ensure the operations (`archive_...`) file explicitly uses `CURRENT_DATE() AS batch_date` during the INSERT SELECT operation.
-    5. DATA QUALITY: Does the `config` block of `stg_` and `fct_` files contain an `assertions` dictionary? If missing, ADD THEM.
+    5. STAGING DEDUPLICATION: Does the staging file perform row deduplication (e.g., `QUALIFY ROW_NUMBER() OVER(...) = 1`)? If missing, ADD IT.
+    6. STAGING CASTING: Does the staging file explicitly `CAST()` raw STRING columns to appropriate native types? If missing, ADD CASTING syntax.
+    7. DATA QUALITY: Does the `config` block of `stg_` and `fct_` files contain an `assertions` dictionary? If missing, ADD THEM.
     
     Fix any errors found in paths or SQL content. Output STRICTLY a JSON object where keys are the corrected full file paths and values are the corrected SQLX string content. 
     Output JSON ONLY. No explanation.
@@ -748,7 +834,7 @@ def verify_dataform_pipeline(
     try:
         log_event(
             "INFO",
-            "⏳ 🕵️‍♀️ [DF QA] Awaiting QA review and assertion validation...",
+            "⏳ 🕵️‍♀️ [DF QA] Awaiting QA review, casting, and assertion validation...",
             trace_id,
         )
         text = model.generate_content(prompt).text.strip()
@@ -760,7 +846,7 @@ def verify_dataform_pipeline(
         verified_files = json.loads(text)
         log_event(
             "INFO",
-            f"✅ 🕵️‍♀️ [DF QA] QA passed. Folder structures sanitized, schemas validated, CURRENT_DATE() enforced, and DQ checked.",
+            f"✅ 🕵️‍♀️ [DF QA] QA passed. Datasets, Casting, Deduplication, and Schemas strictly enforced.",
             trace_id,
         )
         log_event("INFO", "⏹️ 🕵️‍♀️ [DF QA] Finished automated review.", trace_id)
@@ -1019,6 +1105,19 @@ def apply_infrastructure_update(
         repo, default_branch.commit.sha, base_name, table, trace_id
     )
 
+    # FEATURE ADDITION: Establish rigorous Dataset enforcement mappings using AI Agent 8
+    existing_schemas_list = df_state.get("existing_schemas", [])
+    inferred_raw_schema = df_state.get("inferred_schema") or dataset
+
+    datasets_map = infer_pipeline_datasets_with_ai(
+        table, existing_schemas_list, inferred_raw_schema, trace_id
+    )
+    log_event(
+        "INFO",
+        f"🎯 🚀 [Orchestrator] AI Lock established on Datasets: {json.dumps(datasets_map)}",
+        trace_id,
+    )
+
     # 2. DETERMINE TF TARGETS
     log_event(
         "INFO", "🎯 🚀 [Orchestrator] Determining Target Asset Paths...", trace_id
@@ -1026,7 +1125,6 @@ def apply_infrastructure_update(
     clean_schema_base = SCHEMA_BASE_PATH.strip().rstrip("/")
     target_json_path = f"{clean_schema_base}/{table}.json"
 
-    # Enforce schema reuse for history tables explicitly by setting this to None.
     target_hist_json_path = None
     if is_raw_table:
         log_event(
@@ -1215,6 +1313,8 @@ def apply_infrastructure_update(
             error_context,
             df_state,
             [c["name"] for c in added_cols_for_pr],
+            sample_data or [],
+            datasets_map,
             trace_id,
         )
         if raw_df_pipeline:
@@ -1222,7 +1322,7 @@ def apply_infrastructure_update(
                 raw_df_pipeline,
                 final_schema_list,
                 [c["name"] for c in added_cols_for_pr],
-                df_state,
+                datasets_map,
                 trace_id,
             )
             df_files_changed, df_commit_log = inject_dataform_into_repo(
@@ -1337,22 +1437,23 @@ Sentinel-Forge has intercepted a pipeline anomaly and autonomously generated the
 | **Dataform SQLX** | {pr_status_df} | Semantic Domain Routing Applied |
 
 ### 🔍 Schema Modifications
-Added **{len(added_cols_for_pr)}** columns to the Raw Layer.
+Added **{len(added_cols_for_pr)}** columns to the Raw Layer. All raw ingestion fields configured strictly as `STRING` type.
 {col_table}
 
 ### 🪄 Agent Activity Log
-1. **Scanner:** Mapped target domain folders semantically, preserving existing paths. Extracted existing valid repository schemas.
-2. **Architect:** Generated HCL and embedded strict **Data Quality Assertions** into `.sqlx` blocks. Applied anti-hallucination rules for dataset naming.
+1. **Scanner & Router:** Mapped target domain folders semantically. AI Dataset Routing successfully assigned correct schema endpoints.
+2. **Architect:** Generated HCL. Embedded explicit `CAST()` operations and **Data Quality Assertions** into `.sqlx` staging blocks.
 3. **Schema QA:** Verified JSON structure and rigorously enforced `defaultValueExpression` on all columns.
 4. **Terraform QA:** Enforced schema reuse (`DRY` principle) between main and `_hist` table resources.
-5. **Dataform QA:** Validated SQL syntax, corrected folder structures, verified accurate dataset declarations, enforced `CURRENT_DATE()` logic, and ensured 100% column inclusion.
+5. **Dataform QA:** Validated SQL syntax, enforced `CURRENT_DATE()` logic, enforced `QUALIFY ROW_NUMBER()` deduplication, and ensured 100% column inclusion.
 
 **Commit Log:**
 {df_commit_log}
 
 ### 🛡️ Governance Checklist
-- [x] **Schema Integrity:** `defaultValueExpression` strictly enforced for all columns.
+- [x] **Schema Integrity:** Raw layer `STRING` typing and `defaultValueExpression` strictly enforced for all columns.
 - [x] **DRY Architecture:** History tables natively reuse raw landing schemas.
+- [x] **Staging Governance:** Explicit casting to native BigQuery types and Row Deduplication executed.
 - [x] **Temporal Accuracy:** Archive operations strictly configured with `CURRENT_DATE()`.
 - [x] **Data Quality:** Automated assertions added to Dataform `config` blocks.
 
@@ -1402,10 +1503,10 @@ Review the file changes and merge this Pull Request.
             ),
             "anti_hallucination_schemas_verified": True,
             "current_date_archive_enforced": True,
+            "staging_casting_and_dedup_applied": True,
         },
     }
 
-    # FEATURE ADDITION: Dynamically determine if this was an overall Create or Update action
     overall_action_str = (
         "UPDATED"
         if (json_exists or tf_action == "PATCH" or df_state.get("existing_files"))
@@ -1481,7 +1582,6 @@ def ai_agent_main(cloud_event):
                 trace_id,
             )
 
-            # FEATURE ADDITION: Explicit failure logging on auth crash
             log_ai_action(
                 trace_id=trace_id,
                 action="CRASH",
@@ -1533,7 +1633,6 @@ def ai_agent_main(cloud_event):
             trace_id,
         )
 
-        # FEATURE ADDITION: Dynamically pulling the action type to classify "Created" vs "Updated"
         overall_action = result.get("overall_action", "PROCESSED")
 
         # Write Descriptive Details to Audit Log with strict PR URL mapping
@@ -1543,12 +1642,11 @@ def ai_agent_main(cloud_event):
             resource=table_ref,
             status=result["status"],
             details=result.get("details", {}),
-            link=result.get("url"),  # Maps exactly to reference_link in BigQuery
+            link=result.get("url"),
             resource_group="Sentinel DataOps Pipeline",
             resource_type=f"Data Pipeline - {overall_action}",
         )
 
-        # EXPLICIT LOGGING OF THE PR LINK IN THE CLOUD LOGS
         if result.get("url"):
             log_event(
                 "INFO",
@@ -1570,7 +1668,6 @@ def ai_agent_main(cloud_event):
             trace_id,
         )
         try:
-            # FEATURE ADDITION: Robust error logging fallback for critical crashes
             log_ai_action(
                 trace_id=trace_id,
                 action="CRASH",
