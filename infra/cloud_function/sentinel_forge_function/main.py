@@ -1588,3 +1588,4 @@ def ai_agent_main(cloud_event):
             "⏹️ 🔌 [Gateway] Terminated under critical failure condition.",
             trace_id,
         )
+ 
