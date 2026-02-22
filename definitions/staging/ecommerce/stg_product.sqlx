@@ -1,0 +1,20 @@
+config {
+  type: "table",
+  schema: "sentinel_staging",
+  assertions: {
+    uniqueKey: ["product_id"],
+    nonNull: ["product_id", "product_name", "category", "batch_date"]
+  },
+  tags: ["staging", "ecommerce"]
+}
+
+-- Select and clean raw product data for staging
+SELECT
+  product_id,
+  product_name,
+  category,
+  base_price,
+  batch_date,
+  processed_dttm
+FROM
+  ${ref("product_raw")}
