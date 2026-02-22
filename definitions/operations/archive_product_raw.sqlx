@@ -1,0 +1,36 @@
+config {
+  type: "operations",
+  schema: "operations",
+  dependencies: ["fct_product"], 
+  tags: ["archive", "maintenance"]
+}
+
+-- Step 1: Merge processed raw data into a historical archive table.
+-- Using MERGE ensures this operation is idempotent. If it runs multiple times
+-- before the source is truncated, it will not create duplicate archive records.
+-- The history table (e.g., product_raw_hist) is assumed to exist.
+MERGE INTO `${ref("product_raw").schema}.${ref("product_raw").name}_hist` T
+USING ${resolve("product_raw")} S
+ON T.product_id = S.product_id AND T.processed_dttm = S.processed_dttm
+WHEN NOT MATCHED THEN
+  INSERT (
+    product_id,
+    product_name,
+    category,
+    base_price,
+    batch_date,
+    processed_dttm
+  )
+  VALUES (
+    S.product_id,
+    S.product_name,
+    S.category,
+    S.base_price,
+    S.batch_date,
+    S.processed_dttm
+  );
+
+-- Step 2: Truncate the raw source table to prepare for the next data load.
+-- This operation is dependent on `fct_product`, ensuring data is successfully
+-- loaded into the marts layer before the source is cleared.
+TRUNCATE TABLE ${resolve("product_raw")};
