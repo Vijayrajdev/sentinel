@@ -4,7 +4,7 @@ import os
 import uuid
 import datetime
 import logging
-import re  # FEATURE ADDITION: Added for Regex-based schema extraction
+import re
 from typing import List, Dict, Any, Optional, Tuple
 
 import functions_framework
@@ -62,6 +62,7 @@ def log_event(severity: str, message: str, trace_id: str, **kwargs):
     print(json.dumps(entry))
 
 
+# FEATURE ADDITION: Dynamic resource_group and resource_type added to track Created/Updated state
 def log_ai_action(
     trace_id: str,
     action: str,
@@ -69,6 +70,8 @@ def log_ai_action(
     status: str,
     details: Dict[str, Any],
     link: Optional[str] = None,
+    resource_group: str = "GitHub Repo",
+    resource_type: str = "Infrastructure",
 ):
     """Writes a permanent, legally auditable record to BigQuery in descriptive JSON format."""
     log_event(
@@ -82,13 +85,13 @@ def log_ai_action(
         "operation_id": uuid.uuid4().hex,
         "timestamp": datetime.datetime.now(datetime.timezone.utc).isoformat(),
         "ai_agent_id": "sentinel-forge",
-        "resource_group": "GitHub Repo",
-        "resource_type": "Infrastructure",
+        "resource_group": resource_group,  # FEATURE ADDITION: Now dynamically populated
+        "resource_type": resource_type,  # FEATURE ADDITION: Indicates if it was Created or Updated
         "resource_id": resource,
         "action_type": action,
-        "change_payload": json.dumps(details),  # Fully descriptive nested JSON payload
+        "change_payload": json.dumps(details),
         "outcome_status": status,
-        "reference_link": link,
+        "reference_link": link,  # FEATURE ADDITION: Ensures the PR link strictly maps to the table column
     }
 
     try:
@@ -112,7 +115,7 @@ def log_ai_action(
 
 
 # ==============================================================================
-# 🧠 AGENT 1: SCHEMA DESIGNER (Enhanced with defaultValueExpression check)
+# 🧠 AGENT 1: SCHEMA DESIGNER
 # ==============================================================================
 def generate_dynamic_schema(
     table_name: str,
@@ -466,7 +469,7 @@ def generate_tf_patch_or_create(
 
 
 # ==============================================================================
-# 🧠 AGENT 3: DATAFORM SCANNER (Enhanced with Schema Anti-Hallucination)
+# 🧠 AGENT 3: DATAFORM SCANNER
 # ==============================================================================
 def analyze_dataform_repo_state(
     repo, branch_sha: str, base_name: str, table_name: str, trace_id: str
@@ -477,7 +480,6 @@ def analyze_dataform_repo_state(
         f"▶️ 🔍 [DF Scanner] Semantic scan for entity '{base_name}' in Dataform workspace...",
         trace_id,
     )
-    # FEATURE ADDITION: Added existing_schemas set and inferred_schema tracker
     state = {
         "style_guide_sqlx": "",
         "existing_files": {},
@@ -503,7 +505,6 @@ def analyze_dataform_repo_state(
                 "utf-8"
             )
 
-            # FEATURE ADDITION: Regex extract all schemas globally to build a valid list
             schemas_in_file = re.findall(r'schema:\s*["\']([^"\']+)["\']', content)
             state["existing_schemas"].update(schemas_in_file)
 
@@ -520,7 +521,6 @@ def analyze_dataform_repo_state(
                     if len(parts) >= 4 and parts[1] in ["marts", "staging"]:
                         state["inferred_domain"] = parts[2]
 
-                    # FEATURE ADDITION: Lock onto the exact schema used for this entity
                     if schemas_in_file and not state["inferred_schema"]:
                         state["inferred_schema"] = schemas_in_file[0]
                         log_event(
@@ -537,7 +537,6 @@ def analyze_dataform_repo_state(
     except Exception as e:
         log_event("WARNING", f"⚠️ 🔍 [DF Scanner] Dataform scan anomaly: {e}", trace_id)
 
-    # Convert set to list for JSON serialization downstream
     state["existing_schemas"] = list(state["existing_schemas"])
     log_event(
         "INFO", "⏹️ 🔍 [DF Scanner] Finished scanning Dataform workspace.", trace_id
@@ -546,7 +545,7 @@ def analyze_dataform_repo_state(
 
 
 # ==============================================================================
-# 🧠 AGENT 4: DATAFORM ARCHITECT (Enhanced with Strict Schema/Date Constraints)
+# 🧠 AGENT 4: DATAFORM ARCHITECT
 # ==============================================================================
 def generate_ai_dataform_pipeline(
     table_name: str,
@@ -583,7 +582,6 @@ def generate_ai_dataform_pipeline(
     style_guide = df_state.get("style_guide_sqlx", "")
     inferred_domain = df_state.get("inferred_domain", "")
 
-    # FEATURE ADDITION: Extract the verified schemas from Agent 3
     inferred_schema = df_state.get("inferred_schema")
     existing_schemas = df_state.get("existing_schemas", [])
 
@@ -622,7 +620,6 @@ def generate_ai_dataform_pipeline(
         STYLE GUIDE (Mimic format): ```sql\n{style_guide[:2000]}\n```
         """
 
-    # FEATURE ADDITION: Formulate strict Anti-Hallucination instruction for schemas
     schema_instruction = (
         f"CRITICAL SCHEMA RULE: You MUST use '{inferred_schema}' as the exact schema block value. DO NOT invent new schemas (e.g., 'raw_ecommerce')."
         if inferred_schema
@@ -665,12 +662,16 @@ def generate_ai_dataform_pipeline(
             trace_id,
         )
 
+        # FEATURE ADDITION: Explicit success logging for Dataform Generation
         log_ai_action(
-            trace_id,
-            "GENERATE_DATAFORM_CODE",
-            table_name,
-            "SUCCESS",
-            {"files_generated": list(pipeline_files.keys())},
+            trace_id=trace_id,
+            action="GENERATE_DATAFORM_CODE",
+            resource=table_name,
+            status="SUCCESS",
+            details={"files_generated": list(pipeline_files.keys())},
+            link=None,
+            resource_group="Dataform Pipeline",
+            resource_type="Code Generation - Success",
         )
         log_event("INFO", "⏹️ 🪄 [DF Architect] Finished Dataform generation.", trace_id)
         return pipeline_files
@@ -679,8 +680,16 @@ def generate_ai_dataform_pipeline(
         log_event(
             "ERROR", f"❌ 🪄 [DF Architect] AI Code Generation Failed: {e}", trace_id
         )
+        # FEATURE ADDITION: Explicit failure logging for Dataform Generation
         log_ai_action(
-            trace_id, "GENERATE_DATAFORM_CODE", table_name, "FAILED", {"error": str(e)}
+            trace_id=trace_id,
+            action="GENERATE_DATAFORM_CODE",
+            resource=table_name,
+            status="FAILED",
+            details={"error": str(e)},
+            link=None,
+            resource_group="Dataform Pipeline",
+            resource_type="Code Generation - Failed",
         )
         log_event(
             "INFO",
@@ -691,13 +700,13 @@ def generate_ai_dataform_pipeline(
 
 
 # ==============================================================================
-# 🧠 AGENT 5: DATAFORM QA VERIFIER (Enhanced with Schema & Date Checklists)
+# 🧠 AGENT 5: DATAFORM QA VERIFIER
 # ==============================================================================
 def verify_dataform_pipeline(
     pipeline_files: Dict[str, str],
     schema_list: List[Dict],
     new_cols: List[str],
-    df_state: Dict[str, Any],  # FEATURE ADDITION: Passed df_state for schema context
+    df_state: Dict[str, Any],
     trace_id: str,
 ) -> Dict[str, str]:
     """Goal: QA Lead verifies folder structure, column inclusion, accurate schemas, and CURRENT_DATE() logic."""
@@ -1209,7 +1218,6 @@ def apply_infrastructure_update(
             trace_id,
         )
         if raw_df_pipeline:
-            # FEATURE ADDITION: Passing df_state context to QA Agent to verify schemas
             verified_df_pipeline = verify_dataform_pipeline(
                 raw_df_pipeline,
                 final_schema_list,
@@ -1241,7 +1249,12 @@ def apply_infrastructure_update(
             "⏹️ 🚀 [Orchestrator] Finished orchestrator flow (Skipped).",
             trace_id,
         )
-        return {"status": "SKIPPED", "url": None, "details": {}}
+        return {
+            "status": "SKIPPED",
+            "url": None,
+            "overall_action": "SKIPPED",
+            "details": {},
+        }
 
     if should_update_json:
         log_event(
@@ -1255,7 +1268,6 @@ def apply_infrastructure_update(
             else f"feat(schema): create {table} schema layout"
         )
 
-        # Primary Schema Commit (History schema logic dynamically points here now)
         if json_exists:
             repo.update_file(
                 target_json_path,
@@ -1362,7 +1374,6 @@ Review the file changes and merge this Pull Request.
         trace_id,
     )
 
-    # Constructing a highly descriptive JSON payload for the audit logs
     descriptive_details = {
         "descriptive_summary": f"Autonomously {'updated' if json_exists else 'created'} pipeline and infrastructure for {table}.",
         "pr_link_reference": pr.html_url,
@@ -1394,12 +1405,24 @@ Review the file changes and merge this Pull Request.
         },
     }
 
+    # FEATURE ADDITION: Dynamically determine if this was an overall Create or Update action
+    overall_action_str = (
+        "UPDATED"
+        if (json_exists or tf_action == "PATCH" or df_state.get("existing_files"))
+        else "CREATED"
+    )
+
     log_event(
         "INFO",
         "⏹️ 🚀 [Orchestrator] Finished comprehensive infrastructure update workflow.",
         trace_id,
     )
-    return {"status": "SUCCESS", "url": pr.html_url, "details": descriptive_details}
+    return {
+        "status": "SUCCESS",
+        "url": pr.html_url,
+        "overall_action": overall_action_str,
+        "details": descriptive_details,
+    }
 
 
 # ==============================================================================
@@ -1457,6 +1480,18 @@ def ai_agent_main(cloud_event):
                 "☠️ 🔌 [Gateway] CRITICAL: Missing GITHUB_TOKEN or REPO_NAME.",
                 trace_id,
             )
+
+            # FEATURE ADDITION: Explicit failure logging on auth crash
+            log_ai_action(
+                trace_id=trace_id,
+                action="CRASH",
+                resource="System Initialization",
+                status="FAILED",
+                details={"error": "Missing GITHUB_TOKEN or REPO_NAME configurations."},
+                link=None,
+                resource_group="System Operations",
+                resource_type="Critical Failure",
+            )
             log_event("INFO", "⏹️ 🔌 [Gateway] Aborting mission.", trace_id)
             return
 
@@ -1498,14 +1533,19 @@ def ai_agent_main(cloud_event):
             trace_id,
         )
 
-        # Write Descriptive Details to Audit Log
+        # FEATURE ADDITION: Dynamically pulling the action type to classify "Created" vs "Updated"
+        overall_action = result.get("overall_action", "PROCESSED")
+
+        # Write Descriptive Details to Audit Log with strict PR URL mapping
         log_ai_action(
             trace_id=trace_id,
             action="CREATE_PR",
             resource=table_ref,
             status=result["status"],
             details=result.get("details", {}),
-            link=result.get("url"),
+            link=result.get("url"),  # Maps exactly to reference_link in BigQuery
+            resource_group="Sentinel DataOps Pipeline",
+            resource_type=f"Data Pipeline - {overall_action}",
         )
 
         # EXPLICIT LOGGING OF THE PR LINK IN THE CLOUD LOGS
@@ -1530,8 +1570,16 @@ def ai_agent_main(cloud_event):
             trace_id,
         )
         try:
+            # FEATURE ADDITION: Robust error logging fallback for critical crashes
             log_ai_action(
-                trace_id, "CRASH", "System", "FAILED", {"error": error_msg}, None
+                trace_id=trace_id,
+                action="CRASH",
+                resource="System",
+                status="FAILED",
+                details={"error": error_msg},
+                link=None,
+                resource_group="System Operations",
+                resource_type="Critical Failure",
             )
         except Exception:
             pass
