@@ -1,0 +1,28 @@
+config {
+  type: "operations",
+  tags: ["ecommerce", "product", "archive"],
+  dependencies: ["fct_product"] -- Ensures this runs only after the mart is successfully updated, preventing data loss.
+}
+
+-- Step 1: Insert processed raw data into the historical archive table.
+INSERT INTO `sentinel-486707.sentinel_raw.product_raw_hist` (
+  product_id,
+  product_name,
+  category,
+  base_price,
+  batch_date,
+  processed_dttm
+)
+SELECT
+  product_id,
+  product_name,
+  category,
+  base_price,
+  CURRENT_DATE() AS batch_date, -- Critical Requirement: Override batch_date during archive
+  processed_dttm
+FROM
+  ${ref("product_raw")};
+
+-- Step 2: Truncate the raw source table to prepare for the next data ingestion cycle.
+-- This runs sequentially after the INSERT completes successfully.
+TRUNCATE TABLE `sentinel-486707.sentinel_raw.product_raw`;
