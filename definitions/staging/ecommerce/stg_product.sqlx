@@ -1,0 +1,29 @@
+config {
+  type: "table",
+  schema: "sentinel_staging",
+  assertions: {
+    uniqueKey: ["product_id"],
+    nonNull: ["product_id", "processed_dttm"]
+  },
+  tags: ["ecommerce"]
+}
+
+WITH source AS (
+  SELECT
+    *,
+    ROW_NUMBER() OVER(PARTITION BY product_id ORDER BY processed_dttm DESC) AS row_num
+  FROM
+    ${ref("product_raw")}
+)
+
+SELECT
+  product_id,
+  product_name,
+  category,
+  SAFE_CAST(base_price AS FLOAT64) AS base_price,
+  SAFE_CAST(batch_date AS DATE) AS batch_date,
+  SAFE_CAST(processed_dttm AS TIMESTAMP) AS processed_dttm
+FROM
+  source
+QUALIFY
+  row_num = 1
