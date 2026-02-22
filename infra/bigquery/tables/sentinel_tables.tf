@@ -27,6 +27,10 @@ locals {
       partition_type  = "DAY"
       partition_field = "batch_date"
     }
+    "product_raw" = {
+      partition_type  = "DAY"
+      partition_field = "batch_date"
+    }
   }
   tables_raw_hist = {
     "orders_raw" = {
