@@ -419,7 +419,7 @@ def analyze_dataform_repo_state(
         f"▶️ 🔍 [DF Scanner] Semantic scan for entity '{base_name}' in Dataform workspace...",
         trace_id,
     )
-    state = {"style_guide_sqlx": "", "existing_files": {}}
+    state = {"style_guide_sqlx": "", "existing_files": {}, "inferred_domain": None}
 
     try:
         tree = repo.get_git_tree(branch_sha, recursive=True)
@@ -429,7 +429,7 @@ def analyze_dataform_repo_state(
             if e.path.startswith("definitions/") and e.path.endswith(".sqlx")
         ]
 
-        # Intelligent aliases to find tables across varying folder names (e.g., 'orders' vs 'order')
+        # Intelligent aliases to find tables across varying folder names
         aliases = {table_name, base_name, base_name.rstrip("s"), base_name.rstrip("es")}
         aliases = {a for a in aliases if len(a) > 2}
 
@@ -449,6 +449,11 @@ def analyze_dataform_repo_state(
                         f"📂 🔍 [DF Scanner] Semantic match found and verified for patching: {element.path}",
                         trace_id,
                     )
+
+                    # Attempt to extract the existing domain folder from the path structure
+                    parts = element.path.split("/")
+                    if len(parts) >= 4 and parts[1] in ["marts", "staging"]:
+                        state["inferred_domain"] = parts[2]
 
             elif not state["style_guide_sqlx"] and (
                 "stg_" in path_lower or "fct_" in path_lower
@@ -502,6 +507,7 @@ def generate_ai_dataform_pipeline(
 
     existing_files = df_state.get("existing_files", {})
     style_guide = df_state.get("style_guide_sqlx", "")
+    inferred_domain = df_state.get("inferred_domain", "")
 
     if existing_files:
         log_event(
@@ -512,7 +518,7 @@ def generate_ai_dataform_pipeline(
         instruction_block = f"""
         Some or all pipeline files exist. EXISTING FILES: {json.dumps(existing_files)}
         Task: PATCH these existing files. 
-        CRITICAL: Use exact file paths provided as output keys. Do not change structure.
+        CRITICAL: Use the EXACT file paths provided as output keys. DO NOT change the folder structure or rename existing domain folders. The domain folder does NOT need to match the table name.
         CRITICAL: Ensure new columns ({new_cols}) are explicitly selected in the views and tables.
         """
     else:
@@ -521,9 +527,14 @@ def generate_ai_dataform_pipeline(
             "✨ 🪄 [DF Architect] No files detected. Operating in CREATE mode.",
             trace_id,
         )
+        domain_instruction = (
+            f"Use the detected domain folder '{inferred_domain}' or invent a logical one"
+            if inferred_domain
+            else "Invent a logical domain folder name (e.g., 'sales', 'hr', 'ecommerce')"
+        )
         instruction_block = f"""
         Create files from scratch.
-        CRITICAL DOMAIN ROUTING: Invent a logical domain folder name (e.g., 'sales', 'hr', 'orders', 'inventory') based on "{table_name}".
+        CRITICAL DOMAIN ROUTING: {domain_instruction}.
         Structure MUST be:
         - definitions/sources/{table_name}.sqlx
         - definitions/staging/<logical_domain_folder>/stg_{base_name}.sqlx
@@ -546,7 +557,7 @@ def generate_ai_dataform_pipeline(
     2. Operations file must depend on `fct_{base_name}` and TRUNCATE `{table_name}` after appending to `_hist`.
     3. DATA QUALITY (ASSERTIONS): You MUST embed Data Quality checks inside the `config {{ ... }}` block of the staging and marts files.
        - Use `assertions: {{ uniqueKey: ["..."], nonNull: ["..."], rowConditions: ["..."] }}`
-       - Infer which columns need checks based on the schema (e.g., ID columns should be unique/nonNull, numerical amounts should be > 0).
+       - Infer which columns need checks based on the schema (e.g., ID columns should be unique/nonNull, numerical amounts should be >= 0).
     4. Output STRICTLY a JSON object where keys are full file paths and values are exact SQLX string content. No markdown outside the JSON block.
     """
 
@@ -628,7 +639,7 @@ def verify_dataform_pipeline(
     REQUIRED COLUMNS: {clean_schema} | NEW COLUMNS: {new_cols}
     
     Checklist:
-    1. FOLDER STRUCTURE: Ensure staging and marts files are nested inside a logical domain folder (e.g., `definitions/marts/orders/file.sqlx`). If they are directly in `marts/` or `staging/`, FIX THE PATH.
+    1. FOLDER STRUCTURE: If the files already exist in a domain folder, DO NOT change the path. The domain folder is NOT required to match the table name (e.g., `orders_raw` can be perfectly valid in `definitions/marts/ecommerce/`). Only if they are placed directly in `marts/` or `staging/` without a subfolder, fix the path to include a logical domain folder.
     2. SCHEMA VALIDATION: Are all required columns explicitly selected? (If missing, ADD THEM to the SQL SELECT block).
     3. DATA QUALITY: Does the `config` block of `stg_` and `fct_` files contain an `assertions` dictionary (e.g., `uniqueKey`, `nonNull`)? If missing, ADD THEM based on schema logic.
     4. SYNTAX & IDEMPOTENCY: Verify Dataform syntax (`${{ref()}}`) and TRUNCATE logic in the operations file.
@@ -1061,9 +1072,9 @@ Added **{len(added_cols_for_pr)}** columns to the Raw Layer.
 {col_table}
 
 ### 🪄 Dataform Pipeline Activity
-1. **Scanner:** Mapped target domain folders semantically.
+1. **Scanner:** Mapped target domain folders semantically, preserving existing paths.
 2. **Architect:** Embedded strict **Data Quality Assertions** (`uniqueKey`, `nonNull`) directly into the `.sqlx` configuration block.
-3. **QA Lead:** Validated SQL syntax and enforced 100% column inclusion.
+3. **QA Lead:** Validated SQL syntax, corrected folder structures, and enforced 100% column inclusion.
 
 **Commit Log:**
 {df_commit_log}
@@ -1211,6 +1222,15 @@ def ai_agent_main(cloud_event):
             details=result["details"],
             link=result["url"],
         )
+
+        # EXPLICIT LOGGING OF THE PR LINK AS REQUESTED
+        if result.get("url"):
+            log_event(
+                "INFO",
+                f"🔗 🔌 [Gateway] Operation Successful. Pull Request URL: {result['url']}",
+                trace_id,
+            )
+
         log_event(
             "INFO",
             "⏹️ 🔌 [Gateway] Sentinel Forge completely finished lifecycle.",
