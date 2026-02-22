@@ -1,0 +1,28 @@
+config {
+  type: "table",
+  schema: "sentinel_staging",
+  assertions: {
+    uniqueKey: ["product_id"],
+    nonNull: ["product_id", "processed_dttm"]
+  },
+  tags: ["ecommerce", "product", "staging"]
+}
+
+SELECT
+  CAST(product_id AS STRING) AS product_id,
+  CAST(product_name AS STRING) AS product_name,
+  CAST(category AS STRING) AS category,
+  CAST(base_price AS FLOAT64) AS base_price,
+  CAST(batch_date AS DATE) AS batch_date,
+  CAST(processed_dttm AS TIMESTAMP) AS processed_dttm
+FROM
+  ${ref("product_raw")}
+
+-- Deduplicate rows to get the latest version of each product
+QUALIFY
+  ROW_NUMBER() OVER (
+    PARTITION BY
+      product_id
+    ORDER BY
+      processed_dttm DESC
+  ) = 1
