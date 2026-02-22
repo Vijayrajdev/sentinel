@@ -1,0 +1,8 @@
+config {
+  type: "declaration",
+  database: "sentinel-486707",
+  schema: "raw_data",
+  name: "product_raw"
+}
+
+-- Schema: [{"name": "product_id", "type": "STRING"}, {"name": "product_name", "type": "STRING"}, {"name": "category", "type": "STRING"}, {"name": "base_price", "type": "STRING"}, {"name": "batch_date", "type": "DATE"}, {"name": "processed_dttm", "type": "TIMESTAMP"}]
