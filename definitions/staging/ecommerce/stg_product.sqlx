@@ -1,0 +1,38 @@
+config {
+  type: "view",
+  schema: "sentinel_staging",
+  assertions: {
+    uniqueKey: ["product_id"],
+    nonNull: ["product_id", "batch_date"],
+    rowConditions: [
+      "base_price >= 0 OR base_price IS NULL"
+    ]
+  },
+  tags: ["ecommerce", "staging"]
+}
+
+WITH
+  source_data AS (
+    -- Select the most recent record for each product based on processing time
+    SELECT
+      *,
+      ROW_NUMBER() OVER (
+        PARTITION BY
+          product_id
+        ORDER BY
+          processed_dttm DESC
+      ) AS recency_rank
+    FROM
+      ${ref("product_raw")}
+  )
+SELECT
+  product_id,
+  product_name,
+  category,
+  SAFE_CAST(base_price AS NUMERIC) AS base_price,
+  batch_date,
+  processed_dttm
+FROM
+  source_data
+WHERE
+  recency_rank = 1
