@@ -1,0 +1,38 @@
+[
+  {
+    "name": "product_id",
+    "type": "STRING",
+    "mode": "NULLABLE",
+    "description": "Unique identifier for the product."
+  },
+  {
+    "name": "product_name",
+    "type": "STRING",
+    "mode": "NULLABLE",
+    "description": "The name of the product."
+  },
+  {
+    "name": "category",
+    "type": "STRING",
+    "mode": "NULLABLE",
+    "description": "The category or classification to which the product belongs."
+  },
+  {
+    "name": "base_price",
+    "type": "NUMERIC",
+    "mode": "NULLABLE",
+    "description": "The base price of the product."
+  },
+  {
+    "name": "batch_date",
+    "type": "DATE",
+    "mode": "NULLABLE",
+    "description": "The date of the data batch, used for table partitioning."
+  },
+  {
+    "name": "processed_dttm",
+    "type": "TIMESTAMP",
+    "mode": "NULLABLE",
+    "description": "The timestamp when the record was processed and inserted."
+  }
+]
