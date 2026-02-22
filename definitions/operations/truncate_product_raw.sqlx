@@ -1,0 +1,8 @@
+config {
+  type: "operations",
+  dependencies: [ "archive_product_raw" ],
+  tags: ["operations", "truncate"]
+}
+
+-- Truncate the raw table now that it has been processed and archived.
+TRUNCATE TABLE ${source("product_raw")};
