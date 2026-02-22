@@ -1,0 +1,5 @@
+config {
+  type: "declaration",
+  database: "sentinel-486707",
+  name: "sentinel_raw.product_raw"
+}
