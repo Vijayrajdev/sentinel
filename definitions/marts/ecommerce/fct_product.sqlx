@@ -1,0 +1,50 @@
+config {
+  type: "incremental",
+  schema: "sentinel_marts",
+  uniqueKey: ["product_id"],
+  bigquery: {
+    clusterBy: ["category"]
+  },
+  tags: ["marts", "ecommerce"],
+  assertions: {
+    uniqueKey: ["product_id"],
+    nonNull: ["product_id", "product_name"],
+    -- Price must be a non-negative value, consistent with the staging layer's data quality rules.
+    rowConditions: ["base_price >= 0"]
+  },
+  description: "Creates the final, de-duplicated products table containing the latest state for each product."
+}
+
+-- This CTE identifies products that have new records in the staging table
+-- since this fact table was last successfully updated.
+WITH products_to_update AS (
+  SELECT
+    DISTINCT product_id
+  FROM
+    ${ref("stg_product")}
+  ${when(incremental(), `WHERE processed_dttm > (SELECT IFNULL(MAX(processed_dttm), '1970-01-01') FROM ${self()})`)}
+)
+
+-- The main SELECT joins back to the full staging history for ONLY those products
+-- that have updates. It then finds the true latest record for each, which is used
+-- by Dataform's MERGE logic to incrementally update the final table.
+SELECT
+  s.product_id,
+  s.product_name,
+  s.category,
+  s.base_price,
+  s.batch_date,
+  s.processed_dttm
+FROM
+  ${ref("stg_product")} s
+  -- This JOIN is a critical optimization: it ensures we only recalculate the latest state
+  -- for products that have actually received new data in the current batch.
+  INNER JOIN products_to_update p ON s.product_id = p.product_id
+-- From the full history of the updated products, pick the most recent record.
+QUALIFY
+  ROW_NUMBER() OVER (
+    PARTITION BY
+      s.product_id
+    ORDER BY
+      s.processed_dttm DESC, s.batch_date DESC
+  ) = 1
