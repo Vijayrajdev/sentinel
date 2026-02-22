@@ -11,6 +11,8 @@ INSERT INTO `sentinel-486707.sentinel_raw.orders_raw_hist` (
   amount, 
   status, 
   order_date, 
+  email,
+  product_id,
   batch_date, 
   processed_dttm, 
   warehouse_id
@@ -21,6 +23,8 @@ SELECT
   amount, 
   status, 
   order_date, 
+  email,
+  product_id,
   CURRENT_DATE() AS batch_date, -- Inserts current date as the batch_date
   processed_dttm, 
   warehouse_id
