@@ -1,0 +1,27 @@
+config {
+  type: "operations",
+  dependencies: ["fct_product"],
+  tags: ["operations", "archive"]
+}
+
+-- This operation runs after the main pipeline (fct_product) succeeds.
+-- It archives the just-processed data and cleans the raw table for the next run.
+
+-- 1. Idempotently append the processed raw data to the history table for long-term storage and audit.
+-- We assume the history table `raw_product_data.product_raw_hist` exists and has a matching schema.
+-- MERGE is used to prevent duplicate records in the history table if this operation is re-run.
+MERGE
+  `${self.source.project}.${self.source.schema}.product_raw_hist` AS T
+USING
+  ${ref("product_raw")} AS S
+ON
+  T.product_id = S.product_id AND T.processed_dttm = S.processed_dttm
+WHEN NOT MATCHED THEN
+INSERT
+  (product_id, product_name, category, base_price, batch_date, processed_dttm)
+VALUES
+  (S.product_id, S.product_name, S.category, S.base_price, S.batch_date, S.processed_dttm);
+
+-- 2. Truncate the raw table so it's empty for the next data load.
+-- This runs after the idempotent MERGE, ensuring the landing zone is safely cleared.
+TRUNCATE TABLE ${ref("product_raw")};
