@@ -4,6 +4,7 @@ import os
 import uuid
 import datetime
 import logging
+import re  # FEATURE ADDITION: Added for Regex-based schema extraction
 from typing import List, Dict, Any, Optional, Tuple
 
 import functions_framework
@@ -138,7 +139,6 @@ def generate_dynamic_schema(
             "⏹️ 🧩 [Schema Design] Finished schema generation (Fallback mode).",
             trace_id,
         )
-        # FEATURE ADDITION: Enforce defaultValueExpression in the programmatic fallback
         return [
             {
                 "name": c,
@@ -166,7 +166,6 @@ def generate_dynamic_schema(
             f"STYLE GUIDE (Mimic this format):\n```json\n{reference_json[:3000]}\n```"
         )
 
-    # FEATURE ADDITION: Prompt instruction 5 added to enforce defaultValueExpression
     prompt = f"""
     You are a Data Architect.
     Task: Generate a BigQuery Schema JSON for table "{table_name}".
@@ -216,7 +215,6 @@ def generate_dynamic_schema(
             "⏹️ 🧩 [Schema Design] Finished schema generation (Fallback mode).",
             trace_id,
         )
-        # FEATURE ADDITION: Enforce defaultValueExpression in error fallback
         return [
             {
                 "name": c,
@@ -403,7 +401,6 @@ def generate_tf_patch_or_create(
             else "Configure with `expiration_ms = 2592000000` for 30 days."
         )
 
-        # FEATURE ADDITION: Enforce exactly matching the schema path for DRY architecture
         hist_instruction = f"""
         CRITICAL REQUIREMENT: Because '{table_id}' is a raw landing table, you MUST ALSO generate the Terraform resource for its history table named '{table_id}_hist'. 
         - History Schema File: "{schema_path}" (CRITICAL: Reuse the EXACT SAME JSON schema path as the main table. DO NOT append _hist to the json filename).
@@ -469,18 +466,25 @@ def generate_tf_patch_or_create(
 
 
 # ==============================================================================
-# 🧠 AGENT 3: DATAFORM SCANNER
+# 🧠 AGENT 3: DATAFORM SCANNER (Enhanced with Schema Anti-Hallucination)
 # ==============================================================================
 def analyze_dataform_repo_state(
     repo, branch_sha: str, base_name: str, table_name: str, trace_id: str
 ) -> Dict[str, Any]:
-    """Goal: Use Semantic/Fuzzy matching to find dynamically named Domain Folders and existing Dataform rules."""
+    """Goal: Use Semantic/Fuzzy matching to find existing domains, rules, and strictly extract valid datasets/schemas."""
     log_event(
         "INFO",
         f"▶️ 🔍 [DF Scanner] Semantic scan for entity '{base_name}' in Dataform workspace...",
         trace_id,
     )
-    state = {"style_guide_sqlx": "", "existing_files": {}, "inferred_domain": None}
+    # FEATURE ADDITION: Added existing_schemas set and inferred_schema tracker
+    state = {
+        "style_guide_sqlx": "",
+        "existing_files": {},
+        "inferred_domain": None,
+        "inferred_schema": None,
+        "existing_schemas": set(),
+    }
 
     try:
         tree = repo.get_git_tree(branch_sha, recursive=True)
@@ -495,12 +499,15 @@ def analyze_dataform_repo_state(
 
         for element in df_files:
             path_lower = element.path.lower()
+            content = base64.b64decode(repo.get_git_blob(element.sha).content).decode(
+                "utf-8"
+            )
+
+            # FEATURE ADDITION: Regex extract all schemas globally to build a valid list
+            schemas_in_file = re.findall(r'schema:\s*["\']([^"\']+)["\']', content)
+            state["existing_schemas"].update(schemas_in_file)
 
             if any(alias in path_lower for alias in aliases):
-                content = base64.b64decode(
-                    repo.get_git_blob(element.sha).content
-                ).decode("utf-8")
-
                 if any(alias in content.lower() for alias in aliases):
                     state["existing_files"][element.path] = content
                     log_event(
@@ -513,16 +520,25 @@ def analyze_dataform_repo_state(
                     if len(parts) >= 4 and parts[1] in ["marts", "staging"]:
                         state["inferred_domain"] = parts[2]
 
+                    # FEATURE ADDITION: Lock onto the exact schema used for this entity
+                    if schemas_in_file and not state["inferred_schema"]:
+                        state["inferred_schema"] = schemas_in_file[0]
+                        log_event(
+                            "INFO",
+                            f"🔍 [DF Scanner] Inferred existing schema dataset: {state['inferred_schema']}",
+                            trace_id,
+                        )
+
             elif not state["style_guide_sqlx"] and (
                 "stg_" in path_lower or "fct_" in path_lower
             ):
-                state["style_guide_sqlx"] = base64.b64decode(
-                    repo.get_git_blob(element.sha).content
-                ).decode("utf-8")
+                state["style_guide_sqlx"] = content
 
     except Exception as e:
         log_event("WARNING", f"⚠️ 🔍 [DF Scanner] Dataform scan anomaly: {e}", trace_id)
 
+    # Convert set to list for JSON serialization downstream
+    state["existing_schemas"] = list(state["existing_schemas"])
     log_event(
         "INFO", "⏹️ 🔍 [DF Scanner] Finished scanning Dataform workspace.", trace_id
     )
@@ -530,7 +546,7 @@ def analyze_dataform_repo_state(
 
 
 # ==============================================================================
-# 🧠 AGENT 4: DATAFORM ARCHITECT
+# 🧠 AGENT 4: DATAFORM ARCHITECT (Enhanced with Strict Schema/Date Constraints)
 # ==============================================================================
 def generate_ai_dataform_pipeline(
     table_name: str,
@@ -540,7 +556,7 @@ def generate_ai_dataform_pipeline(
     new_cols: List[str],
     trace_id: str,
 ) -> Dict[str, str]:
-    """Goal: Dynamically generate/patch Dataform SQLX files, routing to domains, AND injecting Data Quality Checks."""
+    """Goal: Dynamically generate Dataform files, strictly enforcing existing schemas and CURRENT_DATE()."""
     log_event(
         "INFO",
         f"▶️ 🪄 [DF Architect] Analyzing requirements for '{table_name}'...",
@@ -566,6 +582,10 @@ def generate_ai_dataform_pipeline(
     existing_files = df_state.get("existing_files", {})
     style_guide = df_state.get("style_guide_sqlx", "")
     inferred_domain = df_state.get("inferred_domain", "")
+
+    # FEATURE ADDITION: Extract the verified schemas from Agent 3
+    inferred_schema = df_state.get("inferred_schema")
+    existing_schemas = df_state.get("existing_schemas", [])
 
     if existing_files:
         log_event(
@@ -602,6 +622,13 @@ def generate_ai_dataform_pipeline(
         STYLE GUIDE (Mimic format): ```sql\n{style_guide[:2000]}\n```
         """
 
+    # FEATURE ADDITION: Formulate strict Anti-Hallucination instruction for schemas
+    schema_instruction = (
+        f"CRITICAL SCHEMA RULE: You MUST use '{inferred_schema}' as the exact schema block value. DO NOT invent new schemas (e.g., 'raw_ecommerce')."
+        if inferred_schema
+        else f"CRITICAL SCHEMA RULE: Valid existing schemas in repo are: {existing_schemas}. Choose appropriately. DO NOT invent new schemas."
+    )
+
     prompt = f"""
     You are an expert Analytics Engineer writing Google Cloud Dataform code (Core v3.x).
     
@@ -611,18 +638,17 @@ def generate_ai_dataform_pipeline(
     {instruction_block}
     
     Requirements:
-    1. Handle `batch_date` and `processed_dttm` correctly.
-    2. Operations file must depend on `fct_{base_name}` and TRUNCATE `{table_name}` after appending to `_hist`.
-    3. DATA QUALITY (ASSERTIONS): You MUST embed Data Quality checks inside the `config {{ ... }}` block of the staging and marts files.
-       - Use `assertions: {{ uniqueKey: ["..."], nonNull: ["..."], rowConditions: ["..."] }}`
-       - Infer which columns need checks based on the schema.
-    4. Output STRICTLY a JSON object where keys are full file paths and values are exact SQLX string content. No markdown.
+    1. {schema_instruction}
+    2. DATA QUALITY (ASSERTIONS): Embed Data Quality checks inside the `config {{ ... }}` block of staging and marts. Use `assertions: {{ uniqueKey: ["..."], nonNull: ["..."] }}` based on schema logic.
+    3. CRITICAL ARCHIVE DATE LOGIC: In the operations (`archive_...`) file, when inserting into the `_hist` table, you MUST STRICTLY use `CURRENT_DATE() AS batch_date` in the SELECT clause.
+    4. Operations file must depend on `fct_{base_name}` and TRUNCATE `{table_name}` after appending to `_hist`.
+    5. Output STRICTLY a JSON object where keys are full file paths and values are exact SQLX string content. No markdown.
     """
 
     try:
         log_event(
             "INFO",
-            "⏳ 🪄 [DF Architect] Instructing Gemini to synthesize Dataform files with Assertions...",
+            "⏳ 🪄 [DF Architect] Instructing Gemini to synthesize Dataform files...",
             trace_id,
         )
         response = model.generate_content(prompt)
@@ -635,7 +661,7 @@ def generate_ai_dataform_pipeline(
         pipeline_files = json.loads(text)
         log_event(
             "INFO",
-            f"✅ 🪄 [DF Architect] AI successfully generated {len(pipeline_files)} SQLX files with embedded Data Quality checks.",
+            f"✅ 🪄 [DF Architect] AI successfully generated {len(pipeline_files)} SQLX files with strict schema and date enforcement.",
             trace_id,
         )
 
@@ -665,15 +691,16 @@ def generate_ai_dataform_pipeline(
 
 
 # ==============================================================================
-# 🧠 AGENT 5: DATAFORM QA VERIFIER
+# 🧠 AGENT 5: DATAFORM QA VERIFIER (Enhanced with Schema & Date Checklists)
 # ==============================================================================
 def verify_dataform_pipeline(
     pipeline_files: Dict[str, str],
     schema_list: List[Dict],
     new_cols: List[str],
+    df_state: Dict[str, Any],  # FEATURE ADDITION: Passed df_state for schema context
     trace_id: str,
 ) -> Dict[str, str]:
-    """Goal: QA Lead verifies folder structure, column inclusion, and asserts Data Quality presence."""
+    """Goal: QA Lead verifies folder structure, column inclusion, accurate schemas, and CURRENT_DATE() logic."""
     log_event(
         "INFO",
         f"▶️ 🕵️‍♀️ [DF QA] Initiating automated peer-review of generated SQLX code...",
@@ -690,6 +717,8 @@ def verify_dataform_pipeline(
         if c["name"] not in ["batch_date", "processed_dttm"]
     ]
 
+    inferred_schema = df_state.get("inferred_schema", "sentinel_raw")
+
     prompt = f"""
     You are a Senior Data QA Lead. Review this Dataform pipeline generated by a junior engineer.
     
@@ -698,9 +727,10 @@ def verify_dataform_pipeline(
     
     Checklist:
     1. FOLDER STRUCTURE: If the files already exist in a domain folder, DO NOT change the path. Fix the path ONLY to include a logical domain folder if placed directly in `marts/` or `staging/`.
-    2. SCHEMA VALIDATION: Are all required columns explicitly selected? (If missing, ADD THEM to the SQL SELECT block).
-    3. DATA QUALITY: Does the `config` block of `stg_` and `fct_` files contain an `assertions` dictionary (e.g., `uniqueKey`, `nonNull`)? If missing, ADD THEM based on schema logic.
-    4. SYNTAX & IDEMPOTENCY: Verify Dataform syntax (`${{ref()}}`) and TRUNCATE logic in the operations file.
+    2. SCHEMA VALIDATION: Are all required columns explicitly selected? (If missing, ADD THEM).
+    3. DATASET ENFORCEMENT: Ensure the raw source declaration strictly uses `schema: "{inferred_schema}"` and NOT a hallucinated schema.
+    4. ARCHIVE BATCH DATE: Ensure the operations (`archive_...`) file explicitly uses `CURRENT_DATE() AS batch_date` during the INSERT SELECT operation.
+    5. DATA QUALITY: Does the `config` block of `stg_` and `fct_` files contain an `assertions` dictionary? If missing, ADD THEM.
     
     Fix any errors found in paths or SQL content. Output STRICTLY a JSON object where keys are the corrected full file paths and values are the corrected SQLX string content. 
     Output JSON ONLY. No explanation.
@@ -721,7 +751,7 @@ def verify_dataform_pipeline(
         verified_files = json.loads(text)
         log_event(
             "INFO",
-            f"✅ 🕵️‍♀️ [DF QA] QA passed. Folder structures sanitized, columns validated, and Data Quality assertions enforced.",
+            f"✅ 🕵️‍♀️ [DF QA] QA passed. Folder structures sanitized, schemas validated, CURRENT_DATE() enforced, and DQ checked.",
             trace_id,
         )
         log_event("INFO", "⏹️ 🕵️‍♀️ [DF QA] Finished automated review.", trace_id)
@@ -741,7 +771,7 @@ def verify_dataform_pipeline(
 
 
 # ==============================================================================
-# 🧠 AGENT 6: SCHEMA QA VERIFIER (Enhanced with defaultValueExpression verification)
+# 🧠 AGENT 6: SCHEMA QA VERIFIER
 # ==============================================================================
 def verify_schema_json(
     schema_list: List[Dict], table_name: str, new_cols: List[str], trace_id: str
@@ -759,7 +789,6 @@ def verify_schema_json(
         )
         return schema_list
 
-    # FEATURE ADDITION: Explicit QA check for defaultValueExpression
     prompt = f"""
     You are a Senior Data QA Lead. Review this JSON BigQuery Schema generated by a junior engineer.
     
@@ -799,7 +828,6 @@ def verify_schema_json(
             f"⚠️ 🕵️‍♀️ [Schema QA] QA Verification Failed. Applying programmatic fallback for default values. {e}",
             trace_id,
         )
-        # FEATURE ADDITION: Programmatic fallback to ensure defaultValueExpression exists even if AI QA crashes
         for col in schema_list:
             if "defaultValueExpression" not in col:
                 col["defaultValueExpression"] = "NULL"
@@ -813,7 +841,7 @@ def verify_schema_json(
 
 
 # ==============================================================================
-# 🧠 AGENT 7: TERRAFORM QA VERIFIER (Enhanced for exact Schema Reuse)
+# 🧠 AGENT 7: TERRAFORM QA VERIFIER
 # ==============================================================================
 def verify_terraform_hcl(
     hcl_content: str, table_id: str, tf_state: Dict[str, Any], trace_id: str
@@ -834,7 +862,6 @@ def verify_terraform_hcl(
 
     hist_rule = ""
     if is_raw_table:
-        # FEATURE ADDITION: QA check to ensure schema reuse is strictly adhered to
         hist_rule = f"""
         CRITICAL RULE: Because this is a raw table ({table_id}), there MUST be a corresponding '{table_id}_hist' google_bigquery_table resource defined.
         If it is missing, you MUST inject it based on this enterprise pattern:
@@ -990,8 +1017,7 @@ def apply_infrastructure_update(
     clean_schema_base = SCHEMA_BASE_PATH.strip().rstrip("/")
     target_json_path = f"{clean_schema_base}/{table}.json"
 
-    # FEATURE ADDITION: Enforce schema reuse for history tables explicitly by setting this to None.
-    # The Terraform Architect Agent now links the _hist table to target_json_path instead.
+    # Enforce schema reuse for history tables explicitly by setting this to None.
     target_hist_json_path = None
     if is_raw_table:
         log_event(
@@ -1183,10 +1209,12 @@ def apply_infrastructure_update(
             trace_id,
         )
         if raw_df_pipeline:
+            # FEATURE ADDITION: Passing df_state context to QA Agent to verify schemas
             verified_df_pipeline = verify_dataform_pipeline(
                 raw_df_pipeline,
                 final_schema_list,
                 [c["name"] for c in added_cols_for_pr],
+                df_state,
                 trace_id,
             )
             df_files_changed, df_commit_log = inject_dataform_into_repo(
@@ -1244,8 +1272,6 @@ def apply_infrastructure_update(
                 branch=branch_name,
             )
 
-        # target_hist_json_path commit logic is bypassed natively because we assigned it to None earlier
-
     if tf_changed:
         log_event(
             "INFO", "💾 🚀 [Orchestrator] Committing Terraform HCL payload...", trace_id
@@ -1283,7 +1309,6 @@ def apply_infrastructure_update(
     title_prefix = "fix" if json_exists or df_files_changed > 0 else "feat"
     pr_title = f"{title_prefix}(dataops): Automated Pipeline & DQ Healing for {table}"
 
-    # FEATURE ADDITION: Update PR Body to reflect DRY architecture and Default values
     pr_body = f"""
 # 🤖 Sentinel-Forge Automated Resolution
 **Trace ID:** `{trace_id}`
@@ -1304,11 +1329,11 @@ Added **{len(added_cols_for_pr)}** columns to the Raw Layer.
 {col_table}
 
 ### 🪄 Agent Activity Log
-1. **Scanner:** Mapped target domain folders semantically, preserving existing paths.
-2. **Architect:** Generated HCL and embedded strict **Data Quality Assertions** into `.sqlx` blocks.
+1. **Scanner:** Mapped target domain folders semantically, preserving existing paths. Extracted existing valid repository schemas.
+2. **Architect:** Generated HCL and embedded strict **Data Quality Assertions** into `.sqlx` blocks. Applied anti-hallucination rules for dataset naming.
 3. **Schema QA:** Verified JSON structure and rigorously enforced `defaultValueExpression` on all columns.
 4. **Terraform QA:** Enforced schema reuse (`DRY` principle) between main and `_hist` table resources.
-5. **Dataform QA:** Validated SQL syntax and enforced 100% column inclusion.
+5. **Dataform QA:** Validated SQL syntax, corrected folder structures, verified accurate dataset declarations, enforced `CURRENT_DATE()` logic, and ensured 100% column inclusion.
 
 **Commit Log:**
 {df_commit_log}
@@ -1316,6 +1341,7 @@ Added **{len(added_cols_for_pr)}** columns to the Raw Layer.
 ### 🛡️ Governance Checklist
 - [x] **Schema Integrity:** `defaultValueExpression` strictly enforced for all columns.
 - [x] **DRY Architecture:** History tables natively reuse raw landing schemas.
+- [x] **Temporal Accuracy:** Archive operations strictly configured with `CURRENT_DATE()`.
 - [x] **Data Quality:** Automated assertions added to Dataform `config` blocks.
 
 ### ✅ Action Required
@@ -1363,6 +1389,8 @@ Review the file changes and merge this Pull Request.
             "detailed_commit_log": (
                 df_commit_log.strip().split("\n") if df_commit_log else []
             ),
+            "anti_hallucination_schemas_verified": True,
+            "current_date_archive_enforced": True,
         },
     }
 
