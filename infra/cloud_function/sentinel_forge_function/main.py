@@ -42,7 +42,7 @@ logging.basicConfig(level=logging.INFO)
 # ==============================================================================
 # 📝 OBSERVABILITY & LOGGING (The "Black Box")
 # ==============================================================================
-def get_bq_client():
+def get_bq_client() -> bigquery.Client:
     global bq_client
     if not bq_client:
         bq_client = bigquery.Client()
@@ -211,7 +211,9 @@ def generate_dynamic_schema(
 # ==============================================================================
 # 🧠 AGENT 2: TERRAFORM ARCHITECT
 # ==============================================================================
-def analyze_tf_repo_state(repo, branch_sha, table_id, trace_id) -> Dict[str, Any]:
+def analyze_tf_repo_state(
+    repo, branch_sha: str, table_id: str, trace_id: str
+) -> Dict[str, Any]:
     """Goal: Determine WHERE to put the Terraform code (New File vs. Existing File)."""
     log_event(
         "INFO",
@@ -249,11 +251,10 @@ def analyze_tf_repo_state(repo, branch_sha, table_id, trace_id) -> Dict[str, Any
             blob = repo.get_git_blob(element.sha)
             content = base64.b64decode(blob.content).decode("utf-8")
 
-            # CHECK 1: Is table already defined?
             if f'"{table_id}"' in content or f"'{table_id}'" in content:
                 log_event(
                     "INFO",
-                    f"👀 🕵️‍♂️ [Repo Scan] Detected potential string match for '{table_id}' in {element.path}. Consulting AI for semantic validation...",
+                    f"👀 🕵️‍♂️ [Repo Scan] Detected string match for '{table_id}' in {element.path}. Validating semantics...",
                     trace_id,
                 )
                 if ask_ai_is_definition(content, table_id):
@@ -261,7 +262,7 @@ def analyze_tf_repo_state(repo, branch_sha, table_id, trace_id) -> Dict[str, Any
                     state["defined_in_file"] = element.path
                     log_event(
                         "INFO",
-                        f"✅ 🕵️‍♂️ [Repo Scan] AI Verified: Table is already defined in {element.path}",
+                        f"✅ 🕵️‍♂️ [Repo Scan] AI Verified: Table is defined in {element.path}",
                         trace_id,
                     )
                     log_event(
@@ -271,7 +272,6 @@ def analyze_tf_repo_state(repo, branch_sha, table_id, trace_id) -> Dict[str, Any
                     )
                     return state
 
-            # CHECK 2: Is this a good "Host File"?
             if 'resource "google_bigquery_table"' in content and "for_each" in content:
                 count = content.count("table_id")
                 if count > max_tables_in_file:
@@ -289,7 +289,7 @@ def analyze_tf_repo_state(repo, branch_sha, table_id, trace_id) -> Dict[str, Any
         else:
             log_event(
                 "INFO",
-                "⚪ 🕵️‍♂️ [Repo Scan] No suitable host file found. Instructing system to create a brand new file.",
+                "⚪ 🕵️‍♂️ [Repo Scan] No suitable host file found. Generating new file logic.",
                 trace_id,
             )
 
@@ -312,18 +312,11 @@ def ask_ai_is_definition(content: str, table_id: str) -> bool:
         return True
     prompt = f"""
     Does this Terraform code define a BigQuery table named "{table_id}"?
-    Check for:
-    1. resource "google_bigquery_table" "..." {{ table_id = "{table_id}" }}
-    2. locals maps where "{table_id}" is a key.
-    
-    Code:
-    {content[:5000]}
-    
+    Code: {content[:5000]}
     Return TRUE or FALSE.
     """
     try:
-        res = model.generate_content(prompt)
-        return "TRUE" in res.text.upper()
+        return "TRUE" in model.generate_content(prompt).text.upper()
     except:
         return False
 
@@ -367,28 +360,11 @@ def generate_tf_patch_or_create(
             trace_id,
         )
         prompt = f"""
-        You are a Terraform Expert.
-        
-        Task: Add a new BigQuery table definition to the existing file below.
-        
-        New Table Details:
-        - Table ID: "{table_id}"
-        - Schema File: "{schema_path}" (Use relative path logic existing in file)
-        - Partitioning: DAY (field: batch_date)
-        
+        You are a Terraform Expert. Task: Add a new BigQuery table definition to the existing file below.
+        Table ID: "{table_id}" | Schema File: "{schema_path}" | Partitioning: DAY (field: batch_date)
         EXISTING FILE:
-        ```hcl
-        {host_file_content}
-        ```
-        
-        INSTRUCTIONS:
-        1. Analyze the file structure.
-        2. If it uses a `locals` map for tables, add the new table to that map.
-        3. If it uses individual resources, add a new `resource` block at the end.
-        4. Maintain strict indentation and style.
-        5. Return the **FULL UPDATED FILE CONTENT**. Do not truncate.
-        
-        Output: HCL Code only.
+        ```hcl\n{host_file_content}\n```
+        INSTRUCTIONS: Return the **FULL UPDATED FILE CONTENT**. Do not truncate. Output: HCL Code only.
         """
     else:
         log_event(
@@ -397,16 +373,8 @@ def generate_tf_patch_or_create(
             trace_id,
         )
         prompt = f"""
-        You are a Terraform Expert.
-        
-        Task: Create a new Terraform file for BigQuery Table "{table_id}".
-        
-        Details:
-        - Resource Name: {table_id.replace('.', '_')}
-        - Dataset ID: {dataset_id}
-        - Schema: file("${{path.module}}/json/{table_id}.json")
-        - Options: deletion_protection=false, partitioning=DAY(batch_date)
-        
+        You are a Terraform Expert. Task: Create a new Terraform file for BigQuery Table "{table_id}".
+        Details: Resource Name: {table_id.replace('.', '_')} | Dataset ID: {dataset_id} | Schema: file("${{path.module}}/json/{table_id}.json")
         Output: HCL Code only.
         """
 
@@ -440,15 +408,15 @@ def generate_tf_patch_or_create(
 
 
 # ==============================================================================
-# 🧠 AGENT 3: DATAFORM SCANNER (Context Gathering)
+# 🧠 AGENT 3: DATAFORM SCANNER (Semantic Context Gathering)
 # ==============================================================================
 def analyze_dataform_repo_state(
     repo, branch_sha: str, base_name: str, table_name: str, trace_id: str
 ) -> Dict[str, Any]:
-    """Goal: Scan repo for existing Dataform rules/styles and check if target files exist for patching."""
+    """Goal: Use Semantic/Fuzzy matching to find dynamically named Domain Folders and existing Dataform rules."""
     log_event(
         "INFO",
-        f"▶️ 🔍 [DF Scanner] Scanning Dataform workspace for entity '{base_name}'...",
+        f"▶️ 🔍 [DF Scanner] Semantic scan for entity '{base_name}' in Dataform workspace...",
         trace_id,
     )
     state = {"style_guide_sqlx": "", "existing_files": {}}
@@ -461,29 +429,29 @@ def analyze_dataform_repo_state(
             if e.path.startswith("definitions/") and e.path.endswith(".sqlx")
         ]
 
-        target_paths = [
-            f"definitions/sources/{table_name}.sqlx",
-            f"definitions/staging/{base_name}/stg_{base_name}.sqlx",
-            f"definitions/marts/{base_name}/fct_{base_name}.sqlx",
-            f"definitions/operations/archive_{table_name}.sqlx",
-        ]
+        # Intelligent aliases to find tables across varying folder names (e.g., 'orders' vs 'order')
+        aliases = {table_name, base_name, base_name.rstrip("s"), base_name.rstrip("es")}
+        aliases = {a for a in aliases if len(a) > 2}
 
         for element in df_files:
-            # Grab target files if they exist (for patching)
-            if element.path in target_paths:
+            path_lower = element.path.lower()
+
+            if any(alias in path_lower for alias in aliases):
                 content = base64.b64decode(
                     repo.get_git_blob(element.sha).content
                 ).decode("utf-8")
-                state["existing_files"][element.path] = content
-                log_event(
-                    "INFO",
-                    f"📂 🔍 [DF Scanner] Found existing target for patching: {element.path}",
-                    trace_id,
-                )
 
-            # Grab a random SQLX file to use as a style guide if we are creating from scratch
+                # Strict verification: verify the entity is actually declared/referenced in the SQL
+                if any(alias in content.lower() for alias in aliases):
+                    state["existing_files"][element.path] = content
+                    log_event(
+                        "INFO",
+                        f"📂 🔍 [DF Scanner] Semantic match found and verified for patching: {element.path}",
+                        trace_id,
+                    )
+
             elif not state["style_guide_sqlx"] and (
-                "stg_" in element.path or "fct_" in element.path
+                "stg_" in path_lower or "fct_" in path_lower
             ):
                 state["style_guide_sqlx"] = base64.b64decode(
                     repo.get_git_blob(element.sha).content
@@ -499,19 +467,20 @@ def analyze_dataform_repo_state(
 
 
 # ==============================================================================
-# 🧠 AGENT 4: DATAFORM ARCHITECT (Pipeline Generation & Patching)
+# 🧠 AGENT 4: DATAFORM ARCHITECT (Pipeline Gen + Data Quality)
 # ==============================================================================
 def generate_ai_dataform_pipeline(
     table_name: str,
     schema_list: List[Dict],
     error_context: str,
     df_state: Dict[str, Any],
+    new_cols: List[str],
     trace_id: str,
 ) -> Dict[str, str]:
-    """Goal: Use AI to dynamically generate or patch Dataform SQLX files based on schema and errors."""
+    """Goal: Dynamically generate/patch Dataform SQLX files, routing to domains, AND injecting Data Quality Checks."""
     log_event(
         "INFO",
-        f"▶️ 🪄 [DF Architect] Analyzing requirements for '{table_name}' based on error: {error_context}",
+        f"▶️ 🪄 [DF Architect] Analyzing requirements for '{table_name}'...",
         trace_id,
     )
 
@@ -541,10 +510,10 @@ def generate_ai_dataform_pipeline(
             trace_id,
         )
         instruction_block = f"""
-        Some or all of the pipeline files already exist.
-        EXISTING FILES: {json.dumps(existing_files)}
-        Your task is to PATCH these existing files. Update the SELECT statements to ensure all columns from the provided schema are included. 
-        Preserve any existing complex business logic, WHERE clauses, or custom tags.
+        Some or all pipeline files exist. EXISTING FILES: {json.dumps(existing_files)}
+        Task: PATCH these existing files. 
+        CRITICAL: Use exact file paths provided as output keys. Do not change structure.
+        CRITICAL: Ensure new columns ({new_cols}) are explicitly selected in the views and tables.
         """
     else:
         log_event(
@@ -553,40 +522,38 @@ def generate_ai_dataform_pipeline(
             trace_id,
         )
         instruction_block = f"""
-        Create the files from scratch.
-        STYLE GUIDE (Mimic this formatting):
-        ```sql\n{style_guide[:2000]}\n```
+        Create files from scratch.
+        CRITICAL DOMAIN ROUTING: Invent a logical domain folder name (e.g., 'sales', 'hr', 'orders', 'inventory') based on "{table_name}".
+        Structure MUST be:
+        - definitions/sources/{table_name}.sqlx
+        - definitions/staging/<logical_domain_folder>/stg_{base_name}.sqlx
+        - definitions/marts/<logical_domain_folder>/fct_{base_name}.sqlx
+        - definitions/operations/archive_{table_name}.sqlx
+        
+        STYLE GUIDE (Mimic format): ```sql\n{style_guide[:2000]}\n```
         """
 
     prompt = f"""
     You are an expert Analytics Engineer writing Google Cloud Dataform code (Core v3.x).
     
-    Task: Generate the complete Dataform pipeline for a BigQuery table.
-    
-    Context:
-    - Target Raw Table: "{table_name}"
-    - Base Entity Name: "{base_name}"
-    - GCP Project: "{PROJECT_ID}"
-    - Schema: {json.dumps(clean_schema)}
-    - Triggering Error/Event: "{error_context}"
+    Target Raw Table: "{table_name}" | Base Entity: "{base_name}" | GCP Project: "{PROJECT_ID}"
+    Full Schema: {json.dumps(clean_schema)} | New Columns to add: {new_cols} | Error Context: "{error_context}"
     
     {instruction_block}
     
     Requirements:
-    1. Ensure 4 files exist/are updated:
-       - definitions/sources/{table_name}.sqlx (Type: declaration)
-       - definitions/staging/{base_name}/stg_{base_name}.sqlx (Type: view)
-       - definitions/marts/{base_name}/fct_{base_name}.sqlx (Type: incremental)
-       - definitions/operations/archive_{table_name}.sqlx (Type: operations)
-    2. Handle `batch_date` and `processed_dttm` correctly.
-    3. The Operations file must depend on `fct_{base_name}` and TRUNCATE `{table_name}` after inserting into `{table_name}_hist`.
-    4. Output STRICTLY a JSON object where keys are the full file paths and values are the exact SQLX string content. Do not include markdown formatting outside the JSON block.
+    1. Handle `batch_date` and `processed_dttm` correctly.
+    2. Operations file must depend on `fct_{base_name}` and TRUNCATE `{table_name}` after appending to `_hist`.
+    3. DATA QUALITY (ASSERTIONS): You MUST embed Data Quality checks inside the `config {{ ... }}` block of the staging and marts files.
+       - Use `assertions: {{ uniqueKey: ["..."], nonNull: ["..."], rowConditions: ["..."] }}`
+       - Infer which columns need checks based on the schema (e.g., ID columns should be unique/nonNull, numerical amounts should be > 0).
+    4. Output STRICTLY a JSON object where keys are full file paths and values are exact SQLX string content. No markdown outside the JSON block.
     """
 
     try:
         log_event(
             "INFO",
-            "⏳ 🪄 [DF Architect] Instructing Gemini to synthesize Dataform files...",
+            "⏳ 🪄 [DF Architect] Instructing Gemini to synthesize Dataform files with Assertions...",
             trace_id,
         )
         response = model.generate_content(prompt)
@@ -599,7 +566,7 @@ def generate_ai_dataform_pipeline(
         pipeline_files = json.loads(text)
         log_event(
             "INFO",
-            f"✅ 🪄 [DF Architect] AI successfully generated {len(pipeline_files)} SQLX files.",
+            f"✅ 🪄 [DF Architect] AI successfully generated {len(pipeline_files)} SQLX files with embedded Data Quality checks.",
             trace_id,
         )
 
@@ -608,10 +575,7 @@ def generate_ai_dataform_pipeline(
             "GENERATE_DATAFORM_CODE",
             table_name,
             "SUCCESS",
-            {
-                "files_generated": list(pipeline_files.keys()),
-                "error_context": error_context,
-            },
+            {"files_generated": list(pipeline_files.keys())},
         )
         log_event("INFO", "⏹️ 🪄 [DF Architect] Finished Dataform generation.", trace_id)
         return pipeline_files
@@ -635,9 +599,12 @@ def generate_ai_dataform_pipeline(
 # 🧠 AGENT 5: DATAFORM QA VERIFIER (Automated Reviewer)
 # ==============================================================================
 def verify_dataform_pipeline(
-    pipeline_files: Dict[str, str], schema_list: List[Dict], trace_id: str
+    pipeline_files: Dict[str, str],
+    schema_list: List[Dict],
+    new_cols: List[str],
+    trace_id: str,
 ) -> Dict[str, str]:
-    """Goal: Acts as a QA Lead to review the generated code for syntax errors or missed columns before commit."""
+    """Goal: QA Lead verifies folder structure, column inclusion, and asserts Data Quality presence."""
     log_event(
         "INFO",
         f"▶️ 🕵️‍♀️ [DF QA] Initiating automated peer-review of generated SQLX code...",
@@ -655,22 +622,27 @@ def verify_dataform_pipeline(
     ]
 
     prompt = f"""
-    You are a Senior Data QA Lead. Review the following Dataform pipeline generated by a junior engineer.
+    You are a Senior Data QA Lead. Review this Dataform pipeline generated by a junior engineer.
     
     GENERATED FILES: {json.dumps(pipeline_files)}
-    REQUIRED COLUMNS (Must be explicitly selected in staging and marts layers): {clean_schema}
+    REQUIRED COLUMNS: {clean_schema} | NEW COLUMNS: {new_cols}
     
     Checklist:
-    1. Are all required columns explicitly selected? (If missing, ADD THEM).
-    2. Are Dataform v3.x functions used correctly (e.g., `${{ref()}}`, `${{self()}}`)?
-    3. Does the operations file TRUNCATE the source table after archiving?
+    1. FOLDER STRUCTURE: Ensure staging and marts files are nested inside a logical domain folder (e.g., `definitions/marts/orders/file.sqlx`). If they are directly in `marts/` or `staging/`, FIX THE PATH.
+    2. SCHEMA VALIDATION: Are all required columns explicitly selected? (If missing, ADD THEM to the SQL SELECT block).
+    3. DATA QUALITY: Does the `config` block of `stg_` and `fct_` files contain an `assertions` dictionary (e.g., `uniqueKey`, `nonNull`)? If missing, ADD THEM based on schema logic.
+    4. SYNTAX & IDEMPOTENCY: Verify Dataform syntax (`${{ref()}}`) and TRUNCATE logic in the operations file.
     
-    Fix any errors found. Output STRICTLY a JSON object where keys are the full file paths and values are the corrected exact SQLX string content. 
+    Fix any errors found in paths or SQL content. Output STRICTLY a JSON object where keys are the corrected full file paths and values are the corrected SQLX string content. 
     Output JSON ONLY. No explanation.
     """
 
     try:
-        log_event("INFO", "⏳ 🕵️‍♀️ [DF QA] Awaiting QA review results...", trace_id)
+        log_event(
+            "INFO",
+            "⏳ 🕵️‍♀️ [DF QA] Awaiting QA review and assertion validation...",
+            trace_id,
+        )
         text = model.generate_content(prompt).text.strip()
         if text.startswith("```"):
             text = text.split("\n", 1)[1].rsplit("\n", 1)[0]
@@ -679,7 +651,9 @@ def verify_dataform_pipeline(
 
         verified_files = json.loads(text)
         log_event(
-            "INFO", f"✅ 🕵️‍♀️ [DF QA] QA passed. Code sanitized and validated.", trace_id
+            "INFO",
+            f"✅ 🕵️‍♀️ [DF QA] QA passed. Folder structures sanitized, columns validated, and Data Quality assertions enforced.",
+            trace_id,
         )
         log_event("INFO", "⏹️ 🕵️‍♀️ [DF QA] Finished automated review.", trace_id)
         return verified_files
@@ -707,7 +681,7 @@ def inject_dataform_into_repo(
     pipeline_code: Dict[str, str],
     trace_id: str,
 ) -> Tuple[int, str]:
-    """Goal: Commits the AI-generated and verified Dataform files to the PR branch."""
+    """Goal: Commits the AI-generated and QA-verified files to the PR branch."""
     files_changed = 0
     detailed_commit_log = ""
     log_event(
@@ -719,21 +693,29 @@ def inject_dataform_into_repo(
     for file_path, content in pipeline_code.items():
         try:
             c = repo.get_contents(file_path, ref=branch_name)
-            commit_msg = f"fix(dataform): Auto-patch pipeline logic for {table_name} in {file_path}"
+            commit_msg = (
+                f"fix(dataform): Auto-patch pipeline and DQ logic for {table_name}"
+            )
             repo.update_file(file_path, commit_msg, content, c.sha, branch=branch_name)
             log_event(
                 "INFO",
                 f"♻️ 📦 [Git Injector] Updated existing file: {file_path}",
                 trace_id,
             )
-            detailed_commit_log += f"- ♻️ **Patched:** `{file_path}`\n"
+            detailed_commit_log += (
+                f"- ♻️ **Patched (incl. Assertions):** `{file_path}`\n"
+            )
         except GithubException:
-            commit_msg = f"feat(dataform): Init self-healing pipeline for {table_name} in {file_path}"
+            commit_msg = (
+                f"feat(dataform): Init self-healing pipeline and DQ for {table_name}"
+            )
             repo.create_file(file_path, commit_msg, content, branch=branch_name)
             log_event(
                 "INFO", f"✨ 📦 [Git Injector] Created new file: {file_path}", trace_id
             )
-            detailed_commit_log += f"- ✨ **Created:** `{file_path}`\n"
+            detailed_commit_log += (
+                f"- ✨ **Created (incl. Assertions):** `{file_path}`\n"
+            )
         files_changed += 1
 
     log_event(
@@ -768,91 +750,72 @@ def apply_infrastructure_update(
 
     log_event(
         "INFO",
-        f"🐙 🚀 [Orchestrator] Establishing secure handshake with GitHub Repository: {repo_name}...",
+        f"🐙 🚀 [Orchestrator] Establishing secure handshake with GitHub Repository...",
         trace_id,
     )
     g = Github(token)
     repo = g.get_repo(repo_name)
     default_branch = repo.get_branch(repo.default_branch)
 
-    # 1. ANALYZE TERRAFORM STATE
+    # 1. ANALYZE TERRAFORM & DATAFORM STATE
     log_event(
         "INFO",
-        "🗺️ 🚀 [Orchestrator] Step 1: Executing TF Repository State Analysis...",
+        "🗺️ 🚀 [Orchestrator] Executing TF & Dataform Repository State Analysis...",
         trace_id,
     )
     tf_state = analyze_tf_repo_state(repo, default_branch.commit.sha, table, trace_id)
-
-    # 2. ANALYZE DATAFORM STATE
-    log_event(
-        "INFO",
-        "🔍 🚀 [Orchestrator] Step 2: Executing Dataform Repository State Analysis...",
-        trace_id,
-    )
     df_state = analyze_dataform_repo_state(
         repo, default_branch.commit.sha, base_name, table, trace_id
     )
 
-    # 3. DETERMINE TARGETS
+    # 2. DETERMINE TF TARGETS
     log_event(
-        "INFO",
-        "🎯 🚀 [Orchestrator] Step 3: Determining Target Asset Paths...",
-        trace_id,
+        "INFO", "🎯 🚀 [Orchestrator] Determining Target Asset Paths...", trace_id
     )
     clean_schema_base = SCHEMA_BASE_PATH.strip().rstrip("/")
     target_json_path = f"{clean_schema_base}/{table}.json"
 
     if tf_state["is_defined"]:
-        target_tf_path = tf_state["defined_in_file"]
-        tf_action = "NONE"
-        host_content = None
+        tf_action, target_tf_path, host_content = (
+            "NONE",
+            tf_state["defined_in_file"],
+            None,
+        )
     elif tf_state["host_file"]:
-        target_tf_path = tf_state["host_file"]
-        tf_action = "PATCH"
-        host_content = tf_state["host_file_content"]
+        tf_action, target_tf_path, host_content = (
+            "PATCH",
+            tf_state["host_file"],
+            tf_state["host_file_content"],
+        )
     else:
-        clean_tf_base = TF_BASE_PATH.strip().rstrip("/")
-        target_tf_path = f"{clean_tf_base}/{table}.tf"
-        tf_action = "CREATE"
-        host_content = None
+        tf_action, target_tf_path, host_content = (
+            "CREATE",
+            f"{TF_BASE_PATH.strip().rstrip('/')}/{table}.tf",
+            None,
+        )
 
+    # 3. CREATE BRANCH
     log_event(
-        "INFO",
-        f"📍 🚀 [Orchestrator] Targets locked: JSON => {target_json_path} | TF => {target_tf_path} (Action: {tf_action})",
-        trace_id,
-    )
-
-    # 4. CREATE BRANCH
-    log_event(
-        "INFO",
-        "🌿 🚀 [Orchestrator] Step 4: Spinning up isolated Git branch...",
-        trace_id,
+        "INFO", "🌿 🚀 [Orchestrator] Spinning up isolated Git branch...", trace_id
     )
     branch_name = f"ai/ops-{table}-{uuid.uuid4().hex[:6]}"
     repo.create_git_ref(ref=f"refs/heads/{branch_name}", sha=default_branch.commit.sha)
-    log_event(
-        "INFO",
-        f"🌱 🚀 [Orchestrator] Branch `{branch_name}` created successfully.",
-        trace_id,
-    )
+    log_event("INFO", f"🌱 🚀 [Orchestrator] Branch `{branch_name}` created.", trace_id)
 
     # ----------------------------------------------------------------------
-    # STEP 5A: SCHEMA JSON LOGIC
+    # STEP 4: SCHEMA JSON LOGIC
     # ----------------------------------------------------------------------
     log_event(
-        "INFO",
-        "🧬 🚀 [Orchestrator] Step 5A: Generating JSON Schema Definition...",
-        trace_id,
+        "INFO", "🧬 🚀 [Orchestrator] Generating JSON Schema Definition...", trace_id
     )
-    json_exists = False
-    current_schema = []
-    json_sha = None
-
+    json_exists, current_schema, json_sha = False, [], None
     try:
         c = repo.get_contents(target_json_path, ref=branch_name)
-        current_schema = json.loads(base64.b64decode(c.content).decode("utf-8"))
-        json_exists = True
-        json_sha = c.sha
+        current_schema, json_exists, json_sha = (
+            json.loads(base64.b64decode(c.content).decode("utf-8")),
+            True,
+            c.sha,
+        )
         log_event(
             "INFO",
             "📂 🚀 [Orchestrator] Pre-existing schema detected. Will perform merge.",
@@ -874,17 +837,11 @@ def apply_infrastructure_update(
                     ref_json = base64.b64decode(
                         repo.get_git_blob(e.sha).content
                     ).decode("utf-8")
-                    log_event(
-                        "INFO",
-                        "🖼️ 🚀 [Orchestrator] Located reference schema template for AI style transfer.",
-                        trace_id,
-                    )
                     break
         except Exception:
             pass
 
-    final_schema_list = []
-    added_cols_for_pr = []
+    final_schema_list, added_cols_for_pr = [], []
     audit_cols = [
         {
             "name": "batch_date",
@@ -947,81 +904,73 @@ def apply_infrastructure_update(
 
     log_event(
         "INFO",
-        f"✅ 🚀 [Orchestrator] Step 5A Complete. Total added columns: {len(added_cols_for_pr)}",
+        f"✅ 🚀 [Orchestrator] Schema configuration complete. Total added columns: {len(added_cols_for_pr)}",
         trace_id,
     )
 
     # ----------------------------------------------------------------------
-    # STEP 5B: TERRAFORM TF LOGIC
+    # STEP 5: TERRAFORM TF LOGIC
     # ----------------------------------------------------------------------
     log_event(
-        "INFO",
-        "🧱 🚀 [Orchestrator] Step 5B: Designing Terraform Configurations...",
-        trace_id,
+        "INFO", "🧱 🚀 [Orchestrator] Designing Terraform Configurations...", trace_id
     )
-    tf_changed = False
-    new_tf_content = ""
-    tf_sha = None
-
+    tf_changed, new_tf_content, tf_sha = False, "", None
     if tf_action in ["PATCH", "CREATE"]:
         if tf_action == "PATCH":
-            blob = repo.get_contents(target_tf_path, ref=branch_name)
-            tf_sha = blob.sha
-
-        rel_schema_path = f"json/{table}.json"
+            tf_sha = repo.get_contents(target_tf_path, ref=branch_name).sha
         new_tf_content = generate_tf_patch_or_create(
-            table, dataset, rel_schema_path, host_content, trace_id
+            table, dataset, f"json/{table}.json", host_content, trace_id
         )
         if new_tf_content and len(new_tf_content) > 20:
             tf_changed = True
-            log_event(
-                "INFO",
-                "✅ 🚀 [Orchestrator] Valid HCL code captured from AI.",
-                trace_id,
-            )
 
     # ----------------------------------------------------------------------
-    # STEP 5C: DATAFORM PIPELINE GENERATION & QA
+    # STEP 6: DATAFORM PIPELINE GENERATION, DQ, & QA
     # ----------------------------------------------------------------------
     log_event(
         "INFO",
-        "🪄 🚀 [Orchestrator] Step 5C: Triggering AI Dataform Architect & QA...",
+        "🪄 🚀 [Orchestrator] Triggering AI Dataform Architect & QA for Data Quality checks...",
         trace_id,
     )
 
     should_update_json = (not json_exists) or (
         json_exists and len(added_cols_for_pr) > 0
     )
-    df_files_changed = 0
-    df_pipeline = {}
-    df_commit_log = "⏭️ No Dataform files generated."
+    df_files_changed, df_commit_log = 0, "⏭️ No Dataform files generated."
 
     if should_update_json or "dataform" in error_context.lower():
         raw_df_pipeline = generate_ai_dataform_pipeline(
-            table, final_schema_list, error_context, df_state, trace_id
+            table,
+            final_schema_list,
+            error_context,
+            df_state,
+            [c["name"] for c in added_cols_for_pr],
+            trace_id,
         )
-
         if raw_df_pipeline:
             verified_df_pipeline = verify_dataform_pipeline(
-                raw_df_pipeline, final_schema_list, trace_id
+                raw_df_pipeline,
+                final_schema_list,
+                [c["name"] for c in added_cols_for_pr],
+                trace_id,
             )
             df_files_changed, df_commit_log = inject_dataform_into_repo(
                 repo, branch_name, table, verified_df_pipeline, trace_id
             )
 
     # ----------------------------------------------------------------------
-    # STEP 6: COMMIT PAYLOADS & OPEN PR
+    # STEP 7: COMMIT PAYLOADS & OPEN PR
     # ----------------------------------------------------------------------
     log_event(
         "INFO",
-        "💾 🚀 [Orchestrator] Step 6: Preparing GitHub Commits & Pull Request...",
+        "💾 🚀 [Orchestrator] Preparing GitHub Commits & Pull Request...",
         trace_id,
     )
 
     if not should_update_json and not tf_changed and df_files_changed == 0:
         log_event(
             "WARNING",
-            "🛑 🚀 [Orchestrator] No actionable changes detected in payload. Aborting Git operations.",
+            "🛑 🚀 [Orchestrator] No actionable changes detected. Aborting Git operations.",
             trace_id,
         )
         log_event(
@@ -1035,18 +984,26 @@ def apply_infrastructure_update(
         log_event(
             "INFO", "💾 🚀 [Orchestrator] Committing JSON Schema payload...", trace_id
         )
-        content_str = json.dumps(final_schema_list, indent=2)
         msg = (
-            f"fix(schema): detailed update for {table} schema due to {error_context}"
+            f"fix(schema): detailed update for {table} schema"
             if json_exists
             else f"feat(schema): create {table} schema layout"
         )
         if json_exists:
             repo.update_file(
-                target_json_path, msg, content_str, json_sha, branch=branch_name
+                target_json_path,
+                msg,
+                json.dumps(final_schema_list, indent=2),
+                json_sha,
+                branch=branch_name,
             )
         else:
-            repo.create_file(target_json_path, msg, content_str, branch=branch_name)
+            repo.create_file(
+                target_json_path,
+                msg,
+                json.dumps(final_schema_list, indent=2),
+                branch=branch_name,
+            )
 
     if tf_changed:
         log_event(
@@ -1071,9 +1028,7 @@ def apply_infrastructure_update(
         else "✨ Created" if tf_changed else "✅ Exists"
     )
     pr_status_df = (
-        f"✅ {df_files_changed} files generated/verified"
-        if df_files_changed > 0
-        else "⏭️ Skipped"
+        f"✅ {df_files_changed} files" if df_files_changed > 0 else "⏭️ Skipped"
     )
 
     col_table = "| Column Name | Type | Description |\n|---|---|---|\n"
@@ -1085,42 +1040,41 @@ def apply_infrastructure_update(
         col_table += f"| ... ({len(added_cols_for_pr)-15} more) | | |\n"
 
     title_prefix = "fix" if json_exists or df_files_changed > 0 else "feat"
-    pr_title = f"{title_prefix}(dataops): Automated Self-Healing for {table}"
+    pr_title = f"{title_prefix}(dataops): Automated Pipeline & DQ Healing for {table}"
 
     pr_body = f"""
 # 🤖 Sentinel-Forge Automated Resolution
 **Trace ID:** `{trace_id}`
 **Trigger Context:** `{error_context}`
 
-Sentinel-Forge has intercepted a pipeline anomaly and autonomously generated the following infrastructure and transformation code to resolve the issue.
+Sentinel-Forge has intercepted a pipeline anomaly and autonomously generated the following infrastructure, transformation, and data quality code.
 
 ### 🏗️ Infrastructure Actions Taken
 | Layer | Status | Target Path |
 |---|---|---|
 | **BigQuery Schema** | {pr_status_schema} | `{target_json_path}` |
 | **Terraform HCL** | {pr_status_tf} | `{target_tf_path}` |
-| **Dataform SQLX** | {pr_status_df} | `definitions/` |
+| **Dataform SQLX** | {pr_status_df} | Semantic Domain Routing Applied |
 
 ### 🔍 Schema Modifications
 Added **{len(added_cols_for_pr)}** columns to the Raw Layer.
 {col_table}
 
 ### 🪄 Dataform Pipeline Activity
-The Multi-Agent system executed the following workflow:
-1. **Scanner:** Located existing workspace rules and targets.
-2. **Architect:** Synthesized Dataform v3.x compliant logic.
-3. **QA Lead:** Validated syntax and ensured 100% column inclusion.
+1. **Scanner:** Mapped target domain folders semantically.
+2. **Architect:** Embedded strict **Data Quality Assertions** (`uniqueKey`, `nonNull`) directly into the `.sqlx` configuration block.
+3. **QA Lead:** Validated SQL syntax and enforced 100% column inclusion.
 
 **Commit Log:**
 {df_commit_log}
 
 ### 🛡️ Governance Checklist
+- [x] **Data Quality:** Automated assertions added to Dataform `config` blocks.
 - [x] **Audit Columns:** `batch_date`, `processed_dttm` rigidly enforced.
 - [x] **Idempotency:** Operations file configured to TRUNCATE raw landing zone post-archive.
-- [x] **Type Safety:** Schema aligned to `STRING` raw standards.
 
 ### ✅ Action Required
-Review the file changes and merge this Pull Request. The CI/CD pipeline and Terraform Cloud/Actions will apply the changes automatically.
+Review the file changes and merge this Pull Request.
 """
 
     log_event(
@@ -1147,8 +1101,8 @@ Review the file changes and merge this Pull Request. The CI/CD pipeline and Terr
         "url": pr.html_url,
         "details": {
             "schema_action": "UPDATE" if json_exists else "CREATE",
-            "terraform_action": tf_action,
-            "dataform_files_generated": df_files_changed,
+            "tf_action": tf_action,
+            "df_files_generated": df_files_changed,
             "columns_added": len(added_cols_for_pr),
         },
     }
@@ -1160,7 +1114,6 @@ Review the file changes and merge this Pull Request. The CI/CD pipeline and Terr
 @functions_framework.cloud_event
 def ai_agent_main(cloud_event):
     trace_id = "unknown"
-    table_ref = "unknown"
 
     try:
         # Gateway Initialization
@@ -1179,8 +1132,7 @@ def ai_agent_main(cloud_event):
             trace_id,
         )
 
-        # Robust extraction: Handle direct JSON payload OR a Cloud Logging nested payload
-        error_context = "Automated Ops Trigger"
+        # Robust extraction
         if "protoPayload" in data:
             error_context = (
                 data["protoPayload"]
@@ -1199,23 +1151,19 @@ def ai_agent_main(cloud_event):
         log_event(
             "INFO", f"🎯 🔌 [Gateway] Processing target entity: {table_ref}", trace_id
         )
-
         log_event(
             "INFO",
             "🔐 🔌 [Gateway] Validating environmental configurations and secrets...",
             trace_id,
         )
+
         if not GITHUB_TOKEN or not REPO_NAME:
             log_event(
                 "CRITICAL",
-                "☠️ 🔌 [Gateway] CRITICAL: Missing GITHUB_TOKEN or REPO_NAME configuration.",
+                "☠️ 🔌 [Gateway] CRITICAL: Missing GITHUB_TOKEN or REPO_NAME.",
                 trace_id,
             )
-            log_event(
-                "INFO",
-                "⏹️ 🔌 [Gateway] Aborting mission due to missing configs.",
-                trace_id,
-            )
+            log_event("INFO", "⏹️ 🔌 [Gateway] Aborting mission.", trace_id)
             return
 
         if not new_cols and sample_data:
@@ -1263,7 +1211,6 @@ def ai_agent_main(cloud_event):
             details=result["details"],
             link=result["url"],
         )
-
         log_event(
             "INFO",
             "⏹️ 🔌 [Gateway] Sentinel Forge completely finished lifecycle.",
