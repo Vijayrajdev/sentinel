@@ -5,12 +5,14 @@ config {
 }
 
 -- Step 1: Append today's raw data to the history table
-INSERT INTO `sentinel-486707.sentinel_raw.orders_raw_hist` (
+INSERT INTO ${ref("orders_raw").replace("orders_raw", "orders_raw_hist")} (
   order_id, 
   customer_name, 
   amount, 
   status, 
   order_date, 
+  product_id,
+  email,
   batch_date, 
   processed_dttm, 
   warehouse_id
@@ -21,6 +23,8 @@ SELECT
   amount, 
   status, 
   order_date, 
+  product_id,
+  email,
   CURRENT_DATE() AS batch_date, -- Inserts current date as the batch_date
   processed_dttm, 
   warehouse_id
