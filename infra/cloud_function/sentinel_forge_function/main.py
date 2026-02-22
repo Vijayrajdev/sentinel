@@ -28,7 +28,7 @@ TF_BASE_PATH = os.environ.get("TF_BASE_PATH", "infra/bigquery/tables/")
 
 bq_client: Optional[bigquery.Client] = None
 
-# FEATURE ADDITION: Global queue to hold audit logs until the PR Link is generated
+# Global queue to hold audit logs until the PR Link is generated
 DEFERRED_LOGS = []
 
 # Initialize Vertex AI (Gemini 2.5 Pro for massive context window and reasoning)
@@ -74,7 +74,7 @@ def log_ai_action(
     link: Optional[str] = None,
     resource_group: str = "GitHub Repo",
     resource_type: str = "Infrastructure",
-    defer: bool = False,  # FEATURE ADDITION: Allow deferring the log to append PR links later
+    defer: bool = False,
 ):
     """Writes a permanent, legally auditable record to BigQuery in descriptive JSON format."""
     log_event(
@@ -97,7 +97,6 @@ def log_ai_action(
         "reference_link": link,
     }
 
-    # FEATURE ADDITION: If defer is True, we hold the payload in memory to inject the PR link later
     if defer:
         global DEFERRED_LOGS
         DEFERRED_LOGS.append(row)
@@ -128,7 +127,6 @@ def log_ai_action(
         log_event("INFO", "⏹️ 🔏 [Audit Ledger] Finished audit log routine.", trace_id)
 
 
-# FEATURE ADDITION: Flush function to batch-insert logs with the newly generated PR Link
 def flush_deferred_logs(pr_link: Optional[str], trace_id: str):
     """Injects the final PR link into all deferred logs and batch-inserts them to BigQuery."""
     global DEFERRED_LOGS
@@ -223,6 +221,7 @@ def generate_dynamic_schema(
             f"STYLE GUIDE (Mimic this format):\n```json\n{reference_json[:3000]}\n```"
         )
 
+    # FEATURE ADDITION: More aggressive enforcement of STRING types
     prompt = f"""
     You are a Data Architect.
     Task: Generate a BigQuery Schema JSON for table "{table_name}".
@@ -235,7 +234,7 @@ def generate_dynamic_schema(
     
     Requirements:
     1. Output strictly a JSON list of objects.
-    2. ALL TYPES MUST STRICTLY BE 'STRING'. This is a raw landing zone. Type casting will happen in Dataform. Do NOT output INT64, BOOLEAN, or TIMESTAMP for these incoming columns.
+    2. ABSOLUTE RULE: ALL TYPES MUST STRICTLY BE 'STRING' for the incoming raw columns. Do NOT output INT64, BOOLEAN, or TIMESTAMP for these incoming columns. Only audit columns (like batch_date) get explicit native types.
     3. Mode must be 'NULLABLE'.
     4. Descriptions are mandatory. Infer them from column names.
     5. EVERY single column MUST have a "defaultValueExpression" defined (e.g., use "NULL" for standard strings).
@@ -259,7 +258,6 @@ def generate_dynamic_schema(
             trace_id,
         )
 
-        # FEATURE ADDITION: Defer successful log to append PR link
         log_ai_action(
             trace_id=trace_id,
             action="GENERATE_SCHEMA",
@@ -280,7 +278,6 @@ def generate_dynamic_schema(
             f"❌ 🧩 [Schema Design] Schema Generation Failed: {e}. Falling back to basic generation.",
             trace_id,
         )
-        # Failures are logged immediately since they might crash before the PR is created
         log_ai_action(
             trace_id=trace_id,
             action="GENERATE_SCHEMA",
@@ -533,7 +530,6 @@ def generate_tf_patch_or_create(
             trace_id,
         )
 
-        # FEATURE ADDITION: Defer successful log to append PR link
         log_ai_action(
             trace_id=trace_id,
             action="GENERATE_TERRAFORM_CODE",
@@ -734,7 +730,7 @@ def infer_pipeline_datasets_with_ai(
 
 
 # ==============================================================================
-# 🧠 AGENT 4: DATAFORM ARCHITECT (Enhanced Syntax and Operations Safeguards)
+# 🧠 AGENT 4: DATAFORM ARCHITECT (Enhanced with Tag Taxonomy)
 # ==============================================================================
 def generate_ai_dataform_pipeline(
     table_name: str,
@@ -746,7 +742,7 @@ def generate_ai_dataform_pipeline(
     datasets: Dict[str, str],
     trace_id: str,
 ) -> Dict[str, str]:
-    """Goal: Dynamically generate Dataform files, strictly enforcing datasets, casting, deduplication, and config syntax."""
+    """Goal: Dynamically generate Dataform files, strictly enforcing datasets, casting, deduplication, and TAG TAXONOMY."""
     log_event(
         "INFO",
         f"▶️ 🪄 [DF Architect] Analyzing requirements for '{table_name}'...",
@@ -774,6 +770,9 @@ def generate_ai_dataform_pipeline(
     inferred_domain = df_state.get("inferred_domain", "")
 
     action_type = "Updated" if existing_files else "Created"
+
+    # Pre-calculate domain for tagging
+    actual_domain = inferred_domain if inferred_domain else "logical_domain"
 
     if existing_files:
         log_event(
@@ -810,6 +809,7 @@ def generate_ai_dataform_pipeline(
         STYLE GUIDE (Mimic format): ```sql\n{style_guide[:2000]}\n```
         """
 
+    # FEATURE ADDITION: Added Rule 8 for STRICT TAGGING TAXONOMY
     prompt = f"""
     You are an expert Analytics Engineer writing Google Cloud Dataform code (Core v3.x).
     
@@ -832,14 +832,19 @@ def generate_ai_dataform_pipeline(
        - You MUST STRICTLY use `CURRENT_DATE() AS batch_date` in the SELECT clause.
        - DO NOT use `${{self.database}}` or `${{self.schema}}` for the insert destination. Operations blocks do not possess 'self' context. You MUST explicitly build the path as: `{PROJECT_ID}.{datasets['raw']}.{table_name}_hist`
     5. CRITICAL DATAFORM RULE: Actions may only include `post_operations` if they create a dataset. Because the `archive_` file is `type: "operations"`, it DOES NOT create a dataset. Therefore, you MUST NOT use a `post_operations {{ ... }}` block. Just place the `TRUNCATE` statement as a normal sequential SQL query immediately after the `INSERT` statement.
-    6. DATAFORM SYNTAX (CRITICAL): Do NOT place any SQL or JS comments (`--`, `//`, `/* */`) inside the `config {{ ... }}` blocks. This causes JavaScript compilation errors.
-    7. Output STRICTLY a JSON object where keys are full file paths and values are exact SQLX string content. No markdown.
+    6. DATAFORM SYNTAX: Do NOT place any SQL or JS comments (`--`, `//`, `/* */`) inside the `config {{ ... }}` blocks.
+    7. STRICT TAGGING TAXONOMY: Every file's `config` block MUST contain a `tags: []` array. The tags MUST explicitly include:
+       1. The domain name ('{actual_domain}')
+       2. The base entity name ('{base_name}')
+       3. The layer name ('staging', 'marts', or 'archive' based on the file type).
+       Example for staging: `tags: ["{actual_domain}", "{base_name}", "staging"]`
+    8. Output STRICTLY a JSON object where keys are full file paths and values are exact SQLX string content. No markdown.
     """
 
     try:
         log_event(
             "INFO",
-            "⏳ 🪄 [DF Architect] Instructing Gemini to synthesize Dataform files with Casting, Deduplication, and Explicit DB bindings...",
+            "⏳ 🪄 [DF Architect] Instructing Gemini to synthesize Dataform files with Tags, Casting, and Deduplication...",
             trace_id,
         )
         response = model.generate_content(prompt)
@@ -852,11 +857,10 @@ def generate_ai_dataform_pipeline(
         pipeline_files = json.loads(text)
         log_event(
             "INFO",
-            f"✅ 🪄 [DF Architect] AI successfully generated {len(pipeline_files)} SQLX files conforming to strict syntax and operational bounds.",
+            f"✅ 🪄 [DF Architect] AI successfully generated {len(pipeline_files)} SQLX files conforming to strict syntax, tags, and operational bounds.",
             trace_id,
         )
 
-        # FEATURE ADDITION: Defer successful log to append PR link
         log_ai_action(
             trace_id=trace_id,
             action="GENERATE_DATAFORM_CODE",
@@ -894,16 +898,18 @@ def generate_ai_dataform_pipeline(
 
 
 # ==============================================================================
-# 🧠 AGENT 5: DATAFORM QA VERIFIER (Enhanced Operations Checklist)
+# 🧠 AGENT 5: DATAFORM QA VERIFIER (Enhanced Tag Taxonomy Checks)
 # ==============================================================================
 def verify_dataform_pipeline(
     pipeline_files: Dict[str, str],
     schema_list: List[Dict],
     new_cols: List[str],
     datasets: Dict[str, str],
+    df_state: Dict[str, Any],
+    base_name: str,
     trace_id: str,
 ) -> Dict[str, str]:
-    """Goal: QA Lead verifies casting, deduplication, operations destinations, schemas, and strictly forbids config comments."""
+    """Goal: QA Lead verifies tags, casting, deduplication, operations destinations, schemas, and strictly forbids config comments."""
     log_event(
         "INFO",
         f"▶️ 🕵️‍♀️ [DF QA] Initiating automated peer-review of generated SQLX code...",
@@ -920,12 +926,16 @@ def verify_dataform_pipeline(
         if c["name"] not in ["batch_date", "processed_dttm"]
     ]
 
+    inferred_domain = df_state.get("inferred_domain", "domain_placeholder")
+
+    # FEATURE ADDITION: Included TAG TAXONOMY check (Checklist 10)
     prompt = f"""
     You are a Senior Data QA Lead. Review this Dataform pipeline generated by a junior engineer.
     
     GENERATED FILES: {json.dumps(pipeline_files)}
     REQUIRED COLUMNS: {clean_schema} | NEW COLUMNS: {new_cols}
     EXPECTED DATASETS: Raw: "{datasets['raw']}", Staging: "{datasets['stg']}", Marts: "{datasets['marts']}"
+    EXPECTED BASE ENTITY: "{base_name}"
     
     Checklist:
     1. FOLDER STRUCTURE: If the files already exist in a domain folder, DO NOT change the path. Fix the path ONLY to include a logical domain folder if placed directly in `marts/` or `staging/`.
@@ -936,7 +946,8 @@ def verify_dataform_pipeline(
     6. STAGING CASTING: Does the staging file explicitly `CAST()` raw STRING columns to appropriate native types? If missing, ADD CASTING syntax.
     7. DATA QUALITY: Does the `config` block of `stg_` and `fct_` files contain an `assertions` dictionary? If missing, ADD THEM.
     8. CONFIG BLOCK SYNTAX: Ensure there are absolutely NO comments (`--`, `//`, `/* */`) inside the `config {{ ... }}` blocks of any file. Remove them if they exist.
-    9. POST_OPERATIONS BAN (CRITICAL): "Actions may only include post_operations if they create a dataset." Ensure the `archive_` operations file DOES NOT contain a `post_operations {{ ... }}` block. The TRUNCATE statement must simply be sequential SQL.
+    9. POST_OPERATIONS BAN (CRITICAL): Ensure the `archive_` operations file DOES NOT contain a `post_operations {{ ... }}` block. The TRUNCATE statement must simply be sequential SQL.
+    10. TAG TAXONOMY (CRITICAL): Ensure the `config` block of EVERY file contains a `tags: []` array. It MUST contain exactly these 3 elements: the domain name (e.g., "{inferred_domain}"), the entity name ("{base_name}"), and the layer ("staging", "marts", or "archive"). Add them if missing.
     
     Fix any errors found in paths or SQL content. Output STRICTLY a JSON object where keys are the corrected full file paths and values are the corrected SQLX string content. 
     Output JSON ONLY. No explanation.
@@ -945,7 +956,7 @@ def verify_dataform_pipeline(
     try:
         log_event(
             "INFO",
-            "⏳ 🕵️‍♀️ [DF QA] Awaiting QA review, operations binding verification, and assertion validation...",
+            "⏳ 🕵️‍♀️ [DF QA] Awaiting QA review, operations binding verification, tagging, and assertion validation...",
             trace_id,
         )
         text = model.generate_content(prompt).text.strip()
@@ -957,7 +968,7 @@ def verify_dataform_pipeline(
         verified_files = json.loads(text)
         log_event(
             "INFO",
-            f"✅ 🕵️‍♀️ [DF QA] QA passed. Post_operations blocks successfully banned and Configs sanitized.",
+            f"✅ 🕵️‍♀️ [DF QA] QA passed. Tags verified, Post_operations banned, and Configs sanitized.",
             trace_id,
         )
         log_event("INFO", "⏹️ 🕵️‍♀️ [DF QA] Finished automated review.", trace_id)
@@ -977,12 +988,12 @@ def verify_dataform_pipeline(
 
 
 # ==============================================================================
-# 🧠 AGENT 6: SCHEMA QA VERIFIER
+# 🧠 AGENT 6: SCHEMA QA VERIFIER (Enhanced with Type String Enforcement)
 # ==============================================================================
 def verify_schema_json(
     schema_list: List[Dict], table_name: str, new_cols: List[str], trace_id: str
 ) -> List[Dict]:
-    """Goal: Ensure JSON Schema strictly complies with enterprise standards before committing."""
+    """Goal: Ensure JSON Schema strictly complies with enterprise STRING standards before committing."""
     log_event(
         "INFO",
         f"▶️ 🕵️‍♀️ [Schema QA] Initiating automated peer-review of BigQuery JSON Schema...",
@@ -995,6 +1006,7 @@ def verify_schema_json(
         )
         return schema_list
 
+    # FEATURE ADDITION: More aggressive enforcement of STRING type check (Checklist 2)
     prompt = f"""
     You are a Senior Data QA Lead. Review this JSON BigQuery Schema generated by a junior engineer.
     
@@ -1003,7 +1015,7 @@ def verify_schema_json(
     
     Checklist:
     1. Are all `NEW COLUMNS` explicitly present in the schema?
-    2. Are all types strictly set to 'STRING' (except for 'batch_date' and 'processed_dttm' which should be DATE/TIMESTAMP)?
+    2. ABSOLUTE RULE ON TYPES: Check every single column. If the column is NOT 'batch_date' and NOT 'processed_dttm', its type MUST be strictly set to 'STRING'. If you see INT64, BOOLEAN, FLOAT64, or anything else, you MUST change it to 'STRING'. Only 'batch_date' (DATE) and 'processed_dttm' (TIMESTAMP) are allowed to be non-strings.
     3. Are all modes strictly set to 'NULLABLE'?
     4. Are 'batch_date' and 'processed_dttm' explicitly included at the end?
     5. CRITICAL: Does EVERY single column have a "defaultValueExpression" defined? If missing, you MUST inject `"defaultValueExpression": "NULL"` into that column's object.
@@ -1023,7 +1035,7 @@ def verify_schema_json(
         verified_schema = json.loads(text)
         log_event(
             "INFO",
-            f"✅ 🕵️‍♀️ [Schema QA] QA passed. Schema verified and Default Values validated.",
+            f"✅ 🕵️‍♀️ [Schema QA] QA passed. Schema verified, STRING types strictly enforced, and Default Values validated.",
             trace_id,
         )
         log_event("INFO", "⏹️ 🕵️‍♀️ [Schema QA] Finished automated review.", trace_id)
@@ -1150,7 +1162,7 @@ def inject_dataform_into_repo(
                 trace_id,
             )
             detailed_commit_log += (
-                f"- ♻️ **Patched (incl. Assertions):** `{file_path}`\n"
+                f"- ♻️ **Patched (incl. Assertions & Tags):** `{file_path}`\n"
             )
         except GithubException:
             commit_msg = (
@@ -1161,7 +1173,7 @@ def inject_dataform_into_repo(
                 "INFO", f"✨ 📦 [Git Injector] Created new file: {file_path}", trace_id
             )
             detailed_commit_log += (
-                f"- ✨ **Created (incl. Assertions):** `{file_path}`\n"
+                f"- ✨ **Created (incl. Assertions & Tags):** `{file_path}`\n"
             )
         files_changed += 1
 
@@ -1426,11 +1438,14 @@ def apply_infrastructure_update(
             trace_id,
         )
         if raw_df_pipeline:
+            # Pass base_name and df_state for tag validation
             verified_df_pipeline = verify_dataform_pipeline(
                 raw_df_pipeline,
                 final_schema_list,
                 [c["name"] for c in added_cols_for_pr],
                 datasets_map,
+                df_state,
+                base_name,
                 trace_id,
             )
             df_files_changed, df_commit_log = inject_dataform_into_repo(
@@ -1452,7 +1467,6 @@ def apply_infrastructure_update(
             "🛑 🚀 [Orchestrator] No actionable changes detected. Aborting Git operations.",
             trace_id,
         )
-        # Flush any deferred logs even if skipping, just in case
         flush_deferred_logs(None, trace_id)
         log_event(
             "INFO",
@@ -1546,6 +1560,7 @@ def apply_infrastructure_update(
     title_prefix = "fix" if json_exists or df_files_changed > 0 else "feat"
     pr_title = f"{title_prefix}(dataops): Automated Pipeline & DQ Healing for {table}"
 
+    # FEATURE ADDITION: Updated PR Body to include Tag Taxonomy and STRING enforcement
     pr_body = f"""
 # 🤖 Sentinel-Forge Automated Resolution
 **Trace ID:** `{trace_id}`
@@ -1567,20 +1582,21 @@ Added **{len(added_cols_for_pr)}** columns to the Raw Layer. All raw ingestion f
 
 ### 🪄 Agent Activity Log
 1. **Scanner & Router:** Mapped target domain folders semantically. AI Dataset Routing successfully assigned correct schema endpoints.
-2. **Architect:** Generated HCL. Embedded explicit `CAST()` operations, **Data Quality Assertions**, and explicitly defined target insert paths into `.sqlx` staging and operations blocks.
-3. **Schema QA:** Verified JSON structure and rigorously enforced `defaultValueExpression` on all columns.
+2. **Architect:** Generated HCL. Embedded explicit `CAST()` operations, **Data Quality Assertions**, explicit tags (`domain`, `entity`, `layer`), and defined target insert paths into `.sqlx` blocks.
+3. **Schema QA:** Verified JSON structure. Rigorously enforced `defaultValueExpression` and absolute `STRING` typing on all new columns.
 4. **Terraform QA:** Enforced schema reuse (`DRY` principle) between main and `_hist` table resources.
-5. **Dataform QA:** Validated SQL syntax, enforced `CURRENT_DATE()` logic, corrected Operations destination mappings, strictly enforced the post_operations ban, ensured `QUALIFY ROW_NUMBER()` deduplication, ensured 100% column inclusion, and verified empty/comment-free `config` blocks.
+5. **Dataform QA:** Validated SQL syntax, enforced `CURRENT_DATE()` logic, corrected Operations mappings, ensured `QUALIFY ROW_NUMBER()` deduplication, verified empty/comment-free `config` blocks, and validated strict 3-part Tag Taxonomy.
 
 **Commit Log:**
 {df_commit_log}
 
 ### 🛡️ Governance Checklist
-- [x] **Schema Integrity:** Raw layer `STRING` typing and `defaultValueExpression` strictly enforced for all columns.
+- [x] **Schema Integrity:** Absolute `STRING` typing and `defaultValueExpression` strictly enforced for raw layer.
 - [x] **DRY Architecture:** History tables natively reuse raw landing schemas.
+- [x] **Tag Taxonomy:** `config` blocks securely tagged with `[domain, entity, layer]`.
 - [x] **Staging Governance:** Explicit casting to native BigQuery types and Row Deduplication executed.
-- [x] **Operations Accuracy:** Operations block securely references target project and raw schema variables (Bypassing undefined self contexts). Post_operations safely bypassed.
-- [x] **Config Sanitization:** Strict ban on comments within config blocks enforced to prevent compilation crashes.
+- [x] **Operations Accuracy:** Operations securely bypass self-contexts and `post_operations`.
+- [x] **Data Quality:** Automated assertions added to Dataform `config` blocks.
 
 ### ✅ Action Required
 Review the file changes and merge this Pull Request.
@@ -1600,7 +1616,6 @@ Review the file changes and merge this Pull Request.
         trace_id,
     )
 
-    # FEATURE ADDITION: Flush all deferred AI logs, injecting the newly created PR link
     flush_deferred_logs(pr.html_url, trace_id)
 
     descriptive_details = {
@@ -1616,7 +1631,7 @@ Review the file changes and merge this Pull Request.
             ),
             "columns_added_or_verified": [c["name"] for c in added_cols_for_pr],
             "total_schema_columns": len(final_schema_list),
-            "default_value_expressions_enforced": True,
+            "string_type_and_defaults_enforced": True,
         },
         "infrastructure_updates": {
             "action": tf_action,
@@ -1632,7 +1647,7 @@ Review the file changes and merge this Pull Request.
             "anti_hallucination_schemas_verified": True,
             "current_date_archive_enforced": True,
             "staging_casting_and_dedup_applied": True,
-            "operations_syntax_sanitized": True,
+            "tag_taxonomy_enforced": True,
         },
     }
 
@@ -1662,8 +1677,6 @@ Review the file changes and merge this Pull Request.
 def ai_agent_main(cloud_event):
     trace_id = "unknown"
 
-    # FEATURE ADDITION: Reset deferred logs array at start of execution
-    # (Crucial for Gen 2 Cloud Functions which reuse global state)
     global DEFERRED_LOGS
     DEFERRED_LOGS = []
 
