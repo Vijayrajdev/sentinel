@@ -28,6 +28,9 @@ TF_BASE_PATH = os.environ.get("TF_BASE_PATH", "infra/bigquery/tables/")
 
 bq_client: Optional[bigquery.Client] = None
 
+# FEATURE ADDITION: Global queue to hold audit logs until the PR Link is generated
+DEFERRED_LOGS = []
+
 # Initialize Vertex AI (Gemini 2.5 Pro for massive context window and reasoning)
 try:
     if PROJECT_ID:
@@ -62,7 +65,6 @@ def log_event(severity: str, message: str, trace_id: str, **kwargs):
     print(json.dumps(entry))
 
 
-# FEATURE ADDITION: Dynamic resource_group and resource_type for explicit state tracking
 def log_ai_action(
     trace_id: str,
     action: str,
@@ -72,11 +74,12 @@ def log_ai_action(
     link: Optional[str] = None,
     resource_group: str = "GitHub Repo",
     resource_type: str = "Infrastructure",
+    defer: bool = False,  # FEATURE ADDITION: Allow deferring the log to append PR links later
 ):
     """Writes a permanent, legally auditable record to BigQuery in descriptive JSON format."""
     log_event(
         "INFO",
-        f"▶️ 🔏 [Audit Ledger] Starting permanent audit log recording for action: {action}...",
+        f"▶️ 🔏 [Audit Ledger] Formulating audit log recording for action: {action}...",
         trace_id,
     )
     client = get_bq_client()
@@ -93,6 +96,17 @@ def log_ai_action(
         "outcome_status": status,
         "reference_link": link,
     }
+
+    # FEATURE ADDITION: If defer is True, we hold the payload in memory to inject the PR link later
+    if defer:
+        global DEFERRED_LOGS
+        DEFERRED_LOGS.append(row)
+        log_event(
+            "INFO",
+            f"⏸️ 🔏 [Audit Ledger] Log deferred to await GitHub PR Link mapping.",
+            trace_id,
+        )
+        return
 
     try:
         errors = client.insert_rows_json(AI_AUDIT_TABLE, [row])
@@ -112,6 +126,46 @@ def log_ai_action(
         log_event("ERROR", f"☠️ 🔏 [Audit Ledger] Audit Log Crash: {e}", trace_id)
     finally:
         log_event("INFO", "⏹️ 🔏 [Audit Ledger] Finished audit log routine.", trace_id)
+
+
+# FEATURE ADDITION: Flush function to batch-insert logs with the newly generated PR Link
+def flush_deferred_logs(pr_link: Optional[str], trace_id: str):
+    """Injects the final PR link into all deferred logs and batch-inserts them to BigQuery."""
+    global DEFERRED_LOGS
+    if not DEFERRED_LOGS:
+        return
+
+    log_event(
+        "INFO",
+        f"▶️ 🔏 [Audit Ledger] Flushing {len(DEFERRED_LOGS)} deferred logs with PR Link: {pr_link}",
+        trace_id,
+    )
+    client = get_bq_client()
+
+    for row in DEFERRED_LOGS:
+        if pr_link and row.get("reference_link") is None:
+            row["reference_link"] = pr_link
+
+    try:
+        errors = client.insert_rows_json(AI_AUDIT_TABLE, DEFERRED_LOGS)
+        if errors:
+            log_event(
+                "ERROR",
+                f"❌ 🔏 [Audit Ledger] Failed to flush deferred logs: {errors}",
+                trace_id,
+            )
+        else:
+            log_event(
+                "INFO",
+                "✅ 🔏 [Audit Ledger] Successfully flushed all deferred logs to audit table.",
+                trace_id,
+            )
+    except Exception as e:
+        log_event(
+            "ERROR", f"☠️ 🔏 [Audit Ledger] Deferred Audit Log Crash: {e}", trace_id
+        )
+    finally:
+        DEFERRED_LOGS.clear()
 
 
 # ==============================================================================
@@ -205,7 +259,7 @@ def generate_dynamic_schema(
             trace_id,
         )
 
-        # FEATURE ADDITION: Explicit success logging for Schema generation
+        # FEATURE ADDITION: Defer successful log to append PR link
         log_ai_action(
             trace_id=trace_id,
             action="GENERATE_SCHEMA",
@@ -215,6 +269,7 @@ def generate_dynamic_schema(
             link=None,
             resource_group="BigQuery Schema",
             resource_type="Schema - Generated",
+            defer=True,
         )
         log_event("INFO", "⏹️ 🧩 [Schema Design] Finished schema generation.", trace_id)
         return parsed_schema
@@ -225,6 +280,7 @@ def generate_dynamic_schema(
             f"❌ 🧩 [Schema Design] Schema Generation Failed: {e}. Falling back to basic generation.",
             trace_id,
         )
+        # Failures are logged immediately since they might crash before the PR is created
         log_ai_action(
             trace_id=trace_id,
             action="GENERATE_SCHEMA",
@@ -477,7 +533,7 @@ def generate_tf_patch_or_create(
             trace_id,
         )
 
-        # FEATURE ADDITION: Explicit logging for Terraform generation
+        # FEATURE ADDITION: Defer successful log to append PR link
         log_ai_action(
             trace_id=trace_id,
             action="GENERATE_TERRAFORM_CODE",
@@ -487,6 +543,7 @@ def generate_tf_patch_or_create(
             link=None,
             resource_group="Terraform Pipeline",
             resource_type=f"Infrastructure - {'Updated' if action == 'PATCH_EXISTING' else 'Created'}",
+            defer=True,
         )
 
         log_event("INFO", "⏹️ 🏗️ [TF Architect] Finished TF generation.", trace_id)
@@ -716,13 +773,14 @@ def generate_ai_dataform_pipeline(
     style_guide = df_state.get("style_guide_sqlx", "")
     inferred_domain = df_state.get("inferred_domain", "")
 
+    action_type = "Updated" if existing_files else "Created"
+
     if existing_files:
         log_event(
             "INFO",
             "🩹 🪄 [DF Architect] Existing files detected. Operating in PATCH mode.",
             trace_id,
         )
-        action_type = "Updated"
         instruction_block = f"""
         Some or all pipeline files exist. EXISTING FILES: {json.dumps(existing_files)}
         Task: PATCH these existing files. 
@@ -735,7 +793,6 @@ def generate_ai_dataform_pipeline(
             "✨ 🪄 [DF Architect] No files detected. Operating in CREATE mode.",
             trace_id,
         )
-        action_type = "Created"
         domain_instruction = (
             f"Use the detected domain folder '{inferred_domain}' or invent a logical one"
             if inferred_domain
@@ -774,7 +831,7 @@ def generate_ai_dataform_pipeline(
     4. CRITICAL ARCHIVE DATE & DESTINATION LOGIC: In the operations (`archive_...`) file:
        - You MUST STRICTLY use `CURRENT_DATE() AS batch_date` in the SELECT clause.
        - DO NOT use `${{self.database}}` or `${{self.schema}}` for the insert destination. Operations blocks do not possess 'self' context. You MUST explicitly build the path as: `{PROJECT_ID}.{datasets['raw']}.{table_name}_hist`
-    5. Operations file must depend on `fct_{base_name}` and TRUNCATE `{table_name}` after appending to `_hist`.
+    5. CRITICAL DATAFORM RULE: Actions may only include `post_operations` if they create a dataset. Because the `archive_` file is `type: "operations"`, it DOES NOT create a dataset. Therefore, you MUST NOT use a `post_operations {{ ... }}` block. Just place the `TRUNCATE` statement as a normal sequential SQL query immediately after the `INSERT` statement.
     6. DATAFORM SYNTAX (CRITICAL): Do NOT place any SQL or JS comments (`--`, `//`, `/* */`) inside the `config {{ ... }}` blocks. This causes JavaScript compilation errors.
     7. Output STRICTLY a JSON object where keys are full file paths and values are exact SQLX string content. No markdown.
     """
@@ -799,6 +856,7 @@ def generate_ai_dataform_pipeline(
             trace_id,
         )
 
+        # FEATURE ADDITION: Defer successful log to append PR link
         log_ai_action(
             trace_id=trace_id,
             action="GENERATE_DATAFORM_CODE",
@@ -808,6 +866,7 @@ def generate_ai_dataform_pipeline(
             link=None,
             resource_group="Dataform Pipeline",
             resource_type=f"Code Generation - {action_type}",
+            defer=True,
         )
         log_event("INFO", "⏹️ 🪄 [DF Architect] Finished Dataform generation.", trace_id)
         return pipeline_files
@@ -835,7 +894,7 @@ def generate_ai_dataform_pipeline(
 
 
 # ==============================================================================
-# 🧠 AGENT 5: DATAFORM QA VERIFIER (Enhanced Syntax Checks)
+# 🧠 AGENT 5: DATAFORM QA VERIFIER (Enhanced Operations Checklist)
 # ==============================================================================
 def verify_dataform_pipeline(
     pipeline_files: Dict[str, str],
@@ -877,6 +936,7 @@ def verify_dataform_pipeline(
     6. STAGING CASTING: Does the staging file explicitly `CAST()` raw STRING columns to appropriate native types? If missing, ADD CASTING syntax.
     7. DATA QUALITY: Does the `config` block of `stg_` and `fct_` files contain an `assertions` dictionary? If missing, ADD THEM.
     8. CONFIG BLOCK SYNTAX: Ensure there are absolutely NO comments (`--`, `//`, `/* */`) inside the `config {{ ... }}` blocks of any file. Remove them if they exist.
+    9. POST_OPERATIONS BAN (CRITICAL): "Actions may only include post_operations if they create a dataset." Ensure the `archive_` operations file DOES NOT contain a `post_operations {{ ... }}` block. The TRUNCATE statement must simply be sequential SQL.
     
     Fix any errors found in paths or SQL content. Output STRICTLY a JSON object where keys are the corrected full file paths and values are the corrected SQLX string content. 
     Output JSON ONLY. No explanation.
@@ -897,7 +957,7 @@ def verify_dataform_pipeline(
         verified_files = json.loads(text)
         log_event(
             "INFO",
-            f"✅ 🕵️‍♀️ [DF QA] QA passed. Operations resolved, Configs sanitized, Datasets, Casting, and Deduplication strictly enforced.",
+            f"✅ 🕵️‍♀️ [DF QA] QA passed. Post_operations blocks successfully banned and Configs sanitized.",
             trace_id,
         )
         log_event("INFO", "⏹️ 🕵️‍♀️ [DF QA] Finished automated review.", trace_id)
@@ -1175,7 +1235,6 @@ def apply_infrastructure_update(
     clean_schema_base = SCHEMA_BASE_PATH.strip().rstrip("/")
     target_json_path = f"{clean_schema_base}/{table}.json"
 
-    # Enforce schema reuse for history tables explicitly by setting this to None.
     target_hist_json_path = None
     if is_raw_table:
         log_event(
@@ -1311,7 +1370,6 @@ def apply_infrastructure_update(
                 count += 1
         final_schema_list = current_schema
 
-    # Run Schema through QA Verifier
     final_schema_list = verify_schema_json(
         final_schema_list, table, [c["name"] for c in added_cols_for_pr], trace_id
     )
@@ -1337,7 +1395,6 @@ def apply_infrastructure_update(
         )
 
         if new_tf_content and len(new_tf_content) > 20:
-            # Run HCL through QA Verifier
             new_tf_content = verify_terraform_hcl(
                 new_tf_content, table, tf_state, trace_id
             )
@@ -1395,6 +1452,8 @@ def apply_infrastructure_update(
             "🛑 🚀 [Orchestrator] No actionable changes detected. Aborting Git operations.",
             trace_id,
         )
+        # Flush any deferred logs even if skipping, just in case
+        flush_deferred_logs(None, trace_id)
         log_event(
             "INFO",
             "⏹️ 🚀 [Orchestrator] Finished orchestrator flow (Skipped).",
@@ -1407,7 +1466,6 @@ def apply_infrastructure_update(
             "details": {},
         }
 
-    # Empty-Diff Safeguards added (try-except blocks)
     if should_update_json:
         log_event(
             "INFO",
@@ -1512,7 +1570,7 @@ Added **{len(added_cols_for_pr)}** columns to the Raw Layer. All raw ingestion f
 2. **Architect:** Generated HCL. Embedded explicit `CAST()` operations, **Data Quality Assertions**, and explicitly defined target insert paths into `.sqlx` staging and operations blocks.
 3. **Schema QA:** Verified JSON structure and rigorously enforced `defaultValueExpression` on all columns.
 4. **Terraform QA:** Enforced schema reuse (`DRY` principle) between main and `_hist` table resources.
-5. **Dataform QA:** Validated SQL syntax, enforced `CURRENT_DATE()` logic, corrected Operations destination mappings, enforced `QUALIFY ROW_NUMBER()` deduplication, ensured 100% column inclusion, and verified empty/comment-free `config` blocks.
+5. **Dataform QA:** Validated SQL syntax, enforced `CURRENT_DATE()` logic, corrected Operations destination mappings, strictly enforced the post_operations ban, ensured `QUALIFY ROW_NUMBER()` deduplication, ensured 100% column inclusion, and verified empty/comment-free `config` blocks.
 
 **Commit Log:**
 {df_commit_log}
@@ -1521,7 +1579,7 @@ Added **{len(added_cols_for_pr)}** columns to the Raw Layer. All raw ingestion f
 - [x] **Schema Integrity:** Raw layer `STRING` typing and `defaultValueExpression` strictly enforced for all columns.
 - [x] **DRY Architecture:** History tables natively reuse raw landing schemas.
 - [x] **Staging Governance:** Explicit casting to native BigQuery types and Row Deduplication executed.
-- [x] **Operations Accuracy:** Operations block securely references target project and raw schema variables (Bypassing undefined self contexts).
+- [x] **Operations Accuracy:** Operations block securely references target project and raw schema variables (Bypassing undefined self contexts). Post_operations safely bypassed.
 - [x] **Config Sanitization:** Strict ban on comments within config blocks enforced to prevent compilation crashes.
 
 ### ✅ Action Required
@@ -1541,6 +1599,9 @@ Review the file changes and merge this Pull Request.
         f"🏆 🚀 [Orchestrator] PR Created Successfully! Link: {pr.html_url}",
         trace_id,
     )
+
+    # FEATURE ADDITION: Flush all deferred AI logs, injecting the newly created PR link
+    flush_deferred_logs(pr.html_url, trace_id)
 
     descriptive_details = {
         "descriptive_summary": f"Autonomously {'updated' if json_exists else 'created'} pipeline and infrastructure for {table}.",
@@ -1600,6 +1661,11 @@ Review the file changes and merge this Pull Request.
 @functions_framework.cloud_event
 def ai_agent_main(cloud_event):
     trace_id = "unknown"
+
+    # FEATURE ADDITION: Reset deferred logs array at start of execution
+    # (Crucial for Gen 2 Cloud Functions which reuse global state)
+    global DEFERRED_LOGS
+    DEFERRED_LOGS = []
 
     try:
         # Gateway Initialization
@@ -1703,7 +1769,6 @@ def ai_agent_main(cloud_event):
 
         overall_action = result.get("overall_action", "PROCESSED")
 
-        # Write Descriptive Details to Audit Log with strict PR URL mapping
         log_ai_action(
             trace_id=trace_id,
             action="CREATE_PR",
