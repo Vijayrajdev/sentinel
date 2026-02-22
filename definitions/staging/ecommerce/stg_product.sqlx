@@ -1,0 +1,24 @@
+config {
+  type: "table",
+  schema: "sentinel_staging",
+  tags: ["ecommerce", "product", "staging"],
+  assertions: {
+    uniqueKey: ["product_id"],
+    nonNull: ["product_id", "product_name", "category", "base_price"]
+  }
+}
+
+-- Selects the most recent record for each product and casts fields to their correct types.
+SELECT
+  CAST(product_id AS STRING) AS product_id,
+  CAST(product_name AS STRING) AS product_name,
+  CAST(category AS STRING) AS category,
+  CAST(base_price AS FLOAT64) AS base_price,
+  CURRENT_DATE() AS batch_date, -- Critical Requirement: Override batch_date in every layer
+  CAST(processed_dttm AS TIMESTAMP) AS processed_dttm
+FROM
+  ${ref("product_raw")}
+
+-- Deduplicate rows using QUALIFY, keeping the most recently processed one for each product_id
+QUALIFY
+  ROW_NUMBER() OVER(PARTITION BY product_id ORDER BY CAST(processed_dttm AS TIMESTAMP) DESC) = 1
