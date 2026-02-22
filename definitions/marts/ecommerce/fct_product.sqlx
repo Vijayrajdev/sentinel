@@ -1,0 +1,29 @@
+config {
+  type: "incremental",
+  schema: "sentinel_marts",
+  uniqueKey: ["product_id"],
+  bigquery: {
+    partitionBy: "batch_date",
+    clusterBy: ["category"]
+  },
+  assertions: {
+    uniqueKey: ["product_id"],
+    nonNull: ["product_id", "product_name", "batch_date"],
+    rowConditions: ["base_price >= 0 OR base_price IS NULL"]
+  },
+  tags: ["daily", "ecommerce", "marts"]
+}
+
+SELECT
+  product_id,
+  product_name,
+  category,
+  base_price,
+  batch_date,
+  processed_dttm AS updated_at
+FROM
+  ${ref("stg_product")}
+
+-- This block ensures idempotency by only fetching new or updated records
+-- based on the timestamp they were processed in the raw layer.
+${when(incremental(), `WHERE processed_dttm > (SELECT MAX(updated_at) FROM ${self()})`)}
