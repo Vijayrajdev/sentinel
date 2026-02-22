@@ -2,7 +2,9 @@
 # MODULE 1: Create Datasets
 # ==========================================
 module "bq_datasets" {
-  source     = "./bigquery/datasets"
+  source      = "./bigquery/datasets"
+  region      = var.region
+  project_id  = var.project_id
 }
 
 # ==========================================
@@ -80,3 +82,15 @@ module "secret" {
 #   project_id                               = var.project_id
 #   composer_bucket_name                     = var.composer_bucket_name
 # }
+
+# ==========================================
+# MODULE 6: Create Dataform Pipeline
+# ==========================================
+module "dataform" {
+  source     = "./dataform"
+
+  # Pass variables from Root -> Module
+  region                                   = var.region
+  project_id                               = var.project_id
+  secret_id                                = var.secret_id
+}
