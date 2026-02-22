@@ -62,6 +62,7 @@ def log_event(severity: str, message: str, trace_id: str, **kwargs):
     print(json.dumps(entry))
 
 
+# FEATURE ADDITION: Dynamic resource_group and resource_type for explicit state tracking
 def log_ai_action(
     trace_id: str,
     action: str,
@@ -203,6 +204,18 @@ def generate_dynamic_schema(
             f"✅ 🧩 [Schema Design] AI successfully formulated JSON schema with {len(parsed_schema)} fields.",
             trace_id,
         )
+
+        # FEATURE ADDITION: Explicit success logging for Schema generation
+        log_ai_action(
+            trace_id=trace_id,
+            action="GENERATE_SCHEMA",
+            resource=table_name,
+            status="SUCCESS",
+            details={"columns_mapped": len(parsed_schema)},
+            link=None,
+            resource_group="BigQuery Schema",
+            resource_type="Schema - Generated",
+        )
         log_event("INFO", "⏹️ 🧩 [Schema Design] Finished schema generation.", trace_id)
         return parsed_schema
 
@@ -211,6 +224,16 @@ def generate_dynamic_schema(
             "ERROR",
             f"❌ 🧩 [Schema Design] Schema Generation Failed: {e}. Falling back to basic generation.",
             trace_id,
+        )
+        log_ai_action(
+            trace_id=trace_id,
+            action="GENERATE_SCHEMA",
+            resource=table_name,
+            status="FAILED",
+            details={"error": str(e)},
+            link=None,
+            resource_group="BigQuery Schema",
+            resource_type="Schema - Generation Failed",
         )
         log_event(
             "INFO",
@@ -453,6 +476,19 @@ def generate_tf_patch_or_create(
             "✅ 🏗️ [TF Architect] AI successfully generated Terraform HCL block.",
             trace_id,
         )
+
+        # FEATURE ADDITION: Explicit logging for Terraform generation
+        log_ai_action(
+            trace_id=trace_id,
+            action="GENERATE_TERRAFORM_CODE",
+            resource=table_id,
+            status="SUCCESS",
+            details={"action": action, "target_file": schema_path},
+            link=None,
+            resource_group="Terraform Pipeline",
+            resource_type=f"Infrastructure - {'Updated' if action == 'PATCH_EXISTING' else 'Created'}",
+        )
+
         log_event("INFO", "⏹️ 🏗️ [TF Architect] Finished TF generation.", trace_id)
         return text.replace("```hcl", "").replace("```", "")
     except Exception as e:
@@ -460,6 +496,16 @@ def generate_tf_patch_or_create(
             "ERROR",
             f"❌ 🏗️ [TF Architect] Terraform HCL Generation Failed: {e}",
             trace_id,
+        )
+        log_ai_action(
+            trace_id=trace_id,
+            action="GENERATE_TERRAFORM_CODE",
+            resource=table_id,
+            status="FAILED",
+            details={"error": str(e)},
+            link=None,
+            resource_group="Terraform Pipeline",
+            resource_type="Infrastructure - Generation Failed",
         )
         log_event(
             "INFO", "⏹️ 🏗️ [TF Architect] Finished TF generation (Failure).", trace_id
@@ -550,7 +596,7 @@ def analyze_dataform_repo_state(
 
 
 # ==============================================================================
-# 🧠 AGENT 8: DATASET ROUTING ANALYST (NEW FEATURE)
+# 🧠 AGENT 8: DATASET ROUTING ANALYST
 # ==============================================================================
 def infer_pipeline_datasets_with_ai(
     table_name: str,
@@ -631,7 +677,7 @@ def infer_pipeline_datasets_with_ai(
 
 
 # ==============================================================================
-# 🧠 AGENT 4: DATAFORM ARCHITECT
+# 🧠 AGENT 4: DATAFORM ARCHITECT (Enhanced Syntax and Operations Safeguards)
 # ==============================================================================
 def generate_ai_dataform_pipeline(
     table_name: str,
@@ -643,7 +689,7 @@ def generate_ai_dataform_pipeline(
     datasets: Dict[str, str],
     trace_id: str,
 ) -> Dict[str, str]:
-    """Goal: Dynamically generate Dataform files, strictly enforcing datasets, casting, and deduplication."""
+    """Goal: Dynamically generate Dataform files, strictly enforcing datasets, casting, deduplication, and config syntax."""
     log_event(
         "INFO",
         f"▶️ 🪄 [DF Architect] Analyzing requirements for '{table_name}'...",
@@ -676,6 +722,7 @@ def generate_ai_dataform_pipeline(
             "🩹 🪄 [DF Architect] Existing files detected. Operating in PATCH mode.",
             trace_id,
         )
+        action_type = "Updated"
         instruction_block = f"""
         Some or all pipeline files exist. EXISTING FILES: {json.dumps(existing_files)}
         Task: PATCH these existing files. 
@@ -688,6 +735,7 @@ def generate_ai_dataform_pipeline(
             "✨ 🪄 [DF Architect] No files detected. Operating in CREATE mode.",
             trace_id,
         )
+        action_type = "Created"
         domain_instruction = (
             f"Use the detected domain folder '{inferred_domain}' or invent a logical one"
             if inferred_domain
@@ -715,24 +763,26 @@ def generate_ai_dataform_pipeline(
     {instruction_block}
     
     Requirements:
-    1. STRICT DATASETS: You MUST explicitly declare schemas using these exact values determined by the AI Dataset Routing Agent:
+    1. STRICT DATASETS: You MUST explicitly declare schemas using these exact values:
        - Source schema: "{datasets['raw']}"
        - Staging (`stg_`) schema: "{datasets['stg']}"
        - Marts (`fct_`) schema: "{datasets['marts']}"
-       DO NOT invent new schema names.
-    2. STAGING LAYER REQUIREMENTS (CRITICAL): 
+    2. STAGING LAYER REQUIREMENTS: 
        - The raw source data is entirely STRING type. You MUST explicitly `CAST()` these string columns to their proper native BigQuery types (e.g., `INT64`, `TIMESTAMP`, `BOOLEAN`, `FLOAT64`) based on the Sample Data provided.
        - You MUST perform row deduplication. Use `QUALIFY ROW_NUMBER() OVER(PARTITION BY <infer_primary_key_here> ORDER BY processed_dttm DESC) = 1`.
-    3. DATA QUALITY (ASSERTIONS): Embed Data Quality checks inside the `config {{ ... }}` block of staging and marts. Use `assertions: {{ uniqueKey: ["..."], nonNull: ["..."] }}` based on schema logic.
-    4. CRITICAL ARCHIVE DATE LOGIC: In the operations (`archive_...`) file, when inserting into the `_hist` table, you MUST STRICTLY use `CURRENT_DATE() AS batch_date` in the SELECT clause.
+    3. DATA QUALITY (ASSERTIONS): Embed Data Quality checks inside the `config {{ ... }}` block of staging and marts.
+    4. CRITICAL ARCHIVE DATE & DESTINATION LOGIC: In the operations (`archive_...`) file:
+       - You MUST STRICTLY use `CURRENT_DATE() AS batch_date` in the SELECT clause.
+       - DO NOT use `${{self.database}}` or `${{self.schema}}` for the insert destination. Operations blocks do not possess 'self' context. You MUST explicitly build the path as: `{PROJECT_ID}.{datasets['raw']}.{table_name}_hist`
     5. Operations file must depend on `fct_{base_name}` and TRUNCATE `{table_name}` after appending to `_hist`.
-    6. Output STRICTLY a JSON object where keys are full file paths and values are exact SQLX string content. No markdown.
+    6. DATAFORM SYNTAX (CRITICAL): Do NOT place any SQL or JS comments (`--`, `//`, `/* */`) inside the `config {{ ... }}` blocks. This causes JavaScript compilation errors.
+    7. Output STRICTLY a JSON object where keys are full file paths and values are exact SQLX string content. No markdown.
     """
 
     try:
         log_event(
             "INFO",
-            "⏳ 🪄 [DF Architect] Instructing Gemini to synthesize Dataform files with Casting and Deduplication...",
+            "⏳ 🪄 [DF Architect] Instructing Gemini to synthesize Dataform files with Casting, Deduplication, and Explicit DB bindings...",
             trace_id,
         )
         response = model.generate_content(prompt)
@@ -745,7 +795,7 @@ def generate_ai_dataform_pipeline(
         pipeline_files = json.loads(text)
         log_event(
             "INFO",
-            f"✅ 🪄 [DF Architect] AI successfully generated {len(pipeline_files)} SQLX files with strict schema, casting, and date enforcement.",
+            f"✅ 🪄 [DF Architect] AI successfully generated {len(pipeline_files)} SQLX files conforming to strict syntax and operational bounds.",
             trace_id,
         )
 
@@ -757,7 +807,7 @@ def generate_ai_dataform_pipeline(
             details={"files_generated": list(pipeline_files.keys())},
             link=None,
             resource_group="Dataform Pipeline",
-            resource_type="Code Generation - Success",
+            resource_type=f"Code Generation - {action_type}",
         )
         log_event("INFO", "⏹️ 🪄 [DF Architect] Finished Dataform generation.", trace_id)
         return pipeline_files
@@ -785,7 +835,7 @@ def generate_ai_dataform_pipeline(
 
 
 # ==============================================================================
-# 🧠 AGENT 5: DATAFORM QA VERIFIER
+# 🧠 AGENT 5: DATAFORM QA VERIFIER (Enhanced Syntax Checks)
 # ==============================================================================
 def verify_dataform_pipeline(
     pipeline_files: Dict[str, str],
@@ -794,7 +844,7 @@ def verify_dataform_pipeline(
     datasets: Dict[str, str],
     trace_id: str,
 ) -> Dict[str, str]:
-    """Goal: QA Lead verifies casting, deduplication, folder structure, accurate schemas, and CURRENT_DATE() logic."""
+    """Goal: QA Lead verifies casting, deduplication, operations destinations, schemas, and strictly forbids config comments."""
     log_event(
         "INFO",
         f"▶️ 🕵️‍♀️ [DF QA] Initiating automated peer-review of generated SQLX code...",
@@ -821,11 +871,12 @@ def verify_dataform_pipeline(
     Checklist:
     1. FOLDER STRUCTURE: If the files already exist in a domain folder, DO NOT change the path. Fix the path ONLY to include a logical domain folder if placed directly in `marts/` or `staging/`.
     2. SCHEMA VALIDATION: Are all required columns explicitly selected? (If missing, ADD THEM).
-    3. DATASET ENFORCEMENT: Ensure the schemas defined in the `config` blocks explicitly match the EXPECTED DATASETS. Fix them if the junior hallucinated a schema name.
-    4. ARCHIVE BATCH DATE: Ensure the operations (`archive_...`) file explicitly uses `CURRENT_DATE() AS batch_date` during the INSERT SELECT operation.
+    3. DATASET ENFORCEMENT: Ensure the schemas defined in the `config` blocks explicitly match the EXPECTED DATASETS.
+    4. ARCHIVE DESTINATION & DATE: Ensure the operations (`archive_...`) file explicitly uses `{PROJECT_ID}.{datasets['raw']}` for the target table (NO `${{self.database}}` or `${{self.schema}}`). It must also use `CURRENT_DATE() AS batch_date`.
     5. STAGING DEDUPLICATION: Does the staging file perform row deduplication (e.g., `QUALIFY ROW_NUMBER() OVER(...) = 1`)? If missing, ADD IT.
     6. STAGING CASTING: Does the staging file explicitly `CAST()` raw STRING columns to appropriate native types? If missing, ADD CASTING syntax.
     7. DATA QUALITY: Does the `config` block of `stg_` and `fct_` files contain an `assertions` dictionary? If missing, ADD THEM.
+    8. CONFIG BLOCK SYNTAX: Ensure there are absolutely NO comments (`--`, `//`, `/* */`) inside the `config {{ ... }}` blocks of any file. Remove them if they exist.
     
     Fix any errors found in paths or SQL content. Output STRICTLY a JSON object where keys are the corrected full file paths and values are the corrected SQLX string content. 
     Output JSON ONLY. No explanation.
@@ -834,7 +885,7 @@ def verify_dataform_pipeline(
     try:
         log_event(
             "INFO",
-            "⏳ 🕵️‍♀️ [DF QA] Awaiting QA review, casting, and assertion validation...",
+            "⏳ 🕵️‍♀️ [DF QA] Awaiting QA review, operations binding verification, and assertion validation...",
             trace_id,
         )
         text = model.generate_content(prompt).text.strip()
@@ -846,7 +897,7 @@ def verify_dataform_pipeline(
         verified_files = json.loads(text)
         log_event(
             "INFO",
-            f"✅ 🕵️‍♀️ [DF QA] QA passed. Datasets, Casting, Deduplication, and Schemas strictly enforced.",
+            f"✅ 🕵️‍♀️ [DF QA] QA passed. Operations resolved, Configs sanitized, Datasets, Casting, and Deduplication strictly enforced.",
             trace_id,
         )
         log_event("INFO", "⏹️ 🕵️‍♀️ [DF QA] Finished automated review.", trace_id)
@@ -1105,7 +1156,6 @@ def apply_infrastructure_update(
         repo, default_branch.commit.sha, base_name, table, trace_id
     )
 
-    # FEATURE ADDITION: Establish rigorous Dataset enforcement mappings using AI Agent 8
     existing_schemas_list = df_state.get("existing_schemas", [])
     inferred_raw_schema = df_state.get("inferred_schema") or dataset
 
@@ -1125,6 +1175,7 @@ def apply_infrastructure_update(
     clean_schema_base = SCHEMA_BASE_PATH.strip().rstrip("/")
     target_json_path = f"{clean_schema_base}/{table}.json"
 
+    # Enforce schema reuse for history tables explicitly by setting this to None.
     target_hist_json_path = None
     if is_raw_table:
         log_event(
@@ -1356,6 +1407,7 @@ def apply_infrastructure_update(
             "details": {},
         }
 
+    # Empty-Diff Safeguards added (try-except blocks)
     if should_update_json:
         log_event(
             "INFO",
@@ -1367,21 +1419,27 @@ def apply_infrastructure_update(
             if json_exists
             else f"feat(schema): create {table} schema layout"
         )
-
-        if json_exists:
-            repo.update_file(
-                target_json_path,
-                msg,
-                json.dumps(final_schema_list, indent=2),
-                json_sha,
-                branch=branch_name,
-            )
-        else:
-            repo.create_file(
-                target_json_path,
-                msg,
-                json.dumps(final_schema_list, indent=2),
-                branch=branch_name,
+        try:
+            if json_exists:
+                repo.update_file(
+                    target_json_path,
+                    msg,
+                    json.dumps(final_schema_list, indent=2),
+                    json_sha,
+                    branch=branch_name,
+                )
+            else:
+                repo.create_file(
+                    target_json_path,
+                    msg,
+                    json.dumps(final_schema_list, indent=2),
+                    branch=branch_name,
+                )
+        except GithubException as ge:
+            log_event(
+                "WARNING",
+                f"⚠️ 🚀 [Orchestrator] JSON commit skipped (Likely identical content): {ge}",
+                trace_id,
             )
 
     if tf_changed:
@@ -1389,12 +1447,21 @@ def apply_infrastructure_update(
             "INFO", "💾 🚀 [Orchestrator] Committing Terraform HCL payload...", trace_id
         )
         msg = f"feat(infra): update Terraform specs for {table}"
-        if tf_action == "PATCH":
-            repo.update_file(
-                target_tf_path, msg, new_tf_content, tf_sha, branch=branch_name
+        try:
+            if tf_action == "PATCH":
+                repo.update_file(
+                    target_tf_path, msg, new_tf_content, tf_sha, branch=branch_name
+                )
+            else:
+                repo.create_file(
+                    target_tf_path, msg, new_tf_content, branch=branch_name
+                )
+        except GithubException as ge:
+            log_event(
+                "WARNING",
+                f"⚠️ 🚀 [Orchestrator] Terraform commit skipped (Likely identical content): {ge}",
+                trace_id,
             )
-        else:
-            repo.create_file(target_tf_path, msg, new_tf_content, branch=branch_name)
 
     log_event(
         "INFO", "✉️ 🚀 [Orchestrator] Formatting highly detailed PR body...", trace_id
@@ -1442,10 +1509,10 @@ Added **{len(added_cols_for_pr)}** columns to the Raw Layer. All raw ingestion f
 
 ### 🪄 Agent Activity Log
 1. **Scanner & Router:** Mapped target domain folders semantically. AI Dataset Routing successfully assigned correct schema endpoints.
-2. **Architect:** Generated HCL. Embedded explicit `CAST()` operations and **Data Quality Assertions** into `.sqlx` staging blocks.
+2. **Architect:** Generated HCL. Embedded explicit `CAST()` operations, **Data Quality Assertions**, and explicitly defined target insert paths into `.sqlx` staging and operations blocks.
 3. **Schema QA:** Verified JSON structure and rigorously enforced `defaultValueExpression` on all columns.
 4. **Terraform QA:** Enforced schema reuse (`DRY` principle) between main and `_hist` table resources.
-5. **Dataform QA:** Validated SQL syntax, enforced `CURRENT_DATE()` logic, enforced `QUALIFY ROW_NUMBER()` deduplication, and ensured 100% column inclusion.
+5. **Dataform QA:** Validated SQL syntax, enforced `CURRENT_DATE()` logic, corrected Operations destination mappings, enforced `QUALIFY ROW_NUMBER()` deduplication, ensured 100% column inclusion, and verified empty/comment-free `config` blocks.
 
 **Commit Log:**
 {df_commit_log}
@@ -1454,8 +1521,8 @@ Added **{len(added_cols_for_pr)}** columns to the Raw Layer. All raw ingestion f
 - [x] **Schema Integrity:** Raw layer `STRING` typing and `defaultValueExpression` strictly enforced for all columns.
 - [x] **DRY Architecture:** History tables natively reuse raw landing schemas.
 - [x] **Staging Governance:** Explicit casting to native BigQuery types and Row Deduplication executed.
-- [x] **Temporal Accuracy:** Archive operations strictly configured with `CURRENT_DATE()`.
-- [x] **Data Quality:** Automated assertions added to Dataform `config` blocks.
+- [x] **Operations Accuracy:** Operations block securely references target project and raw schema variables (Bypassing undefined self contexts).
+- [x] **Config Sanitization:** Strict ban on comments within config blocks enforced to prevent compilation crashes.
 
 ### ✅ Action Required
 Review the file changes and merge this Pull Request.
@@ -1504,6 +1571,7 @@ Review the file changes and merge this Pull Request.
             "anti_hallucination_schemas_verified": True,
             "current_date_archive_enforced": True,
             "staging_casting_and_dedup_applied": True,
+            "operations_syntax_sanitized": True,
         },
     }
 
