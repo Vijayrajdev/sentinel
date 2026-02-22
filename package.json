@@ -1,0 +1,6 @@
+{
+  "name": "sentinel-data-pipeline",
+  "dependencies": {
+    "@dataform/core": "3.0.47"
+  }
+}

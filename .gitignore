@@ -21,3 +21,7 @@ venv/
 
 # Temp
 /infra/temp
+
+# Dataform
+/node_modules
+/package-lock.json

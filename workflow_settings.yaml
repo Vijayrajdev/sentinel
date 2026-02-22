@@ -1,0 +1,5 @@
+# workflow_settings.yaml
+defaultProject: sentinel-486707
+defaultDataset: sentinel_staging
+defaultLocation: us-central1
+defaultAssertionDataset: sentinel_assertions 
