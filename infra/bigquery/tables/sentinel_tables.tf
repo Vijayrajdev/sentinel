@@ -27,6 +27,10 @@ locals {
       partition_type  = "DAY"
       partition_field = "batch_date"
     }
+    "product_raw" = {
+      partition_type  = "DAY"
+      partition_field = "batch_date"
+    }
   }
   tables_raw_hist = {
     "orders_raw" = {
@@ -40,6 +44,11 @@ locals {
       expiration_ms   = 2592000000
     }
     "customer_raw" = {
+      partition_type  = "DAY"
+      partition_field = "batch_date"
+      expiration_ms   = 2592000000
+    }
+    "product_raw" = {
       partition_type  = "DAY"
       partition_field = "batch_date"
       expiration_ms   = 2592000000
@@ -61,8 +70,8 @@ resource "google_bigquery_table" "sentinel_audit_tables" {
     for_each = each.value.partition_type != null ? [1] : []
 
     content {
-      type  = each.value.partition_type
-      field = lookup(each.value, "partition_field", null)
+      type          = each.value.partition_type
+      field         = lookup(each.value, "partition_field", null)
       expiration_ms = lookup(each.value, "expiration_ms", null)
     }
   }
@@ -89,8 +98,8 @@ resource "google_bigquery_table" "sentinel_raw_tables" {
     for_each = each.value.partition_type != null ? [1] : []
 
     content {
-      type  = each.value.partition_type
-      field = lookup(each.value, "partition_field", null)
+      type          = each.value.partition_type
+      field         = lookup(each.value, "partition_field", null)
       expiration_ms = lookup(each.value, "expiration_ms", null)
     }
   }
@@ -117,8 +126,8 @@ resource "google_bigquery_table" "sentinel_raw_hist_tables" {
     for_each = each.value.partition_type != null ? [1] : []
 
     content {
-      type  = each.value.partition_type
-      field = lookup(each.value, "partition_field", null)
+      type          = each.value.partition_type
+      field         = lookup(each.value, "partition_field", null)
       expiration_ms = lookup(each.value, "expiration_ms", null)
     }
   }
@@ -127,7 +136,9 @@ resource "google_bigquery_table" "sentinel_raw_hist_tables" {
     env = "dev"
   }
 
-  # Note: Since we changed locals to objects, we still refer to each.key for the filename
+  # Note: As requested, we mimic the existing pattern for the history table.
+  # The schema file for the history table 'product_raw_hist' is derived from its key 'product_raw',
+  # resulting in 'json/product_raw.json' being used for both the raw and history tables.
+  # If a separate schema 'json/product_raw_hist.json' is required, the resource configuration would need to be modified.
   schema = file("${path.module}/json/${each.key}.json")
 }
-
