@@ -1,0 +1,20 @@
+config {
+  type: "table",
+  schema: "sentinel_staging",
+  description: "Staging table for raw product data. This model cleans data types, casts columns, and applies basic data quality checks.",
+  tags: ["staging", "ecommerce"],
+  assertions: {
+    uniqueKey: ["product_id"],
+    nonNull: ["product_id", "batch_date"]
+  }
+}
+
+SELECT
+  CAST(product_id AS STRING) AS product_id,
+  CAST(product_name AS STRING) AS product_name,
+  CAST(category AS STRING) AS category,
+  CAST(base_price AS NUMERIC) AS base_price,
+  CAST(batch_date AS DATE) AS batch_date,
+  CAST(processed_dttm AS TIMESTAMP) AS processed_dttm
+FROM
+  ${ref("product_raw")}
