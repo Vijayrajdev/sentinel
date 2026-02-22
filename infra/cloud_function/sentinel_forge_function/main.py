@@ -221,7 +221,6 @@ def generate_dynamic_schema(
             f"STYLE GUIDE (Mimic this format):\n```json\n{reference_json[:3000]}\n```"
         )
 
-    # FEATURE ADDITION: More aggressive enforcement of STRING types
     prompt = f"""
     You are a Data Architect.
     Task: Generate a BigQuery Schema JSON for table "{table_name}".
@@ -730,7 +729,7 @@ def infer_pipeline_datasets_with_ai(
 
 
 # ==============================================================================
-# 🧠 AGENT 4: DATAFORM ARCHITECT (Enhanced with Tag Taxonomy)
+# 🧠 AGENT 4: DATAFORM ARCHITECT (Enhanced with Syntax, Operations, and Declarations Safeguards)
 # ==============================================================================
 def generate_ai_dataform_pipeline(
     table_name: str,
@@ -742,7 +741,7 @@ def generate_ai_dataform_pipeline(
     datasets: Dict[str, str],
     trace_id: str,
 ) -> Dict[str, str]:
-    """Goal: Dynamically generate Dataform files, strictly enforcing datasets, casting, deduplication, and TAG TAXONOMY."""
+    """Goal: Dynamically generate Dataform files, strictly enforcing datasets, tags, syntax, and declaration exceptions."""
     log_event(
         "INFO",
         f"▶️ 🪄 [DF Architect] Analyzing requirements for '{table_name}'...",
@@ -770,8 +769,6 @@ def generate_ai_dataform_pipeline(
     inferred_domain = df_state.get("inferred_domain", "")
 
     action_type = "Updated" if existing_files else "Created"
-
-    # Pre-calculate domain for tagging
     actual_domain = inferred_domain if inferred_domain else "logical_domain"
 
     if existing_files:
@@ -809,7 +806,12 @@ def generate_ai_dataform_pipeline(
         STYLE GUIDE (Mimic format): ```sql\n{style_guide[:2000]}\n```
         """
 
-    # FEATURE ADDITION: Added Rule 8 for STRICT TAGGING TAXONOMY
+    # FEATURE ADDITION: Enforce that declarations (sources) DO NOT use tags.
+    log_event(
+        "INFO",
+        "🛡️ 🪄 [DF Architect] Enforcing Dataform syntax rules: Declarations must NOT contain tags.",
+        trace_id,
+    )
     prompt = f"""
     You are an expert Analytics Engineer writing Google Cloud Dataform code (Core v3.x).
     
@@ -833,7 +835,7 @@ def generate_ai_dataform_pipeline(
        - DO NOT use `${{self.database}}` or `${{self.schema}}` for the insert destination. Operations blocks do not possess 'self' context. You MUST explicitly build the path as: `{PROJECT_ID}.{datasets['raw']}.{table_name}_hist`
     5. CRITICAL DATAFORM RULE: Actions may only include `post_operations` if they create a dataset. Because the `archive_` file is `type: "operations"`, it DOES NOT create a dataset. Therefore, you MUST NOT use a `post_operations {{ ... }}` block. Just place the `TRUNCATE` statement as a normal sequential SQL query immediately after the `INSERT` statement.
     6. DATAFORM SYNTAX: Do NOT place any SQL or JS comments (`--`, `//`, `/* */`) inside the `config {{ ... }}` blocks.
-    7. STRICT TAGGING TAXONOMY: Every file's `config` block MUST contain a `tags: []` array. The tags MUST explicitly include:
+    7. STRICT TAGGING TAXONOMY: Every file's `config` block MUST contain a `tags: []` array, EXCEPT for declaration files. Dataform `type: "declaration"` (your source files) DO NOT support the `tags` property. For all other layers (staging, marts, operations), the tags MUST explicitly include:
        1. The domain name ('{actual_domain}')
        2. The base entity name ('{base_name}')
        3. The layer name ('staging', 'marts', or 'archive' based on the file type).
@@ -844,7 +846,7 @@ def generate_ai_dataform_pipeline(
     try:
         log_event(
             "INFO",
-            "⏳ 🪄 [DF Architect] Instructing Gemini to synthesize Dataform files with Tags, Casting, and Deduplication...",
+            "⏳ 🪄 [DF Architect] Instructing Gemini to synthesize Dataform files with Tags, Rules, and Declaration exceptions...",
             trace_id,
         )
         response = model.generate_content(prompt)
@@ -898,7 +900,7 @@ def generate_ai_dataform_pipeline(
 
 
 # ==============================================================================
-# 🧠 AGENT 5: DATAFORM QA VERIFIER (Enhanced Tag Taxonomy Checks)
+# 🧠 AGENT 5: DATAFORM QA VERIFIER (Enhanced Declaration Tag Checks)
 # ==============================================================================
 def verify_dataform_pipeline(
     pipeline_files: Dict[str, str],
@@ -909,7 +911,7 @@ def verify_dataform_pipeline(
     base_name: str,
     trace_id: str,
 ) -> Dict[str, str]:
-    """Goal: QA Lead verifies tags, casting, deduplication, operations destinations, schemas, and strictly forbids config comments."""
+    """Goal: QA Lead verifies tags, checks declaration exemptions, validates casting, operations destinations, and schemas."""
     log_event(
         "INFO",
         f"▶️ 🕵️‍♀️ [DF QA] Initiating automated peer-review of generated SQLX code...",
@@ -928,7 +930,7 @@ def verify_dataform_pipeline(
 
     inferred_domain = df_state.get("inferred_domain", "domain_placeholder")
 
-    # FEATURE ADDITION: Included TAG TAXONOMY check (Checklist 10)
+    # FEATURE ADDITION: Included declaration tag removal in Checklist 10
     prompt = f"""
     You are a Senior Data QA Lead. Review this Dataform pipeline generated by a junior engineer.
     
@@ -947,7 +949,7 @@ def verify_dataform_pipeline(
     7. DATA QUALITY: Does the `config` block of `stg_` and `fct_` files contain an `assertions` dictionary? If missing, ADD THEM.
     8. CONFIG BLOCK SYNTAX: Ensure there are absolutely NO comments (`--`, `//`, `/* */`) inside the `config {{ ... }}` blocks of any file. Remove them if they exist.
     9. POST_OPERATIONS BAN (CRITICAL): Ensure the `archive_` operations file DOES NOT contain a `post_operations {{ ... }}` block. The TRUNCATE statement must simply be sequential SQL.
-    10. TAG TAXONOMY (CRITICAL): Ensure the `config` block of EVERY file contains a `tags: []` array. It MUST contain exactly these 3 elements: the domain name (e.g., "{inferred_domain}"), the entity name ("{base_name}"), and the layer ("staging", "marts", or "archive"). Add them if missing.
+    10. TAG TAXONOMY (CRITICAL): Ensure the `config` block of EVERY file EXCEPT declarations contains a `tags: []` array. Dataform `type: "declaration"` DOES NOT support tags. If a declaration file has tags, REMOVE the tags property. For all other files, it MUST contain exactly these 3 elements: the domain name (e.g., "{inferred_domain}"), the entity name ("{base_name}"), and the layer ("staging", "marts", or "archive"). Add them if missing.
     
     Fix any errors found in paths or SQL content. Output STRICTLY a JSON object where keys are the corrected full file paths and values are the corrected SQLX string content. 
     Output JSON ONLY. No explanation.
@@ -968,7 +970,7 @@ def verify_dataform_pipeline(
         verified_files = json.loads(text)
         log_event(
             "INFO",
-            f"✅ 🕵️‍♀️ [DF QA] QA passed. Tags verified, Post_operations banned, and Configs sanitized.",
+            f"✅ 🕵️‍♀️ [DF QA] QA passed. Tags verified (and removed from declarations), Post_operations banned, and Configs sanitized.",
             trace_id,
         )
         log_event("INFO", "⏹️ 🕵️‍♀️ [DF QA] Finished automated review.", trace_id)
@@ -988,12 +990,12 @@ def verify_dataform_pipeline(
 
 
 # ==============================================================================
-# 🧠 AGENT 6: SCHEMA QA VERIFIER (Enhanced with Type String Enforcement)
+# 🧠 AGENT 6: SCHEMA QA VERIFIER
 # ==============================================================================
 def verify_schema_json(
     schema_list: List[Dict], table_name: str, new_cols: List[str], trace_id: str
 ) -> List[Dict]:
-    """Goal: Ensure JSON Schema strictly complies with enterprise STRING standards before committing."""
+    """Goal: Ensure JSON Schema strictly complies with enterprise standards before committing."""
     log_event(
         "INFO",
         f"▶️ 🕵️‍♀️ [Schema QA] Initiating automated peer-review of BigQuery JSON Schema...",
@@ -1006,7 +1008,6 @@ def verify_schema_json(
         )
         return schema_list
 
-    # FEATURE ADDITION: More aggressive enforcement of STRING type check (Checklist 2)
     prompt = f"""
     You are a Senior Data QA Lead. Review this JSON BigQuery Schema generated by a junior engineer.
     
@@ -1035,7 +1036,7 @@ def verify_schema_json(
         verified_schema = json.loads(text)
         log_event(
             "INFO",
-            f"✅ 🕵️‍♀️ [Schema QA] QA passed. Schema verified, STRING types strictly enforced, and Default Values validated.",
+            f"✅ 🕵️‍♀️ [Schema QA] QA passed. Schema verified and Default Values validated.",
             trace_id,
         )
         log_event("INFO", "⏹️ 🕵️‍♀️ [Schema QA] Finished automated review.", trace_id)
@@ -1438,7 +1439,6 @@ def apply_infrastructure_update(
             trace_id,
         )
         if raw_df_pipeline:
-            # Pass base_name and df_state for tag validation
             verified_df_pipeline = verify_dataform_pipeline(
                 raw_df_pipeline,
                 final_schema_list,
@@ -1560,7 +1560,6 @@ def apply_infrastructure_update(
     title_prefix = "fix" if json_exists or df_files_changed > 0 else "feat"
     pr_title = f"{title_prefix}(dataops): Automated Pipeline & DQ Healing for {table}"
 
-    # FEATURE ADDITION: Updated PR Body to include Tag Taxonomy and STRING enforcement
     pr_body = f"""
 # 🤖 Sentinel-Forge Automated Resolution
 **Trace ID:** `{trace_id}`
@@ -1585,7 +1584,7 @@ Added **{len(added_cols_for_pr)}** columns to the Raw Layer. All raw ingestion f
 2. **Architect:** Generated HCL. Embedded explicit `CAST()` operations, **Data Quality Assertions**, explicit tags (`domain`, `entity`, `layer`), and defined target insert paths into `.sqlx` blocks.
 3. **Schema QA:** Verified JSON structure. Rigorously enforced `defaultValueExpression` and absolute `STRING` typing on all new columns.
 4. **Terraform QA:** Enforced schema reuse (`DRY` principle) between main and `_hist` table resources.
-5. **Dataform QA:** Validated SQL syntax, enforced `CURRENT_DATE()` logic, corrected Operations mappings, ensured `QUALIFY ROW_NUMBER()` deduplication, verified empty/comment-free `config` blocks, and validated strict 3-part Tag Taxonomy.
+5. **Dataform QA:** Validated SQL syntax, enforced `CURRENT_DATE()` logic, corrected Operations mappings, ensured `QUALIFY ROW_NUMBER()` deduplication, verified empty/comment-free `config` blocks, prevented declaration tags, and validated strict 3-part Tag Taxonomy.
 
 **Commit Log:**
 {df_commit_log}
@@ -1593,7 +1592,7 @@ Added **{len(added_cols_for_pr)}** columns to the Raw Layer. All raw ingestion f
 ### 🛡️ Governance Checklist
 - [x] **Schema Integrity:** Absolute `STRING` typing and `defaultValueExpression` strictly enforced for raw layer.
 - [x] **DRY Architecture:** History tables natively reuse raw landing schemas.
-- [x] **Tag Taxonomy:** `config` blocks securely tagged with `[domain, entity, layer]`.
+- [x] **Tag Taxonomy:** `config` blocks securely tagged with `[domain, entity, layer]` (Exempting Declarations).
 - [x] **Staging Governance:** Explicit casting to native BigQuery types and Row Deduplication executed.
 - [x] **Operations Accuracy:** Operations securely bypass self-contexts and `post_operations`.
 - [x] **Data Quality:** Automated assertions added to Dataform `config` blocks.
