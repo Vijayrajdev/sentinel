@@ -1,9 +1,10 @@
 config {
-  type: "view",
+  type: "table",
   schema: "sentinel_staging",
+  tags: ["sales", "orders", "staging"],
   assertions: {
     uniqueKey: ["order_id"],      
-    nonNull: ["order_id", "amount"], 
+    nonNull: ["order_id", "amount", "product_id"], 
     rowConditions: [
       "amount >= 0",              
       "order_date <= CURRENT_DATE()"
@@ -14,6 +15,8 @@ config {
 SELECT
   order_id,
   customer_name,
+  email,
+  product_id,
   SAFE_CAST(amount AS FLOAT64) AS amount,
   status,
   SAFE.PARSE_DATE('%Y-%m-%d', order_date) AS order_date,
@@ -22,3 +25,5 @@ SELECT
   warehouse_id
 FROM
   ${ref("orders_raw")}
+QUALIFY
+  ROW_NUMBER() OVER(PARTITION BY order_id ORDER BY processed_dttm DESC) = 1
