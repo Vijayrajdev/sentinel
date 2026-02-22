@@ -1,11 +1,12 @@
 config {
   type: "view",
   schema: "sentinel_staging",
+  tags: ["sales", "orders", "staging"],
   assertions: {
-    uniqueKey: ["order_id"],      
-    nonNull: ["order_id", "amount"], 
+    uniqueKey: ["order_id"],
+    nonNull: ["order_id", "amount", "email", "product_id"],
     rowConditions: [
-      "amount >= 0",              
+      "amount >= 0",
       "order_date <= CURRENT_DATE()"
     ]
   }
@@ -14,11 +15,16 @@ config {
 SELECT
   order_id,
   customer_name,
+  SAFE_CAST(email AS STRING) AS email,
+  SAFE_CAST(product_id AS STRING) AS product_id,
   SAFE_CAST(amount AS FLOAT64) AS amount,
   status,
   SAFE.PARSE_DATE('%Y-%m-%d', order_date) AS order_date,
-  batch_date,
+  CURRENT_DATE() AS batch_date,
   processed_dttm,
   warehouse_id
 FROM
   ${ref("orders_raw")}
+
+-- Deduplicate records based on the latest processing timestamp for each order
+QUALIFY ROW_NUMBER() OVER(PARTITION BY order_id ORDER BY processed_dttm DESC) = 1
