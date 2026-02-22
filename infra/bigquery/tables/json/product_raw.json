@@ -1,0 +1,44 @@
+[
+  {
+    "name": "product_id",
+    "type": "STRING",
+    "mode": "NULLABLE",
+    "description": "The unique identifier for the product.",
+    "defaultValueExpression": "NULL"
+  },
+  {
+    "name": "product_name",
+    "type": "STRING",
+    "mode": "NULLABLE",
+    "description": "The name of the product.",
+    "defaultValueExpression": "NULL"
+  },
+  {
+    "name": "category",
+    "type": "STRING",
+    "mode": "NULLABLE",
+    "description": "The category the product belongs to.",
+    "defaultValueExpression": "NULL"
+  },
+  {
+    "name": "base_price",
+    "type": "STRING",
+    "mode": "NULLABLE",
+    "description": "The base price of the product, stored as a string.",
+    "defaultValueExpression": "NULL"
+  },
+  {
+    "name": "batch_date",
+    "type": "DATE",
+    "mode": "NULLABLE",
+    "description": "Partition",
+    "defaultValueExpression": "DATE '9999-12-31'"
+  },
+  {
+    "name": "processed_dttm",
+    "type": "TIMESTAMP",
+    "mode": "NULLABLE",
+    "description": "Audit",
+    "defaultValueExpression": "CURRENT_TIMESTAMP()"
+  }
+]
