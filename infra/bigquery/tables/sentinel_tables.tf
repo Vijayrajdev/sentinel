@@ -27,6 +27,10 @@ locals {
       partition_type  = "DAY"
       partition_field = "batch_date"
     }
+    "product_raw" = {
+      partition_type  = "DAY"
+      partition_field = "batch_date"
+    }
   }
   tables_raw_hist = {
     "orders_raw" = {
@@ -40,6 +44,11 @@ locals {
       expiration_ms   = 2592000000
     }
     "customer_raw" = {
+      partition_type  = "DAY"
+      partition_field = "batch_date"
+      expiration_ms   = 2592000000
+    }
+    "product_raw" = {
       partition_type  = "DAY"
       partition_field = "batch_date"
       expiration_ms   = 2592000000
@@ -108,7 +117,7 @@ resource "google_bigquery_table" "sentinel_raw_hist_tables" {
 
   dataset_id          = "sentinel_raw"
   table_id            = "${each.key}_hist"
-  friendly_name       = "sentinel_${each.key}"
+  friendly_name       = "sentinel_${each.key}_hist"
   deletion_protection = false
 
   # 1. The Dynamic Block
@@ -130,4 +139,3 @@ resource "google_bigquery_table" "sentinel_raw_hist_tables" {
   # Note: Since we changed locals to objects, we still refer to each.key for the filename
   schema = file("${path.module}/json/${each.key}.json")
 }
-
