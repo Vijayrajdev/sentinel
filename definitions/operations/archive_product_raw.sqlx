@@ -1,0 +1,29 @@
+config {
+  type: "operations",
+  schema: "raw",
+  dependencies: ["fct_product"],
+  tags: ["operations", "archive"]
+}
+
+preOps {
+  -- Ensures the history table exists before the MERGE operation.
+  statements: [
+    """CREATE TABLE IF NOT EXISTS `${source("product_raw").database}.${source("product_raw").schema}.product_raw_hist`
+       LIKE `${source("product_raw")}`
+    """
+  ]
+}
+
+-- Step 1: Idempotently copy data from the raw table to the history table using MERGE.
+-- This ensures that if the operation is re-run, duplicate rows are not created in the history table.
+MERGE `${source("product_raw").database}.${source("product_raw").schema}.product_raw_hist` T
+USING ${source("product_raw")} S
+ON T.product_id = S.product_id AND T.batch_date = S.batch_date AND T.processed_dttm = S.processed_dttm
+WHEN NOT MATCHED THEN
+  INSERT(product_id, product_name, category, base_price, batch_date, processed_dttm)
+  VALUES(S.product_id, S.product_name, S.category, S.base_price, S.batch_date, S.processed_dttm);
+
+---
+
+-- Step 2: Truncate the raw table for the next run.
+TRUNCATE TABLE ${source("product_raw")};
