@@ -1,24 +1,30 @@
 config {
-  type: "view",
+  type: "table",
   schema: "sentinel_staging",
+  tags: ["sales"],
   assertions: {
-    uniqueKey: ["order_id"],      
-    nonNull: ["order_id", "amount"], 
+    uniqueKey: ["order_id"],
+    nonNull: ["order_id", "amount", "email", "product_id"],
     rowConditions: [
-      "amount >= 0",              
+      "amount >= 0",
       "order_date <= CURRENT_DATE()"
     ]
   }
 }
 
+-- Select, cast, and deduplicate data from the raw source table
 SELECT
   order_id,
   customer_name,
   SAFE_CAST(amount AS FLOAT64) AS amount,
   status,
   SAFE.PARSE_DATE('%Y-%m-%d', order_date) AS order_date,
-  batch_date,
-  processed_dttm,
-  warehouse_id
+  email,
+  product_id,
+  warehouse_id,
+  SAFE_CAST(processed_dttm AS TIMESTAMP) AS processed_dttm
 FROM
   ${ref("orders_raw")}
+
+-- Deduplicate records by taking the latest one for each order_id
+QUALIFY ROW_NUMBER() OVER(PARTITION BY order_id ORDER BY SAFE_CAST(processed_dttm AS TIMESTAMP) DESC) = 1
