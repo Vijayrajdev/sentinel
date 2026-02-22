@@ -1,29 +1,33 @@
 config {
   type: "operations",
-  tags: ["daily", "sales"],
-  dependencies: ["fct_orders"] 
+  tags: ["sales", "orders", "archive"],
+  dependencies: ["fct_orders"]
 }
 
 -- Step 1: Append today's raw data to the history table
 INSERT INTO `sentinel-486707.sentinel_raw.orders_raw_hist` (
-  order_id, 
-  customer_name, 
-  amount, 
-  status, 
-  order_date, 
-  batch_date, 
-  processed_dttm, 
-  warehouse_id
+  order_id,
+  customer_name,
+  amount,
+  status,
+  order_date,
+  email,
+  product_id,
+  warehouse_id,
+  batch_date,
+  processed_dttm
 )
-SELECT 
-  order_id, 
-  customer_name, 
-  amount, 
-  status, 
-  order_date, 
-  CURRENT_DATE() AS batch_date, -- Inserts current date as the batch_date
-  processed_dttm, 
-  warehouse_id
+SELECT
+  order_id,
+  customer_name,
+  amount,
+  status,
+  order_date,
+  email,
+  product_id,
+  warehouse_id,
+  CURRENT_DATE() AS batch_date,
+  processed_dttm
 FROM ${ref("orders_raw")};
 
 -- Step 2: Clear the landing table completely
