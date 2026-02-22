@@ -6,16 +6,23 @@ config {
     partitionBy: "order_date",
     clusterBy: ["status", "warehouse_id"]
   },
-  tags: ["daily", "sales"]
+  tags: ["sales", "orders", "marts"],
+  assertions: {
+    uniqueKey: ["order_id"],
+    nonNull: ["order_id", "product_id", "email"]
+  }
 }
 
 SELECT
   order_id,
   customer_name,
+  email,
+  product_id,
   amount,
   status,
   order_date,
   warehouse_id,
+  CURRENT_DATE() AS batch_date,
   processed_dttm AS updated_at
 FROM
   ${ref("stg_orders")}
