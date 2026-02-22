@@ -1,0 +1,28 @@
+config {
+  type: "operations",
+  schema: "sentinel_raw",
+  tags: ["archive"]
+}
+
+-- This operation archives the current raw data to a history table before truncating it.
+
+INSERT INTO `sentinel-486707.sentinel_raw.product_raw_hist` (
+  product_id,
+  product_name,
+  category,
+  base_price,
+  batch_date,
+  processed_dttm
+)
+SELECT
+  product_id,
+  product_name,
+  category,
+  base_price,
+  CURRENT_DATE() AS batch_date, -- Overwrite with archive date as per requirement
+  processed_dttm
+FROM
+  ${ref("product_raw")};
+
+-- Truncate the raw table after successful archival
+TRUNCATE TABLE ${ref("product_raw")};
