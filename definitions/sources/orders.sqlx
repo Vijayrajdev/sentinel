@@ -2,5 +2,6 @@ config {
   type: "declaration",
   database: "sentinel-486707",
   schema: "sentinel_raw",
-  name: "orders_raw"
+  name: "orders_raw",
+  tags: ["sales", "orders", "source"]
 }
