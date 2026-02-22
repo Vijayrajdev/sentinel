@@ -1,0 +1,28 @@
+config {
+  type: "incremental",
+  schema: "sentinel_marts",
+  uniqueKey: ["product_id"],
+  bigquery: {
+    partitionBy: "batch_date",
+    clusterBy: ["category"]
+  },
+  tags: ["ecommerce", "product", "marts"],
+  assertions: {
+    uniqueKey: ["product_id"],
+    nonNull: ["product_id", "category"]
+  }
+}
+
+-- Selects the cleaned and deduplicated product data from the staging layer.
+SELECT
+  product_id,
+  product_name,
+  category,
+  base_price,
+  CURRENT_DATE() AS batch_date, -- Critical Requirement: Override batch_date in every layer
+  processed_dttm AS updated_at
+FROM
+  ${ref("stg_product")}
+
+-- This block ensures idempotency by only fetching new records on incremental runs.
+${when(incremental(), `WHERE processed_dttm > (SELECT MAX(updated_at) FROM ${self()})` )}
