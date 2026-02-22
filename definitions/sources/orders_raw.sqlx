@@ -1,0 +1,19 @@
+config {
+  type: "declaration",
+  database: "sentinel-486707",
+  schema: "sentinel_raw",
+  name: "orders_raw",
+  description: "Declaration of the raw orders table from the source system."
+}
+
+-- The schema for this table is:
+-- order_id: STRING
+-- customer_name: STRING
+-- amount: STRING
+-- status: STRING
+-- order_date: STRING
+-- product_id: STRING
+-- email: STRING
+-- batch_date: DATE
+-- processed_dttm: TIMESTAMP
+-- warehouse_id: STRING
