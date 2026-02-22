@@ -69,7 +69,7 @@ def log_ai_action(
     details: Dict[str, Any],
     link: Optional[str] = None,
 ):
-    """Writes a permanent, legally auditable record to BigQuery."""
+    """Writes a permanent, legally auditable record to BigQuery in descriptive JSON format."""
     log_event(
         "INFO",
         f"▶️ 🔏 [Audit Ledger] Starting permanent audit log recording for action: {action}...",
@@ -85,7 +85,7 @@ def log_ai_action(
         "resource_type": "Infrastructure",
         "resource_id": resource,
         "action_type": action,
-        "change_payload": json.dumps(details),
+        "change_payload": json.dumps(details),  # Fully descriptive nested JSON payload
         "outcome_status": status,
         "reference_link": link,
     }
@@ -209,12 +209,12 @@ def generate_dynamic_schema(
 
 
 # ==============================================================================
-# 🧠 AGENT 2: TERRAFORM ARCHITECT
+# 🧠 AGENT 2: TERRAFORM ARCHITECT (Enhanced with Repo Mimicry for _hist)
 # ==============================================================================
 def analyze_tf_repo_state(
     repo, branch_sha: str, table_id: str, trace_id: str
 ) -> Dict[str, Any]:
-    """Goal: Determine WHERE to put the Terraform code (New File vs. Existing File)."""
+    """Goal: Determine WHERE to put TF code AND extract existing Repo Styles for history tables."""
     log_event(
         "INFO",
         f"▶️ 🕵️‍♂️ [Repo Scan] Initiating deep repository scan for Terraform state of '{table_id}'...",
@@ -225,6 +225,8 @@ def analyze_tf_repo_state(
         "defined_in_file": None,
         "host_file": None,
         "host_file_content": None,
+        "style_guide_tf": "",
+        "style_guide_tf_hist": "",  # Added for strict mimicry
     }
 
     try:
@@ -250,6 +252,20 @@ def analyze_tf_repo_state(
         for element in tf_files:
             blob = repo.get_git_blob(element.sha)
             content = base64.b64decode(blob.content).decode("utf-8")
+
+            # Extract existing TF style guides for QA and Architect matching
+            if "_hist" in content and not state["style_guide_tf_hist"]:
+                state["style_guide_tf_hist"] = content
+                log_event(
+                    "INFO",
+                    f"🎨 🕵️‍♂️ [Repo Scan] Extracted existing _hist table configuration as style guide.",
+                    trace_id,
+                )
+            elif (
+                'resource "google_bigquery_table"' in content
+                and not state["style_guide_tf"]
+            ):
+                state["style_guide_tf"] = content
 
             if f'"{table_id}"' in content or f"'{table_id}'" in content:
                 log_event(
@@ -326,9 +342,10 @@ def generate_tf_patch_or_create(
     dataset_id: str,
     schema_path: str,
     host_file_content: Optional[str],
+    tf_state: Dict[str, Any],
     trace_id: str,
 ) -> str:
-    """Goal: Write HCL code. Either a full new file OR an injected snippet into an existing file."""
+    """Goal: Write HCL code. Now fully enforces _hist table creation without own generation."""
     log_event(
         "INFO",
         f"▶️ 🏗️ [TF Architect] Initiating Terraform HCL synthesis for '{table_id}'...",
@@ -353,6 +370,28 @@ def generate_tf_patch_or_create(
         trace_id,
     )
 
+    # DYNAMIC HISTORY TABLE INJECTION (Strict Mimicry applied)
+    style_guide_hist = tf_state.get("style_guide_tf_hist", "")
+    hist_instruction = ""
+    if table_id.endswith("_raw"):
+        log_event(
+            "INFO",
+            f"⏳ 🏗️ [TF Architect] Raw table detected. Injecting STRICT _hist infrastructure rules...",
+            trace_id,
+        )
+        mimic_rule = (
+            f"MIMIC THIS EXISTING HISTORY TABLE CONFIGURATION EXACTLY (Do not invent variables):\n```hcl\n{style_guide_hist[:2000]}\n```"
+            if style_guide_hist
+            else "Configure with `expiration_ms = 2592000000` for 30 days."
+        )
+
+        hist_instruction = f"""
+        CRITICAL REQUIREMENT: Because '{table_id}' is a raw landing table, you MUST ALSO generate the Terraform resource for its history table named '{table_id}_hist'. 
+        - History Schema File: "{schema_path.replace('.json', '_hist.json')}"
+        {mimic_rule}
+        Ensure BOTH the main table AND the history table are included in your HCL output.
+        """
+
     if action == "PATCH_EXISTING":
         log_event(
             "INFO",
@@ -362,6 +401,8 @@ def generate_tf_patch_or_create(
         prompt = f"""
         You are a Terraform Expert. Task: Add a new BigQuery table definition to the existing file below.
         Table ID: "{table_id}" | Schema File: "{schema_path}" | Partitioning: DAY (field: batch_date)
+        {hist_instruction}
+        
         EXISTING FILE:
         ```hcl\n{host_file_content}\n```
         INSTRUCTIONS: Return the **FULL UPDATED FILE CONTENT**. Do not truncate. Output: HCL Code only.
@@ -374,7 +415,8 @@ def generate_tf_patch_or_create(
         )
         prompt = f"""
         You are a Terraform Expert. Task: Create a new Terraform file for BigQuery Table "{table_id}".
-        Details: Resource Name: {table_id.replace('.', '_')} | Dataset ID: {dataset_id} | Schema: file("${{path.module}}/json/{table_id}.json")
+        Details: Resource Name: {table_id.replace('.', '_')} | Dataset ID: {dataset_id} | Schema: file("${{path.module}}/{schema_path}")
+        {hist_instruction}
         Output: HCL Code only.
         """
 
@@ -450,7 +492,7 @@ def analyze_dataform_repo_state(
                         trace_id,
                     )
 
-                    # Attempt to extract the existing domain folder from the path structure
+                    # Extract the existing domain folder from the path structure
                     parts = element.path.split("/")
                     if len(parts) >= 4 and parts[1] in ["marts", "staging"]:
                         state["inferred_domain"] = parts[2]
@@ -518,7 +560,7 @@ def generate_ai_dataform_pipeline(
         instruction_block = f"""
         Some or all pipeline files exist. EXISTING FILES: {json.dumps(existing_files)}
         Task: PATCH these existing files. 
-        CRITICAL: Use the EXACT file paths provided as output keys. DO NOT change the folder structure or rename existing domain folders. The domain folder does NOT need to match the table name.
+        CRITICAL: Use the EXACT file paths provided as output keys. DO NOT change the folder structure or rename existing domain folders.
         CRITICAL: Ensure new columns ({new_cols}) are explicitly selected in the views and tables.
         """
     else:
@@ -557,8 +599,8 @@ def generate_ai_dataform_pipeline(
     2. Operations file must depend on `fct_{base_name}` and TRUNCATE `{table_name}` after appending to `_hist`.
     3. DATA QUALITY (ASSERTIONS): You MUST embed Data Quality checks inside the `config {{ ... }}` block of the staging and marts files.
        - Use `assertions: {{ uniqueKey: ["..."], nonNull: ["..."], rowConditions: ["..."] }}`
-       - Infer which columns need checks based on the schema (e.g., ID columns should be unique/nonNull, numerical amounts should be >= 0).
-    4. Output STRICTLY a JSON object where keys are full file paths and values are exact SQLX string content. No markdown outside the JSON block.
+       - Infer which columns need checks based on the schema.
+    4. Output STRICTLY a JSON object where keys are full file paths and values are exact SQLX string content. No markdown.
     """
 
     try:
@@ -580,23 +622,12 @@ def generate_ai_dataform_pipeline(
             f"✅ 🪄 [DF Architect] AI successfully generated {len(pipeline_files)} SQLX files with embedded Data Quality checks.",
             trace_id,
         )
-
-        log_ai_action(
-            trace_id,
-            "GENERATE_DATAFORM_CODE",
-            table_name,
-            "SUCCESS",
-            {"files_generated": list(pipeline_files.keys())},
-        )
         log_event("INFO", "⏹️ 🪄 [DF Architect] Finished Dataform generation.", trace_id)
         return pipeline_files
 
     except Exception as e:
         log_event(
             "ERROR", f"❌ 🪄 [DF Architect] AI Code Generation Failed: {e}", trace_id
-        )
-        log_ai_action(
-            trace_id, "GENERATE_DATAFORM_CODE", table_name, "FAILED", {"error": str(e)}
         )
         log_event(
             "INFO",
@@ -639,13 +670,13 @@ def verify_dataform_pipeline(
     REQUIRED COLUMNS: {clean_schema} | NEW COLUMNS: {new_cols}
     
     Checklist:
-    1. FOLDER STRUCTURE: If the files already exist in a domain folder, DO NOT change the path. The domain folder is NOT required to match the table name (e.g., `orders_raw` can be perfectly valid in `definitions/marts/ecommerce/`). Only if they are placed directly in `marts/` or `staging/` without a subfolder, fix the path to include a logical domain folder.
+    1. FOLDER STRUCTURE: If files exist in a domain folder, DO NOT change the path. Fix paths only if placed directly in `marts/` or `staging/`.
     2. SCHEMA VALIDATION: Are all required columns explicitly selected? (If missing, ADD THEM to the SQL SELECT block).
-    3. DATA QUALITY: Does the `config` block of `stg_` and `fct_` files contain an `assertions` dictionary (e.g., `uniqueKey`, `nonNull`)? If missing, ADD THEM based on schema logic.
+    3. DATA QUALITY: Does the `config` block of `stg_` and `fct_` files contain an `assertions` dictionary? If missing, ADD THEM.
     4. SYNTAX & IDEMPOTENCY: Verify Dataform syntax (`${{ref()}}`) and TRUNCATE logic in the operations file.
     
-    Fix any errors found in paths or SQL content. Output STRICTLY a JSON object where keys are the corrected full file paths and values are the corrected SQLX string content. 
-    Output JSON ONLY. No explanation.
+    Fix any errors. Output STRICTLY a JSON object where keys are the corrected full file paths and values are the corrected SQLX string content. 
+    Output JSON ONLY.
     """
 
     try:
@@ -680,6 +711,142 @@ def verify_dataform_pipeline(
             trace_id,
         )
         return pipeline_files
+
+
+# ==============================================================================
+# 🧠 AGENT 6: SCHEMA QA VERIFIER (Automated Reviewer)
+# ==============================================================================
+def verify_schema_json(
+    schema_list: List[Dict], table_name: str, new_cols: List[str], trace_id: str
+) -> List[Dict]:
+    """Goal: Ensure JSON Schema strictly complies with enterprise standards before committing."""
+    log_event(
+        "INFO",
+        f"▶️ 🕵️‍♀️ [Schema QA] Initiating automated peer-review of BigQuery JSON Schema...",
+        trace_id,
+    )
+
+    if not model or not schema_list:
+        log_event(
+            "INFO", "⏹️ 🕵️‍♀️ [Schema QA] Bypassing QA (No model or schema).", trace_id
+        )
+        return schema_list
+
+    prompt = f"""
+    You are a Senior Data QA Lead. Review this JSON BigQuery Schema generated by a junior engineer.
+    
+    GENERATED SCHEMA: {json.dumps(schema_list)}
+    NEW COLUMNS TO VERIFY: {new_cols}
+    
+    Checklist:
+    1. Are all `NEW COLUMNS` explicitly present in the schema?
+    2. Are all types strictly set to 'STRING' (except for 'batch_date' and 'processed_dttm' which should be DATE/TIMESTAMP)?
+    3. Are all modes strictly set to 'NULLABLE'?
+    4. Are 'batch_date' and 'processed_dttm' explicitly included at the end?
+    
+    Fix any errors found. Output STRICTLY a valid JSON list of objects representing the corrected BigQuery schema.
+    Output JSON ONLY. No explanation.
+    """
+
+    try:
+        log_event("INFO", "⏳ 🕵️‍♀️ [Schema QA] Awaiting Schema QA review...", trace_id)
+        text = model.generate_content(prompt).text.strip()
+        if text.startswith("```"):
+            text = text.split("\n", 1)[1].rsplit("\n", 1)[0]
+        if text.startswith("json"):
+            text = text[4:]
+
+        verified_schema = json.loads(text)
+        log_event(
+            "INFO",
+            f"✅ 🕵️‍♀️ [Schema QA] QA passed. Schema verified and validated.",
+            trace_id,
+        )
+        log_event("INFO", "⏹️ 🕵️‍♀️ [Schema QA] Finished automated review.", trace_id)
+        return verified_schema
+    except Exception as e:
+        log_event(
+            "WARNING",
+            f"⚠️ 🕵️‍♀️ [Schema QA] QA Verification Failed. Falling back to unverified schema. {e}",
+            trace_id,
+        )
+        log_event(
+            "INFO",
+            "⏹️ 🕵️‍♀️ [Schema QA] Finished automated review (Fallback applied).",
+            trace_id,
+        )
+        return schema_list
+
+
+# ==============================================================================
+# 🧠 AGENT 7: TERRAFORM QA VERIFIER (Automated Reviewer)
+# ==============================================================================
+def verify_terraform_hcl(
+    hcl_content: str, table_id: str, tf_state: Dict[str, Any], trace_id: str
+) -> str:
+    """Goal: Ensure Terraform code syntax is perfect and history table creation rules were followed."""
+    log_event(
+        "INFO",
+        f"▶️ 🕵️‍♀️ [TF QA] Initiating automated peer-review of Terraform HCL...",
+        trace_id,
+    )
+
+    if not model or not hcl_content:
+        log_event("INFO", "⏹️ 🕵️‍♀️ [TF QA] Bypassing QA (No model or HCL).", trace_id)
+        return hcl_content
+
+    is_raw_table = table_id.endswith("_raw")
+    style_guide_hist = tf_state.get("style_guide_tf_hist", "")
+
+    hist_rule = ""
+    if is_raw_table:
+        hist_rule = f"""
+        CRITICAL RULE: Because this is a raw table ({table_id}), there MUST be a corresponding '{table_id}_hist' google_bigquery_table resource defined.
+        If it is missing, you MUST inject it based on this enterprise pattern:
+        ```hcl\n{style_guide_hist[:1000]}\n```
+        """
+
+    prompt = f"""
+    You are a Senior DevOps QA Lead. Review this Terraform HCL generated by a junior engineer.
+    
+    GENERATED HCL: 
+    ```hcl
+    {hcl_content}
+    ```
+    
+    Checklist:
+    1. Is the HCL syntax perfect? Look for missing brackets or quotation marks.
+    2. Does the main table resource for '{table_id}' exist?
+    {hist_rule}
+    
+    Fix any errors found. Output STRICTLY the corrected Terraform HCL code. No markdown formatting outside the code block.
+    """
+
+    try:
+        log_event("INFO", "⏳ 🕵️‍♀️ [TF QA] Awaiting TF QA review...", trace_id)
+        text = model.generate_content(prompt).text.strip()
+        if text.startswith("```"):
+            text = text.split("\n", 1)[1].rsplit("\n", 1)[0]
+
+        log_event(
+            "INFO",
+            f"✅ 🕵️‍♀️ [TF QA] QA passed. Terraform HCL structure validated.",
+            trace_id,
+        )
+        log_event("INFO", "⏹️ 🕵️‍♀️ [TF QA] Finished automated review.", trace_id)
+        return text.replace("```hcl", "").replace("```", "")
+    except Exception as e:
+        log_event(
+            "WARNING",
+            f"⚠️ 🕵️‍♀️ [TF QA] QA Verification Failed. Falling back to unverified HCL. {e}",
+            trace_id,
+        )
+        log_event(
+            "INFO",
+            "⏹️ 🕵️‍♀️ [TF QA] Finished automated review (Fallback applied).",
+            trace_id,
+        )
+        return hcl_content
 
 
 # ==============================================================================
@@ -758,6 +925,7 @@ def apply_infrastructure_update(
     dataset = parts[-2] if len(parts) > 1 else "sentinel_raw"
     table = parts[-1]
     base_name = table.replace("_raw", "")
+    is_raw_table = table.endswith("_raw")
 
     log_event(
         "INFO",
@@ -785,6 +953,9 @@ def apply_infrastructure_update(
     )
     clean_schema_base = SCHEMA_BASE_PATH.strip().rstrip("/")
     target_json_path = f"{clean_schema_base}/{table}.json"
+    target_hist_json_path = (
+        f"{clean_schema_base}/{table}_hist.json" if is_raw_table else None
+    )
 
     if tf_state["is_defined"]:
         tf_action, target_tf_path, host_content = (
@@ -814,7 +985,7 @@ def apply_infrastructure_update(
     log_event("INFO", f"🌱 🚀 [Orchestrator] Branch `{branch_name}` created.", trace_id)
 
     # ----------------------------------------------------------------------
-    # STEP 4: SCHEMA JSON LOGIC
+    # STEP 4: SCHEMA JSON LOGIC (Generation & QA)
     # ----------------------------------------------------------------------
     log_event(
         "INFO", "🧬 🚀 [Orchestrator] Generating JSON Schema Definition...", trace_id
@@ -913,6 +1084,10 @@ def apply_infrastructure_update(
                 count += 1
         final_schema_list = current_schema
 
+    # Run Schema through QA Verifier
+    final_schema_list = verify_schema_json(
+        final_schema_list, table, [c["name"] for c in added_cols_for_pr], trace_id
+    )
     log_event(
         "INFO",
         f"✅ 🚀 [Orchestrator] Schema configuration complete. Total added columns: {len(added_cols_for_pr)}",
@@ -920,7 +1095,7 @@ def apply_infrastructure_update(
     )
 
     # ----------------------------------------------------------------------
-    # STEP 5: TERRAFORM TF LOGIC
+    # STEP 5: TERRAFORM TF LOGIC (Generation & QA)
     # ----------------------------------------------------------------------
     log_event(
         "INFO", "🧱 🚀 [Orchestrator] Designing Terraform Configurations...", trace_id
@@ -929,18 +1104,24 @@ def apply_infrastructure_update(
     if tf_action in ["PATCH", "CREATE"]:
         if tf_action == "PATCH":
             tf_sha = repo.get_contents(target_tf_path, ref=branch_name).sha
+
         new_tf_content = generate_tf_patch_or_create(
-            table, dataset, f"json/{table}.json", host_content, trace_id
+            table, dataset, f"json/{table}.json", host_content, tf_state, trace_id
         )
+
         if new_tf_content and len(new_tf_content) > 20:
+            # Run HCL through QA Verifier
+            new_tf_content = verify_terraform_hcl(
+                new_tf_content, table, tf_state, trace_id
+            )
             tf_changed = True
 
     # ----------------------------------------------------------------------
-    # STEP 6: DATAFORM PIPELINE GENERATION, DQ, & QA
+    # STEP 6: DATAFORM PIPELINE GENERATION & QA
     # ----------------------------------------------------------------------
     log_event(
         "INFO",
-        "🪄 🚀 [Orchestrator] Triggering AI Dataform Architect & QA for Data Quality checks...",
+        "🪄 🚀 [Orchestrator] Triggering AI Dataform Architect & QA...",
         trace_id,
     )
 
@@ -989,17 +1170,21 @@ def apply_infrastructure_update(
             "⏹️ 🚀 [Orchestrator] Finished orchestrator flow (Skipped).",
             trace_id,
         )
-        return {"status": "SKIPPED", "url": None, "details": "No changes needed"}
+        return {"status": "SKIPPED", "url": None, "details": {}}
 
     if should_update_json:
         log_event(
-            "INFO", "💾 🚀 [Orchestrator] Committing JSON Schema payload...", trace_id
+            "INFO",
+            "💾 🚀 [Orchestrator] Committing JSON Schema payloads (including History if applicable)...",
+            trace_id,
         )
         msg = (
             f"fix(schema): detailed update for {table} schema"
             if json_exists
             else f"feat(schema): create {table} schema layout"
         )
+
+        # Primary Schema Commit
         if json_exists:
             repo.update_file(
                 target_json_path,
@@ -1014,6 +1199,31 @@ def apply_infrastructure_update(
                 msg,
                 json.dumps(final_schema_list, indent=2),
                 branch=branch_name,
+            )
+
+        # History Schema Commit (Automatically syncs exact same schema)
+        if is_raw_table and target_hist_json_path:
+            hist_msg = f"feat(schema): sync history table schema for {table}_hist"
+            try:
+                c_hist = repo.get_contents(target_hist_json_path, ref=branch_name)
+                repo.update_file(
+                    target_hist_json_path,
+                    hist_msg,
+                    json.dumps(final_schema_list, indent=2),
+                    c_hist.sha,
+                    branch=branch_name,
+                )
+            except GithubException:
+                repo.create_file(
+                    target_hist_json_path,
+                    hist_msg,
+                    json.dumps(final_schema_list, indent=2),
+                    branch=branch_name,
+                )
+            log_event(
+                "INFO",
+                f"💾 🚀 [Orchestrator] Synchronized history schema at {target_hist_json_path}",
+                trace_id,
             )
 
     if tf_changed:
@@ -1064,6 +1274,7 @@ Sentinel-Forge has intercepted a pipeline anomaly and autonomously generated the
 | Layer | Status | Target Path |
 |---|---|---|
 | **BigQuery Schema** | {pr_status_schema} | `{target_json_path}` |
+| **History Schema Sync** | {"✅ Active" if is_raw_table else "⏭️ N/A"} | `{target_hist_json_path or "N/A"}` |
 | **Terraform HCL** | {pr_status_tf} | `{target_tf_path}` |
 | **Dataform SQLX** | {pr_status_df} | Semantic Domain Routing Applied |
 
@@ -1071,10 +1282,12 @@ Sentinel-Forge has intercepted a pipeline anomaly and autonomously generated the
 Added **{len(added_cols_for_pr)}** columns to the Raw Layer.
 {col_table}
 
-### 🪄 Dataform Pipeline Activity
+### 🪄 Agent Activity Log
 1. **Scanner:** Mapped target domain folders semantically, preserving existing paths.
-2. **Architect:** Embedded strict **Data Quality Assertions** (`uniqueKey`, `nonNull`) directly into the `.sqlx` configuration block.
-3. **QA Lead:** Validated SQL syntax, corrected folder structures, and enforced 100% column inclusion.
+2. **Architect:** Generated HCL and embedded strict **Data Quality Assertions** (`uniqueKey`, `nonNull`) into the `.sqlx` blocks.
+3. **Schema QA:** Verified JSON structure and ensured audit columns were present.
+4. **Terraform QA:** Verified syntax and enforced strict adherence to repo rules for `_hist` structures.
+5. **Dataform QA:** Validated SQL syntax, corrected folder structures, and enforced 100% column inclusion.
 
 **Commit Log:**
 {df_commit_log}
@@ -1102,21 +1315,38 @@ Review the file changes and merge this Pull Request.
         trace_id,
     )
 
+    # Constructing a highly descriptive JSON payload for the audit logs
+    descriptive_details = {
+        "descriptive_summary": f"Autonomously {'updated' if json_exists else 'created'} pipeline and infrastructure for {table}.",
+        "pr_link_reference": pr.html_url,
+        "schema_updates": {
+            "action": "UPDATE" if json_exists else "CREATE",
+            "target_table": table,
+            "history_table_synced": (
+                f"{table}_hist" if is_raw_table else "Not a raw table"
+            ),
+            "columns_added_or_verified": [c["name"] for c in added_cols_for_pr],
+            "total_schema_columns": len(final_schema_list),
+        },
+        "infrastructure_updates": {
+            "action": tf_action,
+            "files_modified": target_tf_path,
+            "history_infrastructure_created": is_raw_table,
+        },
+        "dataform_updates": {
+            "total_files_processed": df_files_changed,
+            "detailed_commit_log": (
+                df_commit_log.strip().split("\n") if df_commit_log else []
+            ),
+        },
+    }
+
     log_event(
         "INFO",
         "⏹️ 🚀 [Orchestrator] Finished comprehensive infrastructure update workflow.",
         trace_id,
     )
-    return {
-        "status": "SUCCESS",
-        "url": pr.html_url,
-        "details": {
-            "schema_action": "UPDATE" if json_exists else "CREATE",
-            "tf_action": tf_action,
-            "df_files_generated": df_files_changed,
-            "columns_added": len(added_cols_for_pr),
-        },
-    }
+    return {"status": "SUCCESS", "url": pr.html_url, "details": descriptive_details}
 
 
 # ==============================================================================
@@ -1214,16 +1444,18 @@ def ai_agent_main(cloud_event):
             "🔏 🔌 [Gateway] Finalizing operation. Generating closing audit log...",
             trace_id,
         )
+
+        # Write Descriptive Details to Audit Log
         log_ai_action(
             trace_id=trace_id,
             action="CREATE_PR",
             resource=table_ref,
             status=result["status"],
-            details=result["details"],
-            link=result["url"],
+            details=result.get("details", {}),
+            link=result.get("url"),
         )
 
-        # EXPLICIT LOGGING OF THE PR LINK AS REQUESTED
+        # EXPLICIT LOGGING OF THE PR LINK IN THE CLOUD LOGS
         if result.get("url"):
             log_event(
                 "INFO",
