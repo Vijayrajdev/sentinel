@@ -1,0 +1,29 @@
+config {
+  type: "operations",
+  schema: "sentinel_raw",
+  dependencies: ["fct_product"],
+  tags: ["archive"]
+}
+
+-- Append the processed raw data to a history table.
+-- The history table uses its own batch_date to track when the archive operation ran.
+INSERT INTO `${database()}`.`${self().schema}`.product_raw_hist (
+    product_id,
+    product_name,
+    category,
+    base_price,
+    processed_dttm,
+    batch_date
+)
+SELECT
+    product_id,
+    product_name,
+    category,
+    base_price,
+    processed_dttm,
+    CURRENT_DATE() AS batch_date -- CRITICAL ARCHIVE DATE LOGIC
+FROM
+    `${database()}`.`${self().schema}`.product_raw;
+
+-- Truncate the raw table after successful archival.
+TRUNCATE TABLE `${database()}`.`${self().schema}`.product_raw;
