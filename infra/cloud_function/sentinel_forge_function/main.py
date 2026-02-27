@@ -796,7 +796,7 @@ def infer_pipeline_datasets_with_ai(
 
 
 # ==============================================================================
-# 🧠 AGENT 4: DATAFORM ARCHITECT (Enhanced with Dynamic Templates & Parsing)
+# 🧠 AGENT 4: DATAFORM ARCHITECT (Enhanced with Dynamic Templates, Parsing & Formatting)
 # ==============================================================================
 def generate_ai_dataform_pipeline(
     table_name: str,
@@ -808,7 +808,7 @@ def generate_ai_dataform_pipeline(
     datasets: Dict[str, str],
     trace_id: str,
 ) -> Dict[str, str]:
-    """Goal: Dynamically generate Dataform files, strictly enforcing datasets, tags, syntax, templates, and temporal logic."""
+    """Goal: Dynamically generate Dataform files, strictly enforcing datasets, tags, syntax, templates, formatting, and temporal logic."""
     log_event(
         "INFO",
         f"▶️ 🪄 [Agent 4: DF Architect] Analyzing requirements for '{table_name}'...",
@@ -877,7 +877,7 @@ def generate_ai_dataform_pipeline(
 
     log_event(
         "INFO",
-        "🛡️ 🪄 [Agent 4: DF Architect] Injecting strict Dataform Templates & Dynamic Sample Data casting requirements.",
+        "🛡️ 🪄 [Agent 4: DF Architect] Injecting strict Dataform Templates, Dynamic Sample Data casting requirements, and Formatting rules.",
         trace_id,
     )
     prompt = f"""
@@ -929,13 +929,14 @@ def generate_ai_dataform_pipeline(
        2. The base entity name ('{base_name}')
        3. The layer name ('staging', 'marts', or 'archive' based on the file type).
        Example for staging: `tags: ["{actual_domain}", "{base_name}", "staging"]`
-    7. Output STRICTLY a JSON object where keys are full file paths and values are exact SQLX string content. No markdown.
+    7. STRICT FORMATTING: Ensure the generated SQLX code is perfectly formatted. Use standard SQL indentation (2 spaces per level), align all keywords (SELECT, FROM, WHERE, QUALIFY), format the config blocks cleanly with proper line breaks, and maintain high readability.
+    8. Output STRICTLY a JSON object where keys are full file paths and values are exact SQLX string content. No markdown.
     """
 
     try:
         log_event(
             "INFO",
-            "⏳ 🪄 [Agent 4: DF Architect] Instructing Gemini to synthesize Dataform files with Tags, Rules, and Dynamic Sample Data parsing...",
+            "⏳ 🪄 [Agent 4: DF Architect] Instructing Gemini to synthesize Dataform files with Tags, Rules, Formatting, and Dynamic Sample Data parsing...",
             trace_id,
         )
         response = model_heavy.generate_content(prompt)
@@ -948,7 +949,7 @@ def generate_ai_dataform_pipeline(
         pipeline_files = json.loads(text)
         log_event(
             "INFO",
-            f"✅ 🪄 [Agent 4: DF Architect] AI successfully generated {len(pipeline_files)} SQLX files conforming to exact syntax, temporal logic, dynamic casting, and bounds.",
+            f"✅ 🪄 [Agent 4: DF Architect] AI successfully generated {len(pipeline_files)} SQLX files conforming to exact syntax, temporal logic, dynamic casting, and formatting bounds.",
             trace_id,
         )
 
@@ -995,7 +996,7 @@ def generate_ai_dataform_pipeline(
 
 
 # ==============================================================================
-# 🧠 AGENT 5: DATAFORM QA VERIFIER (Enhanced Syntax & Template Validation)
+# 🧠 AGENT 5: DATAFORM QA VERIFIER (Enhanced Syntax, Template & Formatting Validation)
 # ==============================================================================
 def verify_dataform_pipeline(
     pipeline_files: Dict[str, str],
@@ -1006,7 +1007,7 @@ def verify_dataform_pipeline(
     base_name: str,
     trace_id: str,
 ) -> Dict[str, str]:
-    """Goal: QA Lead verifies exact syntax match with templates, dynamic casting, temporal date updates, and tags."""
+    """Goal: QA Lead verifies exact syntax match with templates, dynamic casting, temporal date updates, tags, and formatting."""
     log_event(
         "INFO",
         f"▶️ 🕵️‍♀️ [Agent 5: DF QA] Initiating automated peer-review of generated SQLX code...",
@@ -1040,17 +1041,19 @@ def verify_dataform_pipeline(
     EXPECTED EXISTING PATHS: {existing_paths}
     
     Checklist:
-    1. STRICT ANTI-HALLUCINATION (FILE PATHS): If 'EXPECTED EXISTING PATHS' is not empty, the keys in your output JSON MUST match these paths exactly. Forcefully revert hallucinated keys back to the 'EXPECTED EXISTING PATHS'.
+    1. ANTI-HALLUCINATION (FILE PATHS): Forcefully revert hallucinated keys back to the 'EXPECTED EXISTING PATHS' if present.
     2. SCHEMA VALIDATION: Are all required columns explicitly selected?
     3. DECLARATION SYNTAX: Ensure the source file uses `type: "declaration"` with explicit `database`, `schema`, and `name` attributes ONLY. Strictly NO `tags` array allowed in declarations.
     4. BATCH DATE ENFORCEMENT (GLOBAL): Across ALL files (staging, marts, operations), ensure the `batch_date` column is explicitly updated using `CURRENT_DATE() AS batch_date`. If they just select `batch_date`, replace it with `CURRENT_DATE() AS batch_date`.
-    5. ARCHIVE DESTINATION LOGIC: Ensure the operations (`archive_...`) file explicitly uses `{PROJECT_ID}.{datasets['raw']}` for the target table (NO `${{self.database}}` or `${{self.schema}}`).
+    5. ARCHIVE OPERATIONS: Ensure `archive_` explicitly uses `INSERT INTO \`{PROJECT_ID}.{datasets['raw']}.<table_name>_hist\`` followed by `TRUNCATE TABLE ${{ref("<table_name>")}};`. Ensure NO `post_operations` block exists.
     6. STAGING DYNAMIC CASTING & DEDUP: Does the staging file dynamically apply the correct `SAFE_CAST()`, `SAFE.PARSE_DATE()`, or other appropriate native BigQuery type conversions based on the column logic? Does it include `QUALIFY ROW_NUMBER() OVER(...) = 1`?
     7. MARTS INCREMENTAL: Does the marts file use `type: "incremental"`, include a `bigquery: {{ partitionBy, clusterBy }}` block, and use the exact `${{when(incremental(), ...)}}` logic?
     8. DATA QUALITY: Does the `config` block of `stg_` and `fct_` files contain an `assertions` dictionary? If missing, ADD THEM.
-    9. CONFIG BLOCK SYNTAX: Ensure there are absolutely NO comments (`--`, `//`, `/* */`) inside the `config {{ ... }}` blocks of any file. Remove them if they exist.
-    10. POST_OPERATIONS BAN (CRITICAL): Ensure the `archive_` operations file DOES NOT contain a `post_operations {{ ... }}` block. The TRUNCATE statement must simply be sequential SQL.
-    11. TAG TAXONOMY (CRITICAL): Ensure the `config` block of EVERY file EXCEPT declarations contains a `tags: []` array. Dataform `type: "declaration"` DOES NOT support tags. If a declaration file has tags, REMOVE the tags property. For all other files, it MUST contain exactly these 3 elements: the domain name (e.g., "{inferred_domain}"), the entity name ("{base_name}"), and the layer ("staging", "marts", or "archive"). Add them if missing.
+    9. TAG TAXONOMY: Ensure `config` blocks of EVERY file (EXCEPT declarations) contains a `tags: ["{inferred_domain}", "{base_name}", "<layer>"]` array.
+    10. CONFIG BLOCK SYNTAX: Remove any comments (`--`, `//`, `/* */`) inside the `config {{ ... }}` blocks.
+    11. PROPER FORMATTING: Ensure all SQLX code is cleanly formatted. Standardize SQL indentation (2 spaces), ensure keywords are aligned, and guarantee the file structure looks professionally written. Reformat if messy.
+    12. POST_OPERATIONS BAN (CRITICAL): Ensure the `archive_` operations file DOES NOT contain a `post_operations {{ ... }}` block. The TRUNCATE statement must simply be sequential SQL.
+    13. TAG TAXONOMY (CRITICAL): Ensure the `config` block of EVERY file EXCEPT declarations contains a `tags: []` array. Dataform `type: "declaration"` DOES NOT support tags. If a declaration file has tags, REMOVE the tags property. For all other files, it MUST contain exactly these 3 elements: the domain name (e.g., "{inferred_domain}"), the entity name ("{base_name}"), and the layer ("staging", "marts", or "archive"). Add them if missing.
     
     Output STRICTLY a JSON object where keys are the corrected full file paths and values are the corrected SQLX string content. Output JSON ONLY.
     """
@@ -1058,7 +1061,7 @@ def verify_dataform_pipeline(
     try:
         log_event(
             "INFO",
-            "⏳ 🕵️‍♀️ [Agent 5: DF QA] Awaiting QA review, global temporal enforcement, dynamic casting verification, and assertion validation...",
+            "⏳ 🕵️‍♀️ [Agent 5: DF QA] Awaiting QA review, global temporal enforcement, dynamic casting, tagging, and formatting validation...",
             trace_id,
         )
         response = model_lite.generate_content(prompt)
@@ -1071,7 +1074,7 @@ def verify_dataform_pipeline(
         verified_files = json.loads(text)
         log_event(
             "INFO",
-            f"✅ 🕵️‍♀️ [Agent 5: DF QA] QA passed. Templates, Dynamic Casting, Incremental Logic, and Tags strictly enforced.",
+            f"✅ 🕵️‍♀️ [Agent 5: DF QA] QA passed. Templates, Dynamic Casting, Formatting, Incremental Logic, and Tags strictly enforced.",
             trace_id,
         )
         log_event("INFO", "⏹️ 🕵️‍♀️ [Agent 5: DF QA] Finished automated review.", trace_id)
