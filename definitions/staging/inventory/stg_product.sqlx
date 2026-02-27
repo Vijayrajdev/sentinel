@@ -1,0 +1,20 @@
+config {
+    type: "table",
+    schema: "sentinel_staging",
+    tags: ["inventory", "product", "staging"],
+    assertions: {
+        nonNull: ["product_id", "processed_dttm", "batch_date"],
+        uniqueKey: ["product_id", "batch_date"]
+    }
+}
+
+SELECT
+    product_id,
+    product_name,
+    category,
+    CAST(base_price AS FLOAT64) AS base_price,
+    CURRENT_DATE() AS batch_date,
+    PARSE_TIMESTAMP('%Y-%m-%d %H:%M:%S', processed_dttm) AS processed_dttm
+FROM
+    ${ref("product_raw")}
+QUALIFY ROW_NUMBER() OVER(PARTITION BY product_id ORDER BY PARSE_TIMESTAMP('%Y-%m-%d %H:%M:%S', processed_dttm) DESC) = 1
