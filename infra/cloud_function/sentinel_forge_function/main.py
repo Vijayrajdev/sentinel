@@ -5,7 +5,8 @@ import uuid
 import datetime
 import logging
 import re
-import time  # FEATURE ADDITION: Required for Traffic Smoothing (Rate Limiting)
+import time
+import random  # FEATURE ADDITION: Required for Jitter in Exponential Backoff
 from typing import List, Dict, Any, Optional, Tuple
 
 import functions_framework
@@ -75,7 +76,6 @@ def log_event(severity: str, message: str, trace_id: str, **kwargs):
     print(json.dumps(entry))
 
 
-# FEATURE ADDITION: Traffic Smoothing to prevent 429 Quota Rate Limit Errors
 def smooth_traffic(trace_id: str):
     """Mitigates Vertex AI 429 Too Many Requests errors by pacing API calls."""
     log_event(
@@ -84,6 +84,43 @@ def smooth_traffic(trace_id: str):
         trace_id,
     )
     time.sleep(3)
+
+
+# FEATURE ADDITION: Exponential Backoff to gracefully handle HTTP 429 Resource Exhausted errors
+def generate_content_with_retry(
+    model_instance, prompt: str, trace_id: str, max_retries: int = 5
+):
+    """Executes Vertex AI generation with Exponential Backoff for 429 errors."""
+    base_delay = 5  # Start with a 5-second delay
+
+    for attempt in range(max_retries):
+        try:
+            smooth_traffic(trace_id)  # Apply baseline smoothing
+            response = model_instance.generate_content(prompt)
+            return response
+        except Exception as e:
+            error_msg = str(e).lower()
+            # If the error is a 429 Quota/Rate Limit error, we back off and retry
+            if "429" in error_msg or "resource exhausted" in error_msg:
+                if attempt == max_retries - 1:
+                    log_event(
+                        "ERROR",
+                        f"🚨 🚦 [Traffic Control] Max retries reached for 429 error. Failing.",
+                        trace_id,
+                    )
+                    raise e
+
+                # Exponential backoff logic: 5s, 10s, 20s, 40s + random jitter to prevent clustered retries
+                sleep_time = (base_delay * (2**attempt)) + random.uniform(0, 2)
+                log_event(
+                    "WARNING",
+                    f"⚠️ 🚦 [Traffic Control] 429 Quota Hit. Exponential backoff active. Retrying in {sleep_time:.2f} seconds (Attempt {attempt + 1}/{max_retries})...",
+                    trace_id,
+                )
+                time.sleep(sleep_time)
+            else:
+                # If it's a different error (e.g., 500, Auth), fail immediately
+                raise e
 
 
 def log_ai_action(
@@ -187,7 +224,6 @@ def flush_deferred_logs(pr_link: Optional[str], trace_id: str):
         DEFERRED_LOGS.clear()
 
 
-# COST OPTIMIZATION: Utility function to drop empty space and save input tokens
 def prune_whitespace(text: str) -> str:
     """Removes excess whitespace and newlines to save tokens and reduce AI costs."""
     if not text:
@@ -275,8 +311,8 @@ def generate_dynamic_schema(
             trace_id,
         )
 
-        smooth_traffic(trace_id)  # FEATURE ADDITION: Apply Traffic Smoothing
-        response = model_lite.generate_content(prompt)
+        # REQUIRED UPDATE: Replaced basic call with retry wrapper
+        response = generate_content_with_retry(model_lite, prompt, trace_id)
 
         text = response.text.strip()
         if text.startswith("```"):
@@ -464,8 +500,9 @@ def ask_ai_is_definition(content: str, table_id: str, trace_id: str) -> bool:
     Return TRUE or FALSE.
     """
     try:
-        smooth_traffic(trace_id)  # FEATURE ADDITION: Apply Traffic Smoothing
-        return "TRUE" in model_lite.generate_content(prompt).text.upper()
+        # REQUIRED UPDATE: Replaced basic call with retry wrapper
+        response = generate_content_with_retry(model_lite, prompt, trace_id)
+        return "TRUE" in response.text.upper()
     except:
         return False
 
@@ -590,8 +627,8 @@ def generate_tf_patch_or_create(
             trace_id,
         )
 
-        smooth_traffic(trace_id)  # FEATURE ADDITION: Apply Traffic Smoothing
-        response = model_heavy.generate_content(prompt)
+        # REQUIRED UPDATE: Replaced basic call with retry wrapper
+        response = generate_content_with_retry(model_heavy, prompt, trace_id)
 
         text = response.text.strip()
         if text.startswith("```"):
@@ -783,8 +820,8 @@ def infer_pipeline_datasets_with_ai(
             trace_id,
         )
 
-        smooth_traffic(trace_id)  # FEATURE ADDITION: Apply Traffic Smoothing
-        response = model_lite.generate_content(prompt)
+        # REQUIRED UPDATE: Replaced basic call with retry wrapper
+        response = generate_content_with_retry(model_lite, prompt, trace_id)
 
         text = response.text.strip()
         if text.startswith("```"):
@@ -962,8 +999,8 @@ def generate_ai_dataform_pipeline(
             trace_id,
         )
 
-        smooth_traffic(trace_id)  # FEATURE ADDITION: Apply Traffic Smoothing
-        response = model_heavy.generate_content(prompt)
+        # REQUIRED UPDATE: Replaced basic call with retry wrapper
+        response = generate_content_with_retry(model_heavy, prompt, trace_id)
 
         text = response.text.strip()
         if text.startswith("```"):
@@ -1090,8 +1127,8 @@ def verify_dataform_pipeline(
             trace_id,
         )
 
-        smooth_traffic(trace_id)  # FEATURE ADDITION: Apply Traffic Smoothing
-        response = model_lite.generate_content(prompt)
+        # REQUIRED UPDATE: Replaced basic call with retry wrapper
+        response = generate_content_with_retry(model_lite, prompt, trace_id)
 
         text = response.text.strip()
         if text.startswith("```"):
@@ -1164,8 +1201,8 @@ def verify_schema_json(
             "INFO", "⏳ 🕵️‍♀️ [Agent 6: Schema QA] Awaiting Schema QA review...", trace_id
         )
 
-        smooth_traffic(trace_id)  # FEATURE ADDITION: Apply Traffic Smoothing
-        response = model_lite.generate_content(prompt)
+        # REQUIRED UPDATE: Replaced basic call with retry wrapper
+        response = generate_content_with_retry(model_lite, prompt, trace_id)
 
         text = response.text.strip()
         if text.startswith("```"):
@@ -1253,8 +1290,8 @@ def verify_terraform_hcl(
     try:
         log_event("INFO", "⏳ 🕵️‍♀️ [Agent 7: TF QA] Awaiting TF QA review...", trace_id)
 
-        smooth_traffic(trace_id)  # FEATURE ADDITION: Apply Traffic Smoothing
-        response = model_lite.generate_content(prompt)
+        # REQUIRED UPDATE: Replaced basic call with retry wrapper
+        response = generate_content_with_retry(model_lite, prompt, trace_id)
 
         text = response.text.strip()
         if text.startswith("```"):
