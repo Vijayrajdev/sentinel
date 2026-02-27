@@ -40,7 +40,7 @@ model_heavy = None
 model_lite = None
 try:
     if PROJECT_ID:
-        vertexai.init(project=PROJECT_ID, location=REGION)
+        vertexai.init(project=PROJECT_ID, location='global')
         model_heavy = GenerativeModel(AI_MODEL_HEAVY_NAME)
         model_lite = GenerativeModel(AI_MODEL_LITE_NAME)
         logging.info(
