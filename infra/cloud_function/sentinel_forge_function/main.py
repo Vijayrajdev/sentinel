@@ -26,25 +26,34 @@ AI_AUDIT_TABLE = os.environ.get("AI_AUDIT_TABLE", "sentinel_audit.ai_ops_log")
 SCHEMA_BASE_PATH = os.environ.get("SCHEMA_BASE_PATH", "infra/bigquery/tables/json/")
 TF_BASE_PATH = os.environ.get("TF_BASE_PATH", "infra/bigquery/tables/")
 
+# COST OPTIMIZATION: Define separate models for Tiered Routing
+AI_MODEL_HEAVY_NAME = os.environ.get("AI_MODEL_HEAVY", "gemini-2.5-flash")
+AI_MODEL_LITE_NAME = os.environ.get("AI_MODEL_LITE", "gemini-2.5-flash-lite")
+
 bq_client: Optional[bigquery.Client] = None
 
 # Global queue to hold audit logs until the PR Link is generated
 DEFERRED_LOGS = []
 
-# Initialize Vertex AI (Gemini 2.5 Pro for massive context window and reasoning)
+# Initialize Vertex AI with Dual Models
+model_heavy = None
+model_lite = None
 try:
     if PROJECT_ID:
         vertexai.init(project=PROJECT_ID, location=REGION)
-        model = GenerativeModel("gemini-2.5-pro")
+        model_heavy = GenerativeModel(AI_MODEL_HEAVY_NAME)
+        model_lite = GenerativeModel(AI_MODEL_LITE_NAME)
+        logging.info(
+            f"✅ Successfully initialized Vertex AI. Heavy: {AI_MODEL_HEAVY_NAME} | Lite: {AI_MODEL_LITE_NAME}"
+        )
 except Exception as e:
     logging.error(f"Failed to initialize Vertex AI: {e}")
-    model = None
 
 logging.basicConfig(level=logging.INFO)
 
 
 # ==============================================================================
-# 📝 OBSERVABILITY & LOGGING (The "Black Box")
+# 📝 OBSERVABILITY, LOGGING & COST UTILITIES
 # ==============================================================================
 def get_bq_client() -> bigquery.Client:
     global bq_client
@@ -166,6 +175,14 @@ def flush_deferred_logs(pr_link: Optional[str], trace_id: str):
         DEFERRED_LOGS.clear()
 
 
+# COST OPTIMIZATION: Utility function to drop empty space and save input tokens
+def prune_whitespace(text: str) -> str:
+    """Removes excess whitespace and newlines to save tokens and reduce AI costs."""
+    if not text:
+        return ""
+    return re.sub(r"\s+", " ", text).strip()
+
+
 # ==============================================================================
 # 🧠 AGENT 1: SCHEMA DESIGNER
 # ==============================================================================
@@ -183,7 +200,8 @@ def generate_dynamic_schema(
         trace_id,
     )
 
-    if not model:
+    # COST OPTIMIZATION: Use model_lite for simple mapping tasks
+    if not model_lite:
         log_event(
             "WARNING",
             "⚠️ 🧩 [Schema Design] AI Service unavailable. Falling back to basic programmatic schema.",
@@ -217,9 +235,7 @@ def generate_dynamic_schema(
             "🎨 🧩 [Schema Design] Injecting reference JSON style guide into AI context...",
             trace_id,
         )
-        style_guide = (
-            f"STYLE GUIDE (Mimic this format):\n```json\n{reference_json[:3000]}\n```"
-        )
+        style_guide = f"STYLE GUIDE (Mimic this format):\n```json\n{prune_whitespace(reference_json[:3000])}\n```"
 
     prompt = f"""
     You are a Data Architect.
@@ -245,7 +261,7 @@ def generate_dynamic_schema(
         log_event(
             "INFO", "⏳ 🧩 [Schema Design] Awaiting AI generation response...", trace_id
         )
-        response = model.generate_content(prompt)
+        response = model_lite.generate_content(prompt)
         text = response.text.strip()
         if text.startswith("```"):
             text = text.split("\n", 1)[1].rsplit("\n", 1)[0]
@@ -418,7 +434,8 @@ def analyze_tf_repo_state(
 
 def ask_ai_is_definition(content: str, table_id: str) -> bool:
     """Helper: Asks AI if the table is truly defined in this file."""
-    if not model:
+    # COST OPTIMIZATION: Route helper to model_lite
+    if not model_lite:
         return True
     prompt = f"""
     Does this Terraform code define a BigQuery table named "{table_id}"?
@@ -426,7 +443,7 @@ def ask_ai_is_definition(content: str, table_id: str) -> bool:
     Return TRUE or FALSE.
     """
     try:
-        return "TRUE" in model.generate_content(prompt).text.upper()
+        return "TRUE" in model_lite.generate_content(prompt).text.upper()
     except:
         return False
 
@@ -446,7 +463,8 @@ def generate_tf_patch_or_create(
         trace_id,
     )
 
-    if not model:
+    # COST OPTIMIZATION: Use model_heavy for strict syntax generation
+    if not model_heavy:
         log_event(
             "WARNING",
             "⚠️ 🏗️ [TF Architect] AI Service offline. Returning empty block.",
@@ -473,7 +491,7 @@ def generate_tf_patch_or_create(
             trace_id,
         )
         mimic_rule = (
-            f"MIMIC THIS EXISTING HISTORY TABLE CONFIGURATION EXACTLY (Do not invent variables):\n```hcl\n{style_guide_hist[:2000]}\n```"
+            f"MIMIC THIS EXISTING HISTORY TABLE CONFIGURATION EXACTLY (Do not invent variables):\n```hcl\n{prune_whitespace(style_guide_hist[:2000])}\n```"
             if style_guide_hist
             else "Configure with `expiration_ms = 2592000000` for 30 days."
         )
@@ -497,7 +515,7 @@ def generate_tf_patch_or_create(
         {hist_instruction}
         
         EXISTING FILE:
-        ```hcl\n{host_file_content}\n```
+        ```hcl\n{prune_whitespace(host_file_content)}\n```
         INSTRUCTIONS: Return the **FULL UPDATED FILE CONTENT**. Do not truncate. Output: HCL Code only.
         """
     else:
@@ -519,7 +537,7 @@ def generate_tf_patch_or_create(
             "⏳ 🏗️ [TF Architect] Awaiting AI infrastructure generation...",
             trace_id,
         )
-        text = model.generate_content(prompt).text.strip()
+        text = model_heavy.generate_content(prompt).text.strip()
         if text.startswith("```"):
             text = text.split("\n", 1)[1].rsplit("\n", 1)[0]
 
@@ -669,7 +687,8 @@ def infer_pipeline_datasets_with_ai(
         "marts": "sentinel_marts",
     }
 
-    if not model:
+    # COST OPTIMIZATION: Use model_lite for logical string mapping
+    if not model_lite:
         log_event(
             "WARNING",
             "⚠️ 🗺️ [Dataset Analyst] AI offline. Using standard defaults.",
@@ -698,7 +717,7 @@ def infer_pipeline_datasets_with_ai(
             "⏳ 🗺️ [Dataset Analyst] Awaiting AI dataset routing analysis...",
             trace_id,
         )
-        response = model.generate_content(prompt)
+        response = model_lite.generate_content(prompt)
         text = response.text.strip()
         if text.startswith("```"):
             text = text.split("\n", 1)[1].rsplit("\n", 1)[0]
@@ -729,7 +748,7 @@ def infer_pipeline_datasets_with_ai(
 
 
 # ==============================================================================
-# 🧠 AGENT 4: DATAFORM ARCHITECT (Enhanced with Temporal Updates)
+# 🧠 AGENT 4: DATAFORM ARCHITECT
 # ==============================================================================
 def generate_ai_dataform_pipeline(
     table_name: str,
@@ -748,7 +767,8 @@ def generate_ai_dataform_pipeline(
         trace_id,
     )
 
-    if not model:
+    # COST OPTIMIZATION: Use model_heavy for multi-file syntax synthesis
+    if not model_heavy:
         log_event(
             "WARNING",
             "⚠️ 🪄 [DF Architect] AI Service offline. Cannot generate Dataform code.",
@@ -778,8 +798,12 @@ def generate_ai_dataform_pipeline(
             f"🩹 🪄 [DF Architect] Existing files detected. Locking allowed file paths to: {existing_paths}",
             trace_id,
         )
+
+        # COST OPTIMIZATION: Prune whitespace from existing files JSON payload
+        pruned_existing_files = prune_whitespace(json.dumps(existing_files))
+
         instruction_block = f"""
-        Some or all pipeline files exist. EXISTING FILES: {json.dumps(existing_files)}
+        Some or all pipeline files exist. EXISTING FILES: {pruned_existing_files}
         Task: PATCH these existing files. 
         CRITICAL ANTI-HALLUCINATION RULE: You MUST use the EXACT file paths provided in the EXISTING FILES dictionary as the keys in your output JSON. The allowed keys are strictly: {existing_paths}. DO NOT invent new file paths. DO NOT create duplicate files.
         CRITICAL: Ensure new columns ({new_cols}) are explicitly selected in the views and tables.
@@ -804,10 +828,9 @@ def generate_ai_dataform_pipeline(
         - definitions/marts/<logical_domain_folder>/fct_{base_name}.sqlx
         - definitions/operations/archive_{table_name}.sqlx
         
-        STYLE GUIDE (Mimic format): ```sql\n{style_guide[:2000]}\n```
+        STYLE GUIDE (Mimic format): ```sql\n{prune_whitespace(style_guide[:2000])}\n```
         """
 
-    # FEATURE ADDITION: Global batch_date temporal enforcement (Requirement 4)
     log_event(
         "INFO",
         "🛡️ 🪄 [DF Architect] Enforcing global temporal logic: batch_date must map to CURRENT_DATE().",
@@ -850,7 +873,7 @@ def generate_ai_dataform_pipeline(
             "⏳ 🪄 [DF Architect] Instructing Gemini to synthesize Dataform files with Tags, Temporal Rules, and Strict File Paths...",
             trace_id,
         )
-        response = model.generate_content(prompt)
+        response = model_heavy.generate_content(prompt)
         text = response.text.strip()
         if text.startswith("```"):
             text = text.split("\n", 1)[1].rsplit("\n", 1)[0]
@@ -901,7 +924,7 @@ def generate_ai_dataform_pipeline(
 
 
 # ==============================================================================
-# 🧠 AGENT 5: DATAFORM QA VERIFIER (Enhanced Temporal Date Checks)
+# 🧠 AGENT 5: DATAFORM QA VERIFIER
 # ==============================================================================
 def verify_dataform_pipeline(
     pipeline_files: Dict[str, str],
@@ -919,7 +942,8 @@ def verify_dataform_pipeline(
         trace_id,
     )
 
-    if not model or not pipeline_files:
+    # COST OPTIMIZATION: Use model_lite for structured QA checklists
+    if not model_lite or not pipeline_files:
         log_event("INFO", "⏹️ 🕵️‍♀️ [DF QA] Bypassing QA (No model or no files).", trace_id)
         return pipeline_files
 
@@ -932,7 +956,6 @@ def verify_dataform_pipeline(
     inferred_domain = df_state.get("inferred_domain", "domain_placeholder")
     existing_paths = list(df_state.get("existing_files", {}).keys())
 
-    # FEATURE ADDITION: Global temporal batch_date override check (Checklist 4)
     prompt = f"""
     You are a Senior Data QA Lead. Review this Dataform pipeline generated by a junior engineer.
     
@@ -965,7 +988,8 @@ def verify_dataform_pipeline(
             "⏳ 🕵️‍♀️ [DF QA] Awaiting QA review, global temporal enforcement, tagging, and assertion validation...",
             trace_id,
         )
-        text = model.generate_content(prompt).text.strip()
+        response = model_lite.generate_content(prompt)
+        text = response.text.strip()
         if text.startswith("```"):
             text = text.split("\n", 1)[1].rsplit("\n", 1)[0]
         if text.startswith("json"):
@@ -1006,7 +1030,8 @@ def verify_schema_json(
         trace_id,
     )
 
-    if not model or not schema_list:
+    # COST OPTIMIZATION: Route schema QA to model_lite
+    if not model_lite or not schema_list:
         log_event(
             "INFO", "⏹️ 🕵️‍♀️ [Schema QA] Bypassing QA (No model or schema).", trace_id
         )
@@ -1031,7 +1056,8 @@ def verify_schema_json(
 
     try:
         log_event("INFO", "⏳ 🕵️‍♀️ [Schema QA] Awaiting Schema QA review...", trace_id)
-        text = model.generate_content(prompt).text.strip()
+        response = model_lite.generate_content(prompt)
+        text = response.text.strip()
         if text.startswith("```"):
             text = text.split("\n", 1)[1].rsplit("\n", 1)[0]
         if text.startswith("json"):
@@ -1076,7 +1102,8 @@ def verify_terraform_hcl(
         trace_id,
     )
 
-    if not model or not hcl_content:
+    # COST OPTIMIZATION: Route Terraform QA to model_lite
+    if not model_lite or not hcl_content:
         log_event("INFO", "⏹️ 🕵️‍♀️ [TF QA] Bypassing QA (No model or HCL).", trace_id)
         return hcl_content
 
@@ -1088,7 +1115,7 @@ def verify_terraform_hcl(
         hist_rule = f"""
         CRITICAL RULE: Because this is a raw table ({table_id}), there MUST be a corresponding '{table_id}_hist' google_bigquery_table resource defined.
         If it is missing, you MUST inject it based on this enterprise pattern:
-        ```hcl\n{style_guide_hist[:1000]}\n```
+        ```hcl\n{prune_whitespace(style_guide_hist[:1000])}\n```
         CRITICAL SCHEMA REUSE: The history table MUST use the exact same schema file path as the main table. Do not allow the use of a separate _hist.json file.
         """
 
@@ -1111,7 +1138,8 @@ def verify_terraform_hcl(
 
     try:
         log_event("INFO", "⏳ 🕵️‍♀️ [TF QA] Awaiting TF QA review...", trace_id)
-        text = model.generate_content(prompt).text.strip()
+        response = model_lite.generate_content(prompt)
+        text = response.text.strip()
         if text.startswith("```"):
             text = text.split("\n", 1)[1].rsplit("\n", 1)[0]
 
@@ -1565,7 +1593,6 @@ def apply_infrastructure_update(
     title_prefix = "fix" if json_exists or df_files_changed > 0 else "feat"
     pr_title = f"{title_prefix}(dataops): Automated Pipeline & DQ Healing for {table}"
 
-    # FEATURE ADDITION: Updated PR Body to confirm global temporal alignment
     pr_body = f"""
 # 🤖 Sentinel-Forge Automated Resolution
 **Trace ID:** `{trace_id}`
@@ -1590,7 +1617,7 @@ Added **{len(added_cols_for_pr)}** columns to the Raw Layer. All raw ingestion f
 2. **Architect:** Generated HCL. Embedded explicit `CAST()` operations, **Data Quality Assertions**, explicit tags (`domain`, `entity`, `layer`), and defined target insert paths into `.sqlx` blocks.
 3. **Schema QA:** Verified JSON structure. Rigorously enforced `defaultValueExpression` and absolute `STRING` typing on all new columns.
 4. **Terraform QA:** Enforced schema reuse (`DRY` principle) between main and `_hist` table resources.
-5. **Dataform QA:** Validated SQL syntax, corrected Operations mappings, ensured `QUALIFY ROW_NUMBER()` deduplication, verified empty/comment-free `config` blocks, prevented declaration tags, validated strict 3-part Tag Taxonomy, and aggressively enforced `CURRENT_DATE()` logic globally across all layers.
+5. **Dataform QA:** Validated SQL syntax, enforced `CURRENT_DATE()` logic, corrected Operations mappings, ensured `QUALIFY ROW_NUMBER()` deduplication, verified empty/comment-free `config` blocks, prevented declaration tags, and validated strict 3-part Tag Taxonomy.
 
 **Commit Log:**
 {df_commit_log}
