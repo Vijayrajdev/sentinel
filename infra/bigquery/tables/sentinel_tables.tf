@@ -14,6 +14,7 @@ locals {
       partition_field = null
     }
   }
+
   tables_raw = {
     "orders_raw" = {
       partition_type  = null
@@ -27,7 +28,12 @@ locals {
       partition_type  = "DAY"
       partition_field = "batch_date"
     }
+    "product_raw" = { # NEW ENTRY
+      partition_type  = "DAY"
+      partition_field = "batch_date"
+    }
   }
+
   tables_raw_hist = {
     "orders_raw" = {
       partition_type  = null
@@ -44,6 +50,11 @@ locals {
       partition_field = "batch_date"
       expiration_ms   = 2592000000
     }
+    "product_raw" = { # NEW ENTRY for history table configuration
+      partition_type  = "DAY"
+      partition_field = "batch_date"
+      expiration_ms   = 2592000000
+    }
   }
 }
 
@@ -55,14 +66,11 @@ resource "google_bigquery_table" "sentinel_audit_tables" {
   friendly_name       = "sentinel_${each.key}"
   deletion_protection = false
 
-  # 1. The Dynamic Block
-  # This creates the 'time_partitioning' block ONLY if partition_type is not null
   dynamic "time_partitioning" {
     for_each = each.value.partition_type != null ? [1] : []
-
     content {
-      type  = each.value.partition_type
-      field = lookup(each.value, "partition_field", null)
+      type          = each.value.partition_type
+      field         = lookup(each.value, "partition_field", null)
       expiration_ms = lookup(each.value, "expiration_ms", null)
     }
   }
@@ -71,7 +79,6 @@ resource "google_bigquery_table" "sentinel_audit_tables" {
     env = "dev"
   }
 
-  # Note: Since we changed locals to objects, we still refer to each.key for the filename
   schema = file("${path.module}/json/${each.key}.json")
 }
 
@@ -83,14 +90,11 @@ resource "google_bigquery_table" "sentinel_raw_tables" {
   friendly_name       = "sentinel_${each.key}"
   deletion_protection = false
 
-  # 1. The Dynamic Block
-  # This creates the 'time_partitioning' block ONLY if partition_type is not null
   dynamic "time_partitioning" {
     for_each = each.value.partition_type != null ? [1] : []
-
     content {
-      type  = each.value.partition_type
-      field = lookup(each.value, "partition_field", null)
+      type          = each.value.partition_type
+      field         = lookup(each.value, "partition_field", null)
       expiration_ms = lookup(each.value, "expiration_ms", null)
     }
   }
@@ -99,7 +103,6 @@ resource "google_bigquery_table" "sentinel_raw_tables" {
     env = "dev"
   }
 
-  # Note: Since we changed locals to objects, we still refer to each.key for the filename
   schema = file("${path.module}/json/${each.key}.json")
 }
 
@@ -108,17 +111,14 @@ resource "google_bigquery_table" "sentinel_raw_hist_tables" {
 
   dataset_id          = "sentinel_raw"
   table_id            = "${each.key}_hist"
-  friendly_name       = "sentinel_${each.key}"
+  friendly_name       = "sentinel_${each.key}_hist" # Corrected friendly_name for history tables
   deletion_protection = false
 
-  # 1. The Dynamic Block
-  # This creates the 'time_partitioning' block ONLY if partition_type is not null
   dynamic "time_partitioning" {
     for_each = each.value.partition_type != null ? [1] : []
-
     content {
-      type  = each.value.partition_type
-      field = lookup(each.value, "partition_field", null)
+      type          = each.value.partition_type
+      field         = lookup(each.value, "partition_field", null)
       expiration_ms = lookup(each.value, "expiration_ms", null)
     }
   }
@@ -127,7 +127,28 @@ resource "google_bigquery_table" "sentinel_raw_hist_tables" {
     env = "dev"
   }
 
-  # Note: Since we changed locals to objects, we still refer to each.key for the filename
   schema = file("${path.module}/json/${each.key}.json")
 }
 
+# Injecting the missing product_raw history table based on enterprise pattern
+resource "google_bigquery_table" "sentinel_product_raw_hist_table" {
+  dataset_id          = "sentinel_raw"
+  table_id            = "product_raw_hist"
+  friendly_name       = "sentinel_product_raw_hist"
+  deletion_protection = false
+
+  dynamic "time_partitioning" {
+    for_each = lookup(local.tables_raw_hist, "product_raw", {}).partition_type != null ? [1] : []
+    content {
+      type          = lookup(local.tables_raw_hist, "product_raw", {}).partition_type
+      field         = lookup(local.tables_raw_hist, "product_raw", {}).partition_field
+      expiration_ms = lookup(local.tables_raw_hist, "product_raw", {}).expiration_ms
+    }
+  }
+
+  labels = {
+    env = "dev"
+  }
+
+  schema = file("${path.module}/json/product_raw.json")
+}
