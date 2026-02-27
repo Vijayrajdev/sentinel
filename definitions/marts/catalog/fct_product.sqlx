@@ -1,0 +1,11 @@
+config { type: "incremental", schema: "sentinel_marts", uniqueKey: ["product_id"], bigquery: { partitionBy: "updated_at", clusterBy: ["category"] }, assertions: { uniqueKey: ["product_id"], nonNull: ["product_id", "product_name", "category", "base_price", "updated_at", "batch_date"] }, tags: ["catalog", "product", "marts"] }
+
+SELECT 
+  product_id,
+  product_name,
+  category,
+  base_price,
+  processed_dttm AS updated_at,
+  CURRENT_DATE() AS batch_date
+FROM ${ref("stg_product")}
+${when(incremental(), `WHERE processed_dttm > (SELECT MAX(updated_at) FROM ${self()})` )}
