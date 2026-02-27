@@ -1,0 +1,19 @@
+config {
+    type: "table",
+    schema: "sentinel_marts",
+    tags: ["inventory", "product", "marts"],
+    assertions: {
+        nonNull: ["product_id", "processed_dttm", "batch_date"],
+        uniqueKey: ["product_id", "batch_date"]
+    }
+}
+
+SELECT
+    product_id,
+    product_name,
+    category,
+    base_price,
+    CURRENT_DATE() AS batch_date,
+    processed_dttm
+FROM
+    ${ref("stg_product")}
