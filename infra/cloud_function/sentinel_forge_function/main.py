@@ -5,6 +5,7 @@ import uuid
 import datetime
 import logging
 import re
+import time  # FEATURE ADDITION: Required for Traffic Smoothing (Rate Limiting)
 from typing import List, Dict, Any, Optional, Tuple
 
 import functions_framework
@@ -40,7 +41,7 @@ model_heavy = None
 model_lite = None
 try:
     if PROJECT_ID:
-        vertexai.init(project=PROJECT_ID, location='global')
+        vertexai.init(project=PROJECT_ID, location="global")
         model_heavy = GenerativeModel(AI_MODEL_HEAVY_NAME)
         model_lite = GenerativeModel(AI_MODEL_LITE_NAME)
         logging.info(
@@ -72,6 +73,17 @@ def log_event(severity: str, message: str, trace_id: str, **kwargs):
         **kwargs,
     }
     print(json.dumps(entry))
+
+
+# FEATURE ADDITION: Traffic Smoothing to prevent 429 Quota Rate Limit Errors
+def smooth_traffic(trace_id: str):
+    """Mitigates Vertex AI 429 Too Many Requests errors by pacing API calls."""
+    log_event(
+        "INFO",
+        "⏳ 🚦 [Traffic Control] Pacing AI request (3s) to prevent 429 Rate Limit burst...",
+        trace_id,
+    )
+    time.sleep(3)
 
 
 def log_ai_action(
@@ -262,7 +274,10 @@ def generate_dynamic_schema(
             "⏳ 🧩 [Agent 1: Schema Design] Awaiting AI generation response...",
             trace_id,
         )
+
+        smooth_traffic(trace_id)  # FEATURE ADDITION: Apply Traffic Smoothing
         response = model_lite.generate_content(prompt)
+
         text = response.text.strip()
         if text.startswith("```"):
             text = text.split("\n", 1)[1].rsplit("\n", 1)[0]
@@ -388,7 +403,7 @@ def analyze_tf_repo_state(
                     f"👀 🕵️‍♂️ [Repo Scan] Detected string match for '{table_id}' in {element.path}. Validating semantics...",
                     trace_id,
                 )
-                if ask_ai_is_definition(content, table_id):
+                if ask_ai_is_definition(content, table_id, trace_id):
                     state["is_defined"] = True
                     state["defined_in_file"] = element.path
                     log_event(
@@ -439,7 +454,7 @@ def analyze_tf_repo_state(
     return state
 
 
-def ask_ai_is_definition(content: str, table_id: str) -> bool:
+def ask_ai_is_definition(content: str, table_id: str, trace_id: str) -> bool:
     """Helper: Asks AI if the table is truly defined in this file."""
     if not model_lite:
         return True
@@ -449,6 +464,7 @@ def ask_ai_is_definition(content: str, table_id: str) -> bool:
     Return TRUE or FALSE.
     """
     try:
+        smooth_traffic(trace_id)  # FEATURE ADDITION: Apply Traffic Smoothing
         return "TRUE" in model_lite.generate_content(prompt).text.upper()
     except:
         return False
@@ -573,7 +589,10 @@ def generate_tf_patch_or_create(
             "⏳ 🏗️ [Agent 2: TF Architect] Awaiting AI infrastructure generation...",
             trace_id,
         )
+
+        smooth_traffic(trace_id)  # FEATURE ADDITION: Apply Traffic Smoothing
         response = model_heavy.generate_content(prompt)
+
         text = response.text.strip()
         if text.startswith("```"):
             text = text.split("\n", 1)[1].rsplit("\n", 1)[0]
@@ -763,7 +782,10 @@ def infer_pipeline_datasets_with_ai(
             "⏳ 🗺️ [Agent 8: Dataset Analyst] Awaiting AI dataset routing analysis...",
             trace_id,
         )
+
+        smooth_traffic(trace_id)  # FEATURE ADDITION: Apply Traffic Smoothing
         response = model_lite.generate_content(prompt)
+
         text = response.text.strip()
         if text.startswith("```"):
             text = text.split("\n", 1)[1].rsplit("\n", 1)[0]
@@ -939,7 +961,10 @@ def generate_ai_dataform_pipeline(
             "⏳ 🪄 [Agent 4: DF Architect] Instructing Gemini to synthesize Dataform files with Tags, Rules, Formatting, and Dynamic Sample Data parsing...",
             trace_id,
         )
+
+        smooth_traffic(trace_id)  # FEATURE ADDITION: Apply Traffic Smoothing
         response = model_heavy.generate_content(prompt)
+
         text = response.text.strip()
         if text.startswith("```"):
             text = text.split("\n", 1)[1].rsplit("\n", 1)[0]
@@ -1064,7 +1089,10 @@ def verify_dataform_pipeline(
             "⏳ 🕵️‍♀️ [Agent 5: DF QA] Awaiting QA review, global temporal enforcement, dynamic casting, tagging, and formatting validation...",
             trace_id,
         )
+
+        smooth_traffic(trace_id)  # FEATURE ADDITION: Apply Traffic Smoothing
         response = model_lite.generate_content(prompt)
+
         text = response.text.strip()
         if text.startswith("```"):
             text = text.split("\n", 1)[1].rsplit("\n", 1)[0]
@@ -1135,7 +1163,10 @@ def verify_schema_json(
         log_event(
             "INFO", "⏳ 🕵️‍♀️ [Agent 6: Schema QA] Awaiting Schema QA review...", trace_id
         )
+
+        smooth_traffic(trace_id)  # FEATURE ADDITION: Apply Traffic Smoothing
         response = model_lite.generate_content(prompt)
+
         text = response.text.strip()
         if text.startswith("```"):
             text = text.split("\n", 1)[1].rsplit("\n", 1)[0]
@@ -1221,7 +1252,10 @@ def verify_terraform_hcl(
 
     try:
         log_event("INFO", "⏳ 🕵️‍♀️ [Agent 7: TF QA] Awaiting TF QA review...", trace_id)
+
+        smooth_traffic(trace_id)  # FEATURE ADDITION: Apply Traffic Smoothing
         response = model_lite.generate_content(prompt)
+
         text = response.text.strip()
         if text.startswith("```"):
             text = text.split("\n", 1)[1].rsplit("\n", 1)[0]
@@ -1695,10 +1729,10 @@ Added **{len(added_cols_for_pr)}** columns to the Raw Layer. All raw ingestion f
 
 ### 🪄 Agent Activity Log
 1. **Scanner & Router:** Mapped target domain folders semantically. AI Dataset Routing successfully assigned correct schema endpoints.
-2. **Architect:** Generated HCL. Embedded exact Dataform templates including dynamic `SAFE_CAST`, `SAFE.PARSE_DATE`, and `incremental` cluster logic into `.sqlx` blocks.
+2. **Architect:** Generated HCL. Embedded exact Dataform templates including dynamic `SAFE_CAST`, `SAFE.PARSE_DATE`, and `incremental` cluster logic into `.sqlx` blocks based on sample payload analysis.
 3. **Schema QA:** Verified JSON structure. Rigorously enforced `defaultValueExpression` and absolute `STRING` typing on all new columns.
 4. **Terraform QA:** Enforced schema reuse (`DRY` principle) between main and `_hist` table resources. Successfully routed table configs natively into `locals` dictionaries.
-5. **Dataform QA:** Validated SQL syntax, enforced `CURRENT_DATE()` logic, corrected Operations mappings, ensured `QUALIFY ROW_NUMBER()` deduplication, verified empty/comment-free `config` blocks, prevented declaration tags, and validated strict 3-part Tag Taxonomy.
+5. **Dataform QA:** Validated SQL syntax, enforced `CURRENT_DATE()` logic, corrected Operations mappings, ensured `QUALIFY ROW_NUMBER()` deduplication, verified empty/comment-free `config` blocks, prevented declaration tags, validated formatting, and validated strict 3-part Tag Taxonomy.
 
 **Commit Log:**
 {df_commit_log}
@@ -1708,10 +1742,11 @@ Added **{len(added_cols_for_pr)}** columns to the Raw Layer. All raw ingestion f
 - [x] **Schema Integrity:** Absolute `STRING` typing and `defaultValueExpression` strictly enforced for raw layer.
 - [x] **DRY Architecture:** History tables natively reuse raw landing schemas.
 - [x] **Tag Taxonomy:** `config` blocks securely tagged with `[domain, entity, layer]` (Exempting Declarations).
-- [x] **Staging Governance:** Explicit casting to native BigQuery types and Row Deduplication executed.
+- [x] **Staging Governance:** Dynamic, sample-based casting to native BigQuery types and Row Deduplication executed.
 - [x] **Operations Accuracy:** Operations securely bypass self-contexts and `post_operations`.
 - [x] **Temporal Accuracy:** `CURRENT_DATE() AS batch_date` strictly enforced globally across all layers.
 - [x] **Data Quality:** Automated assertions added to Dataform `config` blocks.
+- [x] **Format Standardization:** Code cleanly indented and SQL keywords perfectly aligned.
 
 ### ✅ Action Required
 Review the file changes and merge this Pull Request.
@@ -1760,11 +1795,13 @@ Review the file changes and merge this Pull Request.
             "detailed_commit_log": (
                 df_commit_log.strip().split("\n") if df_commit_log else []
             ),
+            "templates_strictly_followed": True,
             "anti_hallucination_paths_enforced": True,
             "anti_hallucination_schemas_verified": True,
             "global_current_date_enforced": True,
             "staging_casting_and_dedup_applied": True,
             "tag_taxonomy_enforced": True,
+            "formatting_standardized": True,
         },
     }
 
@@ -1797,6 +1834,7 @@ def ai_agent_main(cloud_event):
     DEFERRED_LOGS = []
 
     try:
+        # Gateway Initialization
         if "data" not in cloud_event.data["message"]:
             return
 
@@ -1812,6 +1850,7 @@ def ai_agent_main(cloud_event):
             trace_id,
         )
 
+        # Robust extraction
         if "protoPayload" in data:
             error_context = (
                 data["protoPayload"]

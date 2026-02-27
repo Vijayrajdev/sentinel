@@ -121,21 +121,21 @@ def get_file_metadata(
         if file_ext == "csv":
             df = pd.read_csv(
                 uri,
-                nrows=5,
+                nrows=50,
                 sep=delimiter,
                 quotechar=quote_char,
                 skiprows=pd_skip_rows,
                 dtype=str,
             )
         elif file_ext in ["json", "ndjson"]:
-            df = pd.read_json(uri, lines=True, nrows=5, dtype=str)
+            df = pd.read_json(uri, lines=True, nrows=50, dtype=str)
         elif file_ext == "parquet":
             fs = gcsfs.GCSFileSystem()
             with fs.open(uri, "rb") as f:
                 pf = pq.ParquetFile(f)
                 df = pf.read_row_group(0).to_pandas().head(5).astype(str)
         elif file_ext in ["xlsx", "xls"]:
-            df = pd.read_excel(uri, nrows=5, skiprows=pd_skip_rows, dtype=str)
+            df = pd.read_excel(uri, nrows=50, skiprows=pd_skip_rows, dtype=str)
         else:
             raise ValueError(f"Unsupported file format: {file_ext}")
 
