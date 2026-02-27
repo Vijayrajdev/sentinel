@@ -1,0 +1,1 @@
+config { type: "declaration", database: "sentinel-486707", schema: "sentinel_raw", name: "product_raw" }
