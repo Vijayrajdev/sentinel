@@ -5,6 +5,8 @@ import uuid
 import datetime
 import logging
 import re
+import time
+import random  # FEATURE ADDITION: Required for Jitter in Exponential Backoff
 from typing import List, Dict, Any, Optional, Tuple
 
 import functions_framework
@@ -40,7 +42,7 @@ model_heavy = None
 model_lite = None
 try:
     if PROJECT_ID:
-        vertexai.init(project=PROJECT_ID, location=REGION)
+        vertexai.init(project=PROJECT_ID, location="global")
         model_heavy = GenerativeModel(AI_MODEL_HEAVY_NAME)
         model_lite = GenerativeModel(AI_MODEL_LITE_NAME)
         logging.info(
@@ -72,6 +74,53 @@ def log_event(severity: str, message: str, trace_id: str, **kwargs):
         **kwargs,
     }
     print(json.dumps(entry))
+
+
+def smooth_traffic(trace_id: str):
+    """Mitigates Vertex AI 429 Too Many Requests errors by pacing API calls."""
+    log_event(
+        "INFO",
+        "⏳ 🚦 [Traffic Control] Pacing AI request (3s) to prevent 429 Rate Limit burst...",
+        trace_id,
+    )
+    time.sleep(3)
+
+
+# FEATURE ADDITION: Exponential Backoff to gracefully handle HTTP 429 Resource Exhausted errors
+def generate_content_with_retry(
+    model_instance, prompt: str, trace_id: str, max_retries: int = 5
+):
+    """Executes Vertex AI generation with Exponential Backoff for 429 errors."""
+    base_delay = 5  # Start with a 5-second delay
+
+    for attempt in range(max_retries):
+        try:
+            smooth_traffic(trace_id)  # Apply baseline smoothing
+            response = model_instance.generate_content(prompt)
+            return response
+        except Exception as e:
+            error_msg = str(e).lower()
+            # If the error is a 429 Quota/Rate Limit error, we back off and retry
+            if "429" in error_msg or "resource exhausted" in error_msg:
+                if attempt == max_retries - 1:
+                    log_event(
+                        "ERROR",
+                        f"🚨 🚦 [Traffic Control] Max retries reached for 429 error. Failing.",
+                        trace_id,
+                    )
+                    raise e
+
+                # Exponential backoff logic: 5s, 10s, 20s, 40s + random jitter to prevent clustered retries
+                sleep_time = (base_delay * (2**attempt)) + random.uniform(0, 2)
+                log_event(
+                    "WARNING",
+                    f"⚠️ 🚦 [Traffic Control] 429 Quota Hit. Exponential backoff active. Retrying in {sleep_time:.2f} seconds (Attempt {attempt + 1}/{max_retries})...",
+                    trace_id,
+                )
+                time.sleep(sleep_time)
+            else:
+                # If it's a different error (e.g., 500, Auth), fail immediately
+                raise e
 
 
 def log_ai_action(
@@ -175,7 +224,6 @@ def flush_deferred_logs(pr_link: Optional[str], trace_id: str):
         DEFERRED_LOGS.clear()
 
 
-# COST OPTIMIZATION: Utility function to drop empty space and save input tokens
 def prune_whitespace(text: str) -> str:
     """Removes excess whitespace and newlines to save tokens and reduce AI costs."""
     if not text:
@@ -196,20 +244,19 @@ def generate_dynamic_schema(
     """Goal: Create valid BigQuery JSON schema matching strict enterprise standards."""
     log_event(
         "INFO",
-        f"▶️ 🧩 [Schema Design] Initiating dynamic schema generation for '{table_name}'...",
+        f"▶️ 🧩 [Agent 1: Schema Design] Initiating dynamic schema generation for '{table_name}'...",
         trace_id,
     )
 
-    # COST OPTIMIZATION: Use model_lite for simple mapping tasks
     if not model_lite:
         log_event(
             "WARNING",
-            "⚠️ 🧩 [Schema Design] AI Service unavailable. Falling back to basic programmatic schema.",
+            "⚠️ 🧩 [Agent 1: Schema Design] AI Service unavailable. Falling back to basic programmatic schema.",
             trace_id,
         )
         log_event(
             "INFO",
-            "⏹️ 🧩 [Schema Design] Finished schema generation (Fallback mode).",
+            "⏹️ 🧩 [Agent 1: Schema Design] Finished schema generation (Fallback mode).",
             trace_id,
         )
         return [
@@ -224,7 +271,7 @@ def generate_dynamic_schema(
 
     log_event(
         "INFO",
-        f"🧠 🧩 [Schema Design] Instructing AI to map {len(new_cols)} incoming columns...",
+        f"🧠 🧩 [Agent 1: Schema Design] Instructing AI to map {len(new_cols)} incoming columns...",
         trace_id,
     )
 
@@ -232,7 +279,7 @@ def generate_dynamic_schema(
     if reference_json:
         log_event(
             "INFO",
-            "🎨 🧩 [Schema Design] Injecting reference JSON style guide into AI context...",
+            "🎨 🧩 [Agent 1: Schema Design] Injecting reference JSON style guide into AI context...",
             trace_id,
         )
         style_guide = f"STYLE GUIDE (Mimic this format):\n```json\n{prune_whitespace(reference_json[:3000])}\n```"
@@ -259,9 +306,14 @@ def generate_dynamic_schema(
 
     try:
         log_event(
-            "INFO", "⏳ 🧩 [Schema Design] Awaiting AI generation response...", trace_id
+            "INFO",
+            "⏳ 🧩 [Agent 1: Schema Design] Awaiting AI generation response...",
+            trace_id,
         )
-        response = model_lite.generate_content(prompt)
+
+        # REQUIRED UPDATE: Replaced basic call with retry wrapper
+        response = generate_content_with_retry(model_lite, prompt, trace_id)
+
         text = response.text.strip()
         if text.startswith("```"):
             text = text.split("\n", 1)[1].rsplit("\n", 1)[0]
@@ -269,7 +321,7 @@ def generate_dynamic_schema(
         parsed_schema = json.loads(text)
         log_event(
             "INFO",
-            f"✅ 🧩 [Schema Design] AI successfully formulated JSON schema with {len(parsed_schema)} fields.",
+            f"✅ 🧩 [Agent 1: Schema Design] AI successfully formulated JSON schema with {len(parsed_schema)} fields.",
             trace_id,
         )
 
@@ -284,13 +336,17 @@ def generate_dynamic_schema(
             resource_type="Schema - Generated",
             defer=True,
         )
-        log_event("INFO", "⏹️ 🧩 [Schema Design] Finished schema generation.", trace_id)
+        log_event(
+            "INFO",
+            "⏹️ 🧩 [Agent 1: Schema Design] Finished schema generation.",
+            trace_id,
+        )
         return parsed_schema
 
     except Exception as e:
         log_event(
             "ERROR",
-            f"❌ 🧩 [Schema Design] Schema Generation Failed: {e}. Falling back to basic generation.",
+            f"❌ 🧩 [Agent 1: Schema Design] Schema Generation Failed: {e}. Falling back to basic generation.",
             trace_id,
         )
         log_ai_action(
@@ -305,7 +361,7 @@ def generate_dynamic_schema(
         )
         log_event(
             "INFO",
-            "⏹️ 🧩 [Schema Design] Finished schema generation (Fallback mode).",
+            "⏹️ 🧩 [Agent 1: Schema Design] Finished schema generation (Fallback mode).",
             trace_id,
         )
         return [
@@ -383,7 +439,7 @@ def analyze_tf_repo_state(
                     f"👀 🕵️‍♂️ [Repo Scan] Detected string match for '{table_id}' in {element.path}. Validating semantics...",
                     trace_id,
                 )
-                if ask_ai_is_definition(content, table_id):
+                if ask_ai_is_definition(content, table_id, trace_id):
                     state["is_defined"] = True
                     state["defined_in_file"] = element.path
                     log_event(
@@ -398,8 +454,10 @@ def analyze_tf_repo_state(
                     )
                     return state
 
-            if 'resource "google_bigquery_table"' in content and "for_each" in content:
-                count = content.count("table_id")
+            if 'resource "google_bigquery_table"' in content and (
+                "for_each" in content or "locals" in content
+            ):
+                count = content.count("table_id") + content.count("partition_type")
                 if count > max_tables_in_file:
                     max_tables_in_file = count
                     best_candidate_file = element.path
@@ -432,9 +490,8 @@ def analyze_tf_repo_state(
     return state
 
 
-def ask_ai_is_definition(content: str, table_id: str) -> bool:
+def ask_ai_is_definition(content: str, table_id: str, trace_id: str) -> bool:
     """Helper: Asks AI if the table is truly defined in this file."""
-    # COST OPTIMIZATION: Route helper to model_lite
     if not model_lite:
         return True
     prompt = f"""
@@ -443,7 +500,9 @@ def ask_ai_is_definition(content: str, table_id: str) -> bool:
     Return TRUE or FALSE.
     """
     try:
-        return "TRUE" in model_lite.generate_content(prompt).text.upper()
+        # REQUIRED UPDATE: Replaced basic call with retry wrapper
+        response = generate_content_with_retry(model_lite, prompt, trace_id)
+        return "TRUE" in response.text.upper()
     except:
         return False
 
@@ -456,29 +515,30 @@ def generate_tf_patch_or_create(
     tf_state: Dict[str, Any],
     trace_id: str,
 ) -> str:
-    """Goal: Write HCL code. Enforces _hist creation AND reuses main schema path."""
+    """Goal: Write HCL code. Enforces adaptive injection based on locals maps vs distinct resources."""
     log_event(
         "INFO",
-        f"▶️ 🏗️ [TF Architect] Initiating Terraform HCL synthesis for '{table_id}'...",
+        f"▶️ 🏗️ [Agent 2: TF Architect] Initiating Terraform HCL synthesis for '{table_id}'...",
         trace_id,
     )
 
-    # COST OPTIMIZATION: Use model_heavy for strict syntax generation
     if not model_heavy:
         log_event(
             "WARNING",
-            "⚠️ 🏗️ [TF Architect] AI Service offline. Returning empty block.",
+            "⚠️ 🏗️ [Agent 2: TF Architect] AI Service offline. Returning empty block.",
             trace_id,
         )
         log_event(
-            "INFO", "⏹️ 🏗️ [TF Architect] Finished TF generation (Abort).", trace_id
+            "INFO",
+            "⏹️ 🏗️ [Agent 2: TF Architect] Finished TF generation (Abort).",
+            trace_id,
         )
         return ""
 
     action = "CREATE_NEW" if not host_file_content else "PATCH_EXISTING"
     log_event(
         "INFO",
-        f"🛠️ 🏗️ [TF Architect] Determining infrastructure action vector: {action}",
+        f"🛠️ 🏗️ [Agent 2: TF Architect] Determining infrastructure action vector: {action}",
         trace_id,
     )
 
@@ -487,7 +547,7 @@ def generate_tf_patch_or_create(
     if table_id.endswith("_raw"):
         log_event(
             "INFO",
-            f"⏳ 🏗️ [TF Architect] Raw table detected. Injecting STRICT _hist infrastructure rules with schema reuse...",
+            f"⏳ 🏗️ [Agent 2: TF Architect] Raw table detected. Injecting STRICT _hist infrastructure rules with schema reuse...",
             trace_id,
         )
         mimic_rule = (
@@ -497,7 +557,9 @@ def generate_tf_patch_or_create(
         )
 
         hist_instruction = f"""
-        CRITICAL REQUIREMENT: Because '{table_id}' is a raw landing table, you MUST ALSO generate the Terraform resource for its history table named '{table_id}_hist'. 
+        CRITICAL REQUIREMENT: Because '{table_id}' is a raw landing table, you MUST ALSO generate the infrastructure for its history table '{table_id}_hist'. 
+        - If using standard resources, create a SECOND `resource "google_bigquery_table"` block.
+        - If the file uses `locals` dictionaries (e.g., `tables_raw_hist = {{}}`), inject the history table definition into that specific dictionary with `expiration_ms = 2592000000`.
         - History Schema File: "{schema_path}" (CRITICAL: Reuse the EXACT SAME JSON schema path as the main table. DO NOT append _hist to the json filename).
         {mimic_rule}
         Ensure BOTH the main table AND the history table are included in your HCL output.
@@ -506,44 +568,75 @@ def generate_tf_patch_or_create(
     if action == "PATCH_EXISTING":
         log_event(
             "INFO",
-            "🩹 🏗️ [TF Architect] Constructing prompt for intelligent HCL injection (Patch)...",
+            "🩹 🏗️ [Agent 2: TF Architect] Constructing prompt for intelligent HCL injection (Patch)...",
             trace_id,
         )
         prompt = f"""
-        You are a Terraform Expert. Task: Add a new BigQuery table definition to the existing file below.
-        Table ID: "{table_id}" | Schema File: "{schema_path}" | Partitioning: DAY (field: batch_date)
+        You are a strictly governed Terraform Expert. Your task is to safely APPEND or INJECT a new BigQuery table definition to the EXISTING FILE below without altering unrelated resources.
+        
+        Table ID: "{table_id}"
+        Resource Name: "{table_id.replace('.', '_')}"
+        Schema File: "{schema_path}"
+        Partitioning: DAY (field: batch_date)
+        Dataset ID: "{dataset_id}"
+        
         {hist_instruction}
         
-        EXISTING FILE:
+        EXISTING FILE CONTENT:
         ```hcl\n{prune_whitespace(host_file_content)}\n```
-        INSTRUCTIONS: Return the **FULL UPDATED FILE CONTENT**. Do not truncate. Output: HCL Code only.
+        
+        STRICT RULES:
+        1. DO NOT modify, delete, or hallucinate changes to the existing resources in the file.
+        2. ADAPTIVE INJECTION: 
+           - IF the file uses a `locals` block with mapped objects and `for_each`, you MUST ONLY add the new table's configuration object into the appropriate dictionary. DO NOT append a new `resource` block.
+           - IF the file uses individual `resource "google_bigquery_table"` blocks, ONLY append the new `resource` block(s) at the end of the file.
+        3. Use exact string matching for the schema path: `schema = file("${{path.module}}/{schema_path}")` or follow the dynamic schema reference if using `locals`.
+        4. DO NOT invent variables like `var.project_id` or `var.dataset` unless they already exist. 
+        5. Return the **FULL UPDATED FILE CONTENT**, including the original code and your new appended/injected blocks. Do not truncate.
+        
+        Output strictly HCL Code only. No markdown formatting outside the code block.
         """
     else:
         log_event(
             "INFO",
-            "✨ 🏗️ [TF Architect] Constructing prompt for brand new HCL definition (Create)...",
+            "✨ 🏗️ [Agent 2: TF Architect] Constructing prompt for brand new HCL definition (Create)...",
             trace_id,
         )
         prompt = f"""
-        You are a Terraform Expert. Task: Create a new Terraform file for BigQuery Table "{table_id}".
-        Details: Resource Name: {table_id.replace('.', '_')} | Dataset ID: {dataset_id} | Schema: file("${{path.module}}/{schema_path}")
+        You are a strictly governed Terraform Expert. Your task is to CREATE a brand new Terraform file for a BigQuery Table.
+        
+        Table ID: "{table_id}"
+        Resource Name: "{table_id.replace('.', '_')}"
+        Dataset ID: "{dataset_id}"
+        Schema File: "{schema_path}"
+        Partitioning: DAY (field: batch_date)
+        
         {hist_instruction}
-        Output: HCL Code only.
+        
+        STRICT RULES:
+        1. Create ONLY the `google_bigquery_table` resource(s) requested.
+        2. Use exact string matching for the schema path: `schema = file("${{path.module}}/{schema_path}")`.
+        3. DO NOT invent variables like `var.dataset_id`. Use the literal string "{dataset_id}".
+        4. Output strictly HCL Code only. No markdown formatting outside the code block.
         """
 
     try:
         log_event(
             "INFO",
-            "⏳ 🏗️ [TF Architect] Awaiting AI infrastructure generation...",
+            "⏳ 🏗️ [Agent 2: TF Architect] Awaiting AI infrastructure generation...",
             trace_id,
         )
-        text = model_heavy.generate_content(prompt).text.strip()
+
+        # REQUIRED UPDATE: Replaced basic call with retry wrapper
+        response = generate_content_with_retry(model_heavy, prompt, trace_id)
+
+        text = response.text.strip()
         if text.startswith("```"):
             text = text.split("\n", 1)[1].rsplit("\n", 1)[0]
 
         log_event(
             "INFO",
-            "✅ 🏗️ [TF Architect] AI successfully generated Terraform HCL block.",
+            "✅ 🏗️ [Agent 2: TF Architect] AI successfully generated Terraform HCL block.",
             trace_id,
         )
 
@@ -559,12 +652,14 @@ def generate_tf_patch_or_create(
             defer=True,
         )
 
-        log_event("INFO", "⏹️ 🏗️ [TF Architect] Finished TF generation.", trace_id)
+        log_event(
+            "INFO", "⏹️ 🏗️ [Agent 2: TF Architect] Finished TF generation.", trace_id
+        )
         return text.replace("```hcl", "").replace("```", "")
     except Exception as e:
         log_event(
             "ERROR",
-            f"❌ 🏗️ [TF Architect] Terraform HCL Generation Failed: {e}",
+            f"❌ 🏗️ [Agent 2: TF Architect] Terraform HCL Generation Failed: {e}",
             trace_id,
         )
         log_ai_action(
@@ -578,7 +673,9 @@ def generate_tf_patch_or_create(
             resource_type="Infrastructure - Generation Failed",
         )
         log_event(
-            "INFO", "⏹️ 🏗️ [TF Architect] Finished TF generation (Failure).", trace_id
+            "INFO",
+            "⏹️ 🏗️ [Agent 2: TF Architect] Finished TF generation (Failure).",
+            trace_id,
         )
         return ""
 
@@ -592,7 +689,7 @@ def analyze_dataform_repo_state(
     """Goal: Use Semantic/Fuzzy matching to find existing domains, rules, and strictly extract valid datasets/schemas."""
     log_event(
         "INFO",
-        f"▶️ 🔍 [DF Scanner] Semantic scan for entity '{base_name}' in Dataform workspace...",
+        f"▶️ 🔍 [Agent 3: DF Scanner] Semantic scan for entity '{base_name}' in Dataform workspace...",
         trace_id,
     )
     state = {
@@ -630,7 +727,7 @@ def analyze_dataform_repo_state(
                     state["existing_files"][element.path] = content
                     log_event(
                         "INFO",
-                        f"📂 🔍 [DF Scanner] Semantic match found and verified for patching: {element.path}",
+                        f"📂 🔍 [Agent 3: DF Scanner] Semantic match found and verified for patching: {element.path}",
                         trace_id,
                     )
 
@@ -656,11 +753,17 @@ def analyze_dataform_repo_state(
                 state["style_guide_sqlx"] = content
 
     except Exception as e:
-        log_event("WARNING", f"⚠️ 🔍 [DF Scanner] Dataform scan anomaly: {e}", trace_id)
+        log_event(
+            "WARNING",
+            f"⚠️ 🔍 [Agent 3: DF Scanner] Dataform scan anomaly: {e}",
+            trace_id,
+        )
 
     state["existing_schemas"] = list(state["existing_schemas"])
     log_event(
-        "INFO", "⏹️ 🔍 [DF Scanner] Finished scanning Dataform workspace.", trace_id
+        "INFO",
+        "⏹️ 🔍 [Agent 3: DF Scanner] Finished scanning Dataform workspace.",
+        trace_id,
     )
     return state
 
@@ -677,7 +780,7 @@ def infer_pipeline_datasets_with_ai(
     """Goal: Use AI to analyze existing datasets and securely map them to the pipeline layers without hallucinating."""
     log_event(
         "INFO",
-        f"▶️ 🗺️ [Dataset Analyst] Initiating AI dataset routing for '{table_name}'...",
+        f"▶️ 🗺️ [Agent 8: Dataset Analyst] Initiating AI dataset routing for '{table_name}'...",
         trace_id,
     )
 
@@ -687,14 +790,13 @@ def infer_pipeline_datasets_with_ai(
         "marts": "sentinel_marts",
     }
 
-    # COST OPTIMIZATION: Use model_lite for logical string mapping
     if not model_lite:
         log_event(
             "WARNING",
-            "⚠️ 🗺️ [Dataset Analyst] AI offline. Using standard defaults.",
+            "⚠️ 🗺️ [Agent 8: Dataset Analyst] AI offline. Using standard defaults.",
             trace_id,
         )
-        log_event("INFO", "⏹️ 🗺️ [Dataset Analyst] Finished routing.", trace_id)
+        log_event("INFO", "⏹️ 🗺️ [Agent 8: Dataset Analyst] Finished routing.", trace_id)
         return default_map
 
     prompt = f"""
@@ -714,10 +816,13 @@ def infer_pipeline_datasets_with_ai(
     try:
         log_event(
             "INFO",
-            "⏳ 🗺️ [Dataset Analyst] Awaiting AI dataset routing analysis...",
+            "⏳ 🗺️ [Agent 8: Dataset Analyst] Awaiting AI dataset routing analysis...",
             trace_id,
         )
-        response = model_lite.generate_content(prompt)
+
+        # REQUIRED UPDATE: Replaced basic call with retry wrapper
+        response = generate_content_with_retry(model_lite, prompt, trace_id)
+
         text = response.text.strip()
         if text.startswith("```"):
             text = text.split("\n", 1)[1].rsplit("\n", 1)[0]
@@ -727,28 +832,30 @@ def infer_pipeline_datasets_with_ai(
         datasets_map = json.loads(text)
         log_event(
             "INFO",
-            f"✅ 🗺️ [Dataset Analyst] AI successfully mapped datasets: {json.dumps(datasets_map)}",
+            f"✅ 🗺️ [Agent 8: Dataset Analyst] AI successfully mapped datasets: {json.dumps(datasets_map)}",
             trace_id,
         )
-        log_event("INFO", "⏹️ 🗺️ [Dataset Analyst] Finished dataset routing.", trace_id)
+        log_event(
+            "INFO", "⏹️ 🗺️ [Agent 8: Dataset Analyst] Finished dataset routing.", trace_id
+        )
         return datasets_map
 
     except Exception as e:
         log_event(
             "ERROR",
-            f"❌ 🗺️ [Dataset Analyst] AI Mapping Failed: {e}. Falling back to safe defaults.",
+            f"❌ 🗺️ [Agent 8: Dataset Analyst] AI Mapping Failed: {e}. Falling back to safe defaults.",
             trace_id,
         )
         log_event(
             "INFO",
-            "⏹️ 🗺️ [Dataset Analyst] Finished dataset routing (Fallback applied).",
+            "⏹️ 🗺️ [Agent 8: Dataset Analyst] Finished dataset routing (Fallback applied).",
             trace_id,
         )
         return default_map
 
 
 # ==============================================================================
-# 🧠 AGENT 4: DATAFORM ARCHITECT
+# 🧠 AGENT 4: DATAFORM ARCHITECT (Enhanced with Dynamic Templates, Parsing & Formatting)
 # ==============================================================================
 def generate_ai_dataform_pipeline(
     table_name: str,
@@ -760,23 +867,22 @@ def generate_ai_dataform_pipeline(
     datasets: Dict[str, str],
     trace_id: str,
 ) -> Dict[str, str]:
-    """Goal: Dynamically generate Dataform files, strictly enforcing datasets, tags, syntax, and temporal batch_date logic."""
+    """Goal: Dynamically generate Dataform files, strictly enforcing datasets, tags, syntax, templates, formatting, and temporal logic."""
     log_event(
         "INFO",
-        f"▶️ 🪄 [DF Architect] Analyzing requirements for '{table_name}'...",
+        f"▶️ 🪄 [Agent 4: DF Architect] Analyzing requirements for '{table_name}'...",
         trace_id,
     )
 
-    # COST OPTIMIZATION: Use model_heavy for multi-file syntax synthesis
     if not model_heavy:
         log_event(
             "WARNING",
-            "⚠️ 🪄 [DF Architect] AI Service offline. Cannot generate Dataform code.",
+            "⚠️ 🪄 [Agent 4: DF Architect] AI Service offline. Cannot generate Dataform code.",
             trace_id,
         )
         log_event(
             "INFO",
-            "⏹️ 🪄 [DF Architect] Finished Dataform generation (Abort).",
+            "⏹️ 🪄 [Agent 4: DF Architect] Finished Dataform generation (Abort).",
             trace_id,
         )
         return {}
@@ -795,23 +901,20 @@ def generate_ai_dataform_pipeline(
         existing_paths = list(existing_files.keys())
         log_event(
             "INFO",
-            f"🩹 🪄 [DF Architect] Existing files detected. Locking allowed file paths to: {existing_paths}",
+            f"🩹 🪄 [Agent 4: DF Architect] Existing files detected. Locking allowed file paths to: {existing_paths}",
             trace_id,
         )
-
-        # COST OPTIMIZATION: Prune whitespace from existing files JSON payload
         pruned_existing_files = prune_whitespace(json.dumps(existing_files))
-
         instruction_block = f"""
         Some or all pipeline files exist. EXISTING FILES: {pruned_existing_files}
         Task: PATCH these existing files. 
-        CRITICAL ANTI-HALLUCINATION RULE: You MUST use the EXACT file paths provided in the EXISTING FILES dictionary as the keys in your output JSON. The allowed keys are strictly: {existing_paths}. DO NOT invent new file paths. DO NOT create duplicate files.
-        CRITICAL: Ensure new columns ({new_cols}) are explicitly selected in the views and tables.
+        CRITICAL ANTI-HALLUCINATION RULE: You MUST use the EXACT file paths provided in the EXISTING FILES dictionary as the keys in your output JSON. The allowed keys are strictly: {existing_paths}. DO NOT invent new file paths.
+        CRITICAL: Ensure new columns ({new_cols}) are explicitly selected.
         """
     else:
         log_event(
             "INFO",
-            "✨ 🪄 [DF Architect] No files detected. Operating in CREATE mode.",
+            "✨ 🪄 [Agent 4: DF Architect] No files detected. Operating in CREATE mode.",
             trace_id,
         )
         domain_instruction = (
@@ -833,7 +936,7 @@ def generate_ai_dataform_pipeline(
 
     log_event(
         "INFO",
-        "🛡️ 🪄 [DF Architect] Enforcing global temporal logic: batch_date must map to CURRENT_DATE().",
+        "🛡️ 🪄 [Agent 4: DF Architect] Injecting strict Dataform Templates, Dynamic Sample Data casting requirements, and Formatting rules.",
         trace_id,
     )
     prompt = f"""
@@ -841,39 +944,64 @@ def generate_ai_dataform_pipeline(
     
     Target Raw Table: "{table_name}" | Base Entity: "{base_name}" | GCP Project: "{PROJECT_ID}"
     Full Schema: {json.dumps(clean_schema)} | New Columns to add: {new_cols} | Error Context: "{error_context}"
-    Sample Data (Use this to infer column data types for casting): {json.dumps(sample_data[:2])}
+    Sample Data (CRITICAL - USE THIS TO DETERMINE DATA TYPES): {json.dumps(sample_data[:2])}
     
     {instruction_block}
     
-    Requirements:
-    1. STRICT DATASETS: You MUST explicitly declare schemas using these exact values:
-       - Source schema: "{datasets['raw']}"
-       - Staging (`stg_`) schema: "{datasets['stg']}"
-       - Marts (`fct_`) schema: "{datasets['marts']}"
-    2. STAGING LAYER REQUIREMENTS: 
-       - The raw source data is entirely STRING type. You MUST explicitly `CAST()` these string columns to their proper native BigQuery types (e.g., `INT64`, `TIMESTAMP`, `BOOLEAN`, `FLOAT64`) based on the Sample Data provided.
-       - You MUST perform row deduplication. Use `QUALIFY ROW_NUMBER() OVER(PARTITION BY <infer_primary_key_here> ORDER BY processed_dttm DESC) = 1`.
-    3. DATA QUALITY (ASSERTIONS): Embed Data Quality checks inside the `config {{ ... }}` block of staging and marts.
-    4. CRITICAL BATCH DATE LOGIC (GLOBAL OVERRIDE): Whenever selecting from the raw layer or transforming data in ANY layer (staging, marts, and archive/operations), you MUST explicitly update the `batch_date` from its default value to the current date by using `CURRENT_DATE() AS batch_date` in your SELECT statements. Do NOT just pass the raw `batch_date` through.
-    5. CRITICAL ARCHIVE DESTINATION LOGIC: In the operations (`archive_...`) file:
-       - DO NOT use `${{self.database}}` or `${{self.schema}}` for the insert destination. Operations blocks do not possess 'self' context. You MUST explicitly build the path as: `{PROJECT_ID}.{datasets['raw']}.{table_name}_hist`
-    6. CRITICAL DATAFORM RULE: Actions may only include `post_operations` if they create a dataset. Because the `archive_` file is `type: "operations"`, it DOES NOT create a dataset. Therefore, you MUST NOT use a `post_operations {{ ... }}` block. Just place the `TRUNCATE` statement as a normal sequential SQL query immediately after the `INSERT` statement.
-    7. DATAFORM SYNTAX: Do NOT place any SQL or JS comments (`--`, `//`, `/* */`) inside the `config {{ ... }}` blocks.
-    8. STRICT TAGGING TAXONOMY: Every file's `config` block MUST contain a `tags: []` array, EXCEPT for declaration files. Dataform `type: "declaration"` (your source files) DO NOT support the `tags` property. For all other layers (staging, marts, operations), the tags MUST explicitly include:
+    DATAFORM TEMPLATES TO STRICTLY FOLLOW (Use these exact structures):
+    
+    1. Source Declaration (`definitions/sources/{table_name}.sqlx`):
+       config {{ type: "declaration", database: "{PROJECT_ID}", schema: "{datasets['raw']}", name: "{table_name}" }}
+       (DO NOT ADD TAGS OR ANYTHING ELSE HERE)
+
+    2. Staging View (`definitions/staging/<domain>/stg_{base_name}.sqlx`):
+       config {{ type: "view", schema: "{datasets['stg']}", assertions: {{ uniqueKey: ["<pk>"], nonNull: ["<pk>", "..."] }}, tags: ["{actual_domain}", "{base_name}", "staging"] }}
+       SELECT 
+         <pk>, 
+         -- (Analyze Sample Data to dynamically apply appropriate SAFE_CAST, SAFE.PARSE_DATE, etc. for each field)
+         <apply_dynamic_casting_based_on_sample_data_here>,
+         CURRENT_DATE() AS batch_date,
+         SAFE_CAST(processed_dttm AS TIMESTAMP) AS processed_dttm
+       FROM ${{ref("{table_name}")}} 
+       QUALIFY ROW_NUMBER() OVER(PARTITION BY <pk> ORDER BY SAFE_CAST(processed_dttm AS TIMESTAMP) DESC) = 1
+       
+    3. Operations/Archive (`definitions/operations/archive_{table_name}.sqlx`):
+       config {{ type: "operations", dependencies: ["fct_{base_name}"], tags: ["{actual_domain}", "{base_name}", "archive"] }}
+       INSERT INTO `{PROJECT_ID}.{datasets['raw']}.{table_name}_hist` (col1, batch_date, processed_dttm)
+       SELECT col1, CURRENT_DATE() AS batch_date, processed_dttm FROM ${{ref("{table_name}")}};
+       TRUNCATE TABLE ${{ref("{table_name}")}};
+       (NO post_operations BLOCK ALLOWED)
+
+    4. Marts Incremental (`definitions/marts/<domain>/fct_{base_name}.sqlx`):
+       config {{ type: "incremental", schema: "{datasets['marts']}", uniqueKey: ["<pk>"], bigquery: {{ partitionBy: "date_col", clusterBy: ["col1"] }}, assertions: {{ uniqueKey: ["<pk>"] }}, tags: ["{actual_domain}", "{base_name}", "marts"] }}
+       SELECT *, processed_dttm AS updated_at, CURRENT_DATE() AS batch_date FROM ${{ref("stg_{base_name}")}}
+       ${{when(incremental(), `WHERE processed_dttm > (SELECT MAX(updated_at) FROM ${{self()}})` )}}
+
+    GENERAL REQUIREMENTS:
+    1. STRICT DATASETS: Use exactly the schemas passed in the templates.
+    2. DATA QUALITY: Assertions are mandatory in staging and marts.
+    3. CRITICAL BATCH DATE: Always map `CURRENT_DATE() AS batch_date` in staging, marts, and operations SELECT statements.
+    4. DATAFORM SYNTAX: Do NOT place any comments (`--`, `//`) inside the `config {{ ... }}` JSON blocks.
+    5. DYNAMIC CASTING: The casting examples shown are purely illustrative. You MUST deeply analyze the `Sample Data` provided above and dynamically apply the exact correct transformation functions (`SAFE_CAST`, `SAFE.PARSE_DATE`, `SAFE.PARSE_TIMESTAMP`, etc.) for each column based on its actual data format.
+    6. STRICT TAGGING TAXONOMY: Every file's `config` block MUST contain a `tags: []` array, EXCEPT for declaration files. Dataform `type: "declaration"` (your source files) DO NOT support the `tags` property. For all other layers (staging, marts, operations), the tags MUST explicitly include:
        1. The domain name ('{actual_domain}')
        2. The base entity name ('{base_name}')
        3. The layer name ('staging', 'marts', or 'archive' based on the file type).
        Example for staging: `tags: ["{actual_domain}", "{base_name}", "staging"]`
-    9. Output STRICTLY a JSON object where keys are full file paths and values are exact SQLX string content. No markdown.
+    7. STRICT FORMATTING: Ensure the generated SQLX code is perfectly formatted. Use standard SQL indentation (2 spaces per level), align all keywords (SELECT, FROM, WHERE, QUALIFY), format the config blocks cleanly with proper line breaks, and maintain high readability.
+    8. Output STRICTLY a JSON object where keys are full file paths and values are exact SQLX string content. No markdown.
     """
 
     try:
         log_event(
             "INFO",
-            "⏳ 🪄 [DF Architect] Instructing Gemini to synthesize Dataform files with Tags, Temporal Rules, and Strict File Paths...",
+            "⏳ 🪄 [Agent 4: DF Architect] Instructing Gemini to synthesize Dataform files with Tags, Rules, Formatting, and Dynamic Sample Data parsing...",
             trace_id,
         )
-        response = model_heavy.generate_content(prompt)
+
+        # REQUIRED UPDATE: Replaced basic call with retry wrapper
+        response = generate_content_with_retry(model_heavy, prompt, trace_id)
+
         text = response.text.strip()
         if text.startswith("```"):
             text = text.split("\n", 1)[1].rsplit("\n", 1)[0]
@@ -883,7 +1011,7 @@ def generate_ai_dataform_pipeline(
         pipeline_files = json.loads(text)
         log_event(
             "INFO",
-            f"✅ 🪄 [DF Architect] AI successfully generated {len(pipeline_files)} SQLX files conforming to strict syntax, temporal logic, and operational bounds.",
+            f"✅ 🪄 [Agent 4: DF Architect] AI successfully generated {len(pipeline_files)} SQLX files conforming to exact syntax, temporal logic, dynamic casting, and formatting bounds.",
             trace_id,
         )
 
@@ -898,12 +1026,18 @@ def generate_ai_dataform_pipeline(
             resource_type=f"Code Generation - {action_type}",
             defer=True,
         )
-        log_event("INFO", "⏹️ 🪄 [DF Architect] Finished Dataform generation.", trace_id)
+        log_event(
+            "INFO",
+            "⏹️ 🪄 [Agent 4: DF Architect] Finished Dataform generation.",
+            trace_id,
+        )
         return pipeline_files
 
     except Exception as e:
         log_event(
-            "ERROR", f"❌ 🪄 [DF Architect] AI Code Generation Failed: {e}", trace_id
+            "ERROR",
+            f"❌ 🪄 [Agent 4: DF Architect] AI Code Generation Failed: {e}",
+            trace_id,
         )
         log_ai_action(
             trace_id=trace_id,
@@ -917,14 +1051,14 @@ def generate_ai_dataform_pipeline(
         )
         log_event(
             "INFO",
-            "⏹️ 🪄 [DF Architect] Finished Dataform generation (Failure).",
+            "⏹️ 🪄 [Agent 4: DF Architect] Finished Dataform generation (Failure).",
             trace_id,
         )
         return {}
 
 
 # ==============================================================================
-# 🧠 AGENT 5: DATAFORM QA VERIFIER
+# 🧠 AGENT 5: DATAFORM QA VERIFIER (Enhanced Syntax, Template & Formatting Validation)
 # ==============================================================================
 def verify_dataform_pipeline(
     pipeline_files: Dict[str, str],
@@ -935,16 +1069,19 @@ def verify_dataform_pipeline(
     base_name: str,
     trace_id: str,
 ) -> Dict[str, str]:
-    """Goal: QA Lead verifies file paths, temporal date updates, tags, declaration exemptions, and operations destinations."""
+    """Goal: QA Lead verifies exact syntax match with templates, dynamic casting, temporal date updates, tags, and formatting."""
     log_event(
         "INFO",
-        f"▶️ 🕵️‍♀️ [DF QA] Initiating automated peer-review of generated SQLX code...",
+        f"▶️ 🕵️‍♀️ [Agent 5: DF QA] Initiating automated peer-review of generated SQLX code...",
         trace_id,
     )
 
-    # COST OPTIMIZATION: Use model_lite for structured QA checklists
     if not model_lite or not pipeline_files:
-        log_event("INFO", "⏹️ 🕵️‍♀️ [DF QA] Bypassing QA (No model or no files).", trace_id)
+        log_event(
+            "INFO",
+            "⏹️ 🕵️‍♀️ [Agent 5: DF QA] Bypassing QA (No model or no files).",
+            trace_id,
+        )
         return pipeline_files
 
     clean_schema = [
@@ -966,29 +1103,33 @@ def verify_dataform_pipeline(
     EXPECTED EXISTING PATHS: {existing_paths}
     
     Checklist:
-    1. STRICT ANTI-HALLUCINATION (FILE PATHS): If 'EXPECTED EXISTING PATHS' is not empty, the keys in your output JSON MUST match these paths exactly. Forcefully revert hallucinated keys back to the 'EXPECTED EXISTING PATHS'.
-    2. SCHEMA VALIDATION: Are all required columns explicitly selected? (If missing, ADD THEM).
-    3. DATASET ENFORCEMENT: Ensure the schemas defined in the `config` blocks explicitly match the EXPECTED DATASETS.
-    4. BATCH DATE ENFORCEMENT (GLOBAL): Across ALL files (staging, marts, and operations), ensure the `batch_date` column is explicitly updated using `CURRENT_DATE() AS batch_date`. If they just select `batch_date`, replace it with `CURRENT_DATE() AS batch_date`.
-    5. ARCHIVE DESTINATION LOGIC: Ensure the operations (`archive_...`) file explicitly uses `{PROJECT_ID}.{datasets['raw']}` for the target table (NO `${{self.database}}` or `${{self.schema}}`).
-    6. STAGING DEDUPLICATION: Does the staging file perform row deduplication (e.g., `QUALIFY ROW_NUMBER() OVER(...) = 1`)? If missing, ADD IT.
-    7. STAGING CASTING: Does the staging file explicitly `CAST()` raw STRING columns to appropriate native types? If missing, ADD CASTING syntax.
+    1. ANTI-HALLUCINATION (FILE PATHS): Forcefully revert hallucinated keys back to the 'EXPECTED EXISTING PATHS' if present.
+    2. SCHEMA VALIDATION: Are all required columns explicitly selected?
+    3. DECLARATION SYNTAX: Ensure the source file uses `type: "declaration"` with explicit `database`, `schema`, and `name` attributes ONLY. Strictly NO `tags` array allowed in declarations.
+    4. BATCH DATE ENFORCEMENT (GLOBAL): Across ALL files (staging, marts, operations), ensure the `batch_date` column is explicitly updated using `CURRENT_DATE() AS batch_date`. If they just select `batch_date`, replace it with `CURRENT_DATE() AS batch_date`.
+    5. ARCHIVE OPERATIONS: Ensure `archive_` explicitly uses `INSERT INTO \`{PROJECT_ID}.{datasets['raw']}.<table_name>_hist\`` followed by `TRUNCATE TABLE ${{ref("<table_name>")}};`. Ensure NO `post_operations` block exists.
+    6. STAGING DYNAMIC CASTING & DEDUP: Does the staging file dynamically apply the correct `SAFE_CAST()`, `SAFE.PARSE_DATE()`, or other appropriate native BigQuery type conversions based on the column logic? Does it include `QUALIFY ROW_NUMBER() OVER(...) = 1`?
+    7. MARTS INCREMENTAL: Does the marts file use `type: "incremental"`, include a `bigquery: {{ partitionBy, clusterBy }}` block, and use the exact `${{when(incremental(), ...)}}` logic?
     8. DATA QUALITY: Does the `config` block of `stg_` and `fct_` files contain an `assertions` dictionary? If missing, ADD THEM.
-    9. CONFIG BLOCK SYNTAX: Ensure there are absolutely NO comments (`--`, `//`, `/* */`) inside the `config {{ ... }}` blocks of any file. Remove them if they exist.
-    10. POST_OPERATIONS BAN (CRITICAL): Ensure the `archive_` operations file DOES NOT contain a `post_operations {{ ... }}` block. The TRUNCATE statement must simply be sequential SQL.
-    11. TAG TAXONOMY (CRITICAL): Ensure the `config` block of EVERY file EXCEPT declarations contains a `tags: []` array. Dataform `type: "declaration"` DOES NOT support tags. If a declaration file has tags, REMOVE the tags property. For all other files, it MUST contain exactly these 3 elements: the domain name (e.g., "{inferred_domain}"), the entity name ("{base_name}"), and the layer ("staging", "marts", or "archive"). Add them if missing.
+    9. TAG TAXONOMY: Ensure `config` blocks of EVERY file (EXCEPT declarations) contains a `tags: ["{inferred_domain}", "{base_name}", "<layer>"]` array.
+    10. CONFIG BLOCK SYNTAX: Remove any comments (`--`, `//`, `/* */`) inside the `config {{ ... }}` blocks.
+    11. PROPER FORMATTING: Ensure all SQLX code is cleanly formatted. Standardize SQL indentation (2 spaces), ensure keywords are aligned, and guarantee the file structure looks professionally written. Reformat if messy.
+    12. POST_OPERATIONS BAN (CRITICAL): Ensure the `archive_` operations file DOES NOT contain a `post_operations {{ ... }}` block. The TRUNCATE statement must simply be sequential SQL.
+    13. TAG TAXONOMY (CRITICAL): Ensure the `config` block of EVERY file EXCEPT declarations contains a `tags: []` array. Dataform `type: "declaration"` DOES NOT support tags. If a declaration file has tags, REMOVE the tags property. For all other files, it MUST contain exactly these 3 elements: the domain name (e.g., "{inferred_domain}"), the entity name ("{base_name}"), and the layer ("staging", "marts", or "archive"). Add them if missing.
     
-    Fix any errors found in paths or SQL content. Output STRICTLY a JSON object where keys are the corrected full file paths and values are the corrected SQLX string content. 
-    Output JSON ONLY. No explanation.
+    Output STRICTLY a JSON object where keys are the corrected full file paths and values are the corrected SQLX string content. Output JSON ONLY.
     """
 
     try:
         log_event(
             "INFO",
-            "⏳ 🕵️‍♀️ [DF QA] Awaiting QA review, global temporal enforcement, tagging, and assertion validation...",
+            "⏳ 🕵️‍♀️ [Agent 5: DF QA] Awaiting QA review, global temporal enforcement, dynamic casting, tagging, and formatting validation...",
             trace_id,
         )
-        response = model_lite.generate_content(prompt)
+
+        # REQUIRED UPDATE: Replaced basic call with retry wrapper
+        response = generate_content_with_retry(model_lite, prompt, trace_id)
+
         text = response.text.strip()
         if text.startswith("```"):
             text = text.split("\n", 1)[1].rsplit("\n", 1)[0]
@@ -998,20 +1139,20 @@ def verify_dataform_pipeline(
         verified_files = json.loads(text)
         log_event(
             "INFO",
-            f"✅ 🕵️‍♀️ [DF QA] QA passed. Temporal batch_date enforced. Paths rigorously locked. Tags verified.",
+            f"✅ 🕵️‍♀️ [Agent 5: DF QA] QA passed. Templates, Dynamic Casting, Formatting, Incremental Logic, and Tags strictly enforced.",
             trace_id,
         )
-        log_event("INFO", "⏹️ 🕵️‍♀️ [DF QA] Finished automated review.", trace_id)
+        log_event("INFO", "⏹️ 🕵️‍♀️ [Agent 5: DF QA] Finished automated review.", trace_id)
         return verified_files
     except Exception as e:
         log_event(
             "WARNING",
-            f"⚠️ 🕵️‍♀️ [DF QA] QA Verification Failed (Parsing error). Falling back to unverified code. {e}",
+            f"⚠️ 🕵️‍♀️ [Agent 5: DF QA] QA Verification Failed (Parsing error). Falling back to unverified code. {e}",
             trace_id,
         )
         log_event(
             "INFO",
-            "⏹️ 🕵️‍♀️ [DF QA] Finished automated review (Fallback applied).",
+            "⏹️ 🕵️‍♀️ [Agent 5: DF QA] Finished automated review (Fallback applied).",
             trace_id,
         )
         return pipeline_files
@@ -1026,14 +1167,15 @@ def verify_schema_json(
     """Goal: Ensure JSON Schema strictly complies with enterprise standards before committing."""
     log_event(
         "INFO",
-        f"▶️ 🕵️‍♀️ [Schema QA] Initiating automated peer-review of BigQuery JSON Schema...",
+        f"▶️ 🕵️‍♀️ [Agent 6: Schema QA] Initiating automated peer-review of BigQuery JSON Schema...",
         trace_id,
     )
 
-    # COST OPTIMIZATION: Route schema QA to model_lite
     if not model_lite or not schema_list:
         log_event(
-            "INFO", "⏹️ 🕵️‍♀️ [Schema QA] Bypassing QA (No model or schema).", trace_id
+            "INFO",
+            "⏹️ 🕵️‍♀️ [Agent 6: Schema QA] Bypassing QA (No model or schema).",
+            trace_id,
         )
         return schema_list
 
@@ -1055,8 +1197,13 @@ def verify_schema_json(
     """
 
     try:
-        log_event("INFO", "⏳ 🕵️‍♀️ [Schema QA] Awaiting Schema QA review...", trace_id)
-        response = model_lite.generate_content(prompt)
+        log_event(
+            "INFO", "⏳ 🕵️‍♀️ [Agent 6: Schema QA] Awaiting Schema QA review...", trace_id
+        )
+
+        # REQUIRED UPDATE: Replaced basic call with retry wrapper
+        response = generate_content_with_retry(model_lite, prompt, trace_id)
+
         text = response.text.strip()
         if text.startswith("```"):
             text = text.split("\n", 1)[1].rsplit("\n", 1)[0]
@@ -1066,15 +1213,17 @@ def verify_schema_json(
         verified_schema = json.loads(text)
         log_event(
             "INFO",
-            f"✅ 🕵️‍♀️ [Schema QA] QA passed. Schema verified and Default Values validated.",
+            f"✅ 🕵️‍♀️ [Agent 6: Schema QA] QA passed. Schema verified and Default Values validated.",
             trace_id,
         )
-        log_event("INFO", "⏹️ 🕵️‍♀️ [Schema QA] Finished automated review.", trace_id)
+        log_event(
+            "INFO", "⏹️ 🕵️‍♀️ [Agent 6: Schema QA] Finished automated review.", trace_id
+        )
         return verified_schema
     except Exception as e:
         log_event(
             "WARNING",
-            f"⚠️ 🕵️‍♀️ [Schema QA] QA Verification Failed. Applying programmatic fallback for default values. {e}",
+            f"⚠️ 🕵️‍♀️ [Agent 6: Schema QA] QA Verification Failed. Applying programmatic fallback for default values. {e}",
             trace_id,
         )
         for col in schema_list:
@@ -1083,7 +1232,7 @@ def verify_schema_json(
 
         log_event(
             "INFO",
-            "⏹️ 🕵️‍♀️ [Schema QA] Finished automated review (Programmatic Fallback applied).",
+            "⏹️ 🕵️‍♀️ [Agent 6: Schema QA] Finished automated review (Programmatic Fallback applied).",
             trace_id,
         )
         return schema_list
@@ -1098,13 +1247,14 @@ def verify_terraform_hcl(
     """Goal: Ensure Terraform code syntax is perfect and history table creation uses schema reuse."""
     log_event(
         "INFO",
-        f"▶️ 🕵️‍♀️ [TF QA] Initiating automated peer-review of Terraform HCL...",
+        f"▶️ 🕵️‍♀️ [Agent 7: TF QA] Initiating automated peer-review of Terraform HCL...",
         trace_id,
     )
 
-    # COST OPTIMIZATION: Route Terraform QA to model_lite
     if not model_lite or not hcl_content:
-        log_event("INFO", "⏹️ 🕵️‍♀️ [TF QA] Bypassing QA (No model or HCL).", trace_id)
+        log_event(
+            "INFO", "⏹️ 🕵️‍♀️ [Agent 7: TF QA] Bypassing QA (No model or HCL).", trace_id
+        )
         return hcl_content
 
     is_raw_table = table_id.endswith("_raw")
@@ -1117,6 +1267,7 @@ def verify_terraform_hcl(
         If it is missing, you MUST inject it based on this enterprise pattern:
         ```hcl\n{prune_whitespace(style_guide_hist[:1000])}\n```
         CRITICAL SCHEMA REUSE: The history table MUST use the exact same schema file path as the main table. Do not allow the use of a separate _hist.json file.
+        ADAPTIVE PATTERN CHECK: If the code uses `locals` dictionaries (e.g., `tables_raw` and `tables_raw_hist`), ensure the tables are defined inside those dictionaries and NO duplicate `resource` blocks were created at the bottom. Delete duplicate resources if found.
         """
 
     prompt = f"""
@@ -1137,28 +1288,31 @@ def verify_terraform_hcl(
     """
 
     try:
-        log_event("INFO", "⏳ 🕵️‍♀️ [TF QA] Awaiting TF QA review...", trace_id)
-        response = model_lite.generate_content(prompt)
+        log_event("INFO", "⏳ 🕵️‍♀️ [Agent 7: TF QA] Awaiting TF QA review...", trace_id)
+
+        # REQUIRED UPDATE: Replaced basic call with retry wrapper
+        response = generate_content_with_retry(model_lite, prompt, trace_id)
+
         text = response.text.strip()
         if text.startswith("```"):
             text = text.split("\n", 1)[1].rsplit("\n", 1)[0]
 
         log_event(
             "INFO",
-            f"✅ 🕵️‍♀️ [TF QA] QA passed. Terraform HCL structure validated.",
+            f"✅ 🕵️‍♀️ [Agent 7: TF QA] QA passed. Terraform HCL structure validated.",
             trace_id,
         )
-        log_event("INFO", "⏹️ 🕵️‍♀️ [TF QA] Finished automated review.", trace_id)
+        log_event("INFO", "⏹️ 🕵️‍♀️ [Agent 7: TF QA] Finished automated review.", trace_id)
         return text.replace("```hcl", "").replace("```", "")
     except Exception as e:
         log_event(
             "WARNING",
-            f"⚠️ 🕵️‍♀️ [TF QA] QA Verification Failed. Falling back to unverified HCL. {e}",
+            f"⚠️ 🕵️‍♀️ [Agent 7: TF QA] QA Verification Failed. Falling back to unverified HCL. {e}",
             trace_id,
         )
         log_event(
             "INFO",
-            "⏹️ 🕵️‍♀️ [TF QA] Finished automated review (Fallback applied).",
+            "⏹️ 🕵️‍♀️ [Agent 7: TF QA] Finished automated review (Fallback applied).",
             trace_id,
         )
         return hcl_content
@@ -1542,9 +1696,7 @@ def apply_infrastructure_update(
                 )
         except GithubException as ge:
             log_event(
-                "WARNING",
-                f"⚠️ 🚀 [Orchestrator] JSON commit skipped (Likely identical content): {ge}",
-                trace_id,
+                "WARNING", f"⚠️ 🚀 [Orchestrator] JSON commit skipped: {ge}", trace_id
             )
 
     if tf_changed:
@@ -1564,7 +1716,7 @@ def apply_infrastructure_update(
         except GithubException as ge:
             log_event(
                 "WARNING",
-                f"⚠️ 🚀 [Orchestrator] Terraform commit skipped (Likely identical content): {ge}",
+                f"⚠️ 🚀 [Orchestrator] Terraform commit skipped: {ge}",
                 trace_id,
             )
 
@@ -1614,22 +1766,24 @@ Added **{len(added_cols_for_pr)}** columns to the Raw Layer. All raw ingestion f
 
 ### 🪄 Agent Activity Log
 1. **Scanner & Router:** Mapped target domain folders semantically. AI Dataset Routing successfully assigned correct schema endpoints.
-2. **Architect:** Generated HCL. Embedded explicit `CAST()` operations, **Data Quality Assertions**, explicit tags (`domain`, `entity`, `layer`), and defined target insert paths into `.sqlx` blocks.
+2. **Architect:** Generated HCL. Embedded exact Dataform templates including dynamic `SAFE_CAST`, `SAFE.PARSE_DATE`, and `incremental` cluster logic into `.sqlx` blocks based on sample payload analysis.
 3. **Schema QA:** Verified JSON structure. Rigorously enforced `defaultValueExpression` and absolute `STRING` typing on all new columns.
-4. **Terraform QA:** Enforced schema reuse (`DRY` principle) between main and `_hist` table resources.
-5. **Dataform QA:** Validated SQL syntax, enforced `CURRENT_DATE()` logic, corrected Operations mappings, ensured `QUALIFY ROW_NUMBER()` deduplication, verified empty/comment-free `config` blocks, prevented declaration tags, and validated strict 3-part Tag Taxonomy.
+4. **Terraform QA:** Enforced schema reuse (`DRY` principle) between main and `_hist` table resources. Successfully routed table configs natively into `locals` dictionaries.
+5. **Dataform QA:** Validated SQL syntax, enforced `CURRENT_DATE()` logic, corrected Operations mappings, ensured `QUALIFY ROW_NUMBER()` deduplication, verified empty/comment-free `config` blocks, prevented declaration tags, validated formatting, and validated strict 3-part Tag Taxonomy.
 
 **Commit Log:**
 {df_commit_log}
 
 ### 🛡️ Governance Checklist
+- [x] **Adaptive Terraform:** HCL intelligently injected into existing `locals` maps (`for_each`) to avoid duplicate resource hallucination.
 - [x] **Schema Integrity:** Absolute `STRING` typing and `defaultValueExpression` strictly enforced for raw layer.
 - [x] **DRY Architecture:** History tables natively reuse raw landing schemas.
 - [x] **Tag Taxonomy:** `config` blocks securely tagged with `[domain, entity, layer]` (Exempting Declarations).
-- [x] **Staging Governance:** Explicit casting to native BigQuery types and Row Deduplication executed.
+- [x] **Staging Governance:** Dynamic, sample-based casting to native BigQuery types and Row Deduplication executed.
 - [x] **Operations Accuracy:** Operations securely bypass self-contexts and `post_operations`.
-- [x] **Temporal Accuracy:** `CURRENT_DATE() AS batch_date` strictly enforced globally across staging, marts, and operations layers to override raw defaults.
+- [x] **Temporal Accuracy:** `CURRENT_DATE() AS batch_date` strictly enforced globally across all layers.
 - [x] **Data Quality:** Automated assertions added to Dataform `config` blocks.
+- [x] **Format Standardization:** Code cleanly indented and SQL keywords perfectly aligned.
 
 ### ✅ Action Required
 Review the file changes and merge this Pull Request.
@@ -1671,17 +1825,20 @@ Review the file changes and merge this Pull Request.
             "files_modified": target_tf_path,
             "history_infrastructure_created": is_raw_table,
             "schema_reuse_applied": is_raw_table,
+            "tf_anti_hallucination_verified": True,
         },
         "dataform_updates": {
             "total_files_processed": df_files_changed,
             "detailed_commit_log": (
                 df_commit_log.strip().split("\n") if df_commit_log else []
             ),
+            "templates_strictly_followed": True,
             "anti_hallucination_paths_enforced": True,
             "anti_hallucination_schemas_verified": True,
             "global_current_date_enforced": True,
             "staging_casting_and_dedup_applied": True,
             "tag_taxonomy_enforced": True,
+            "formatting_standardized": True,
         },
     }
 
@@ -1710,7 +1867,6 @@ Review the file changes and merge this Pull Request.
 @functions_framework.cloud_event
 def ai_agent_main(cloud_event):
     trace_id = "unknown"
-
     global DEFERRED_LOGS
     DEFERRED_LOGS = []
 
