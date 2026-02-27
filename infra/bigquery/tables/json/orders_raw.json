@@ -3,31 +3,48 @@
     "name": "order_id",
     "type": "STRING",
     "mode": "NULLABLE",
-    "description": "Unique ID for this specific order"
+    "description": "Unique ID for this specific order",
+    "defaultValueExpression": "NULL"
   },
   {
     "name": "customer_name",
     "type": "STRING",
     "mode": "NULLABLE",
-    "description": "Name of the customer"
+    "description": "Name of the customer",
+    "defaultValueExpression": "NULL"
   },
   {
     "name": "amount",
     "type": "STRING",
     "mode": "NULLABLE",
-    "description": "order amount"
+    "description": "order amount",
+    "defaultValueExpression": "NULL"
   },
   {
     "name": "status",
     "type": "STRING",
     "mode": "NULLABLE",
-    "description": "Status of the order"
+    "description": "Status of the order",
+    "defaultValueExpression": "NULL"
   },
   {
     "name": "order_date",
     "type": "STRING",
     "mode": "NULLABLE",
-    "description": "When the order made"
+    "description": "When the order made",
+    "defaultValueExpression": "NULL"
+  },
+  {
+    "name": "email",
+    "type": "STRING",
+    "mode": "NULLABLE",
+    "defaultValueExpression": "NULL"
+  },
+  {
+    "name": "product_id",
+    "type": "STRING",
+    "mode": "NULLABLE",
+    "defaultValueExpression": "NULL"
   },
   {
     "name": "batch_date",
@@ -47,6 +64,7 @@
     "name": "warehouse_id",
     "type": "STRING",
     "mode": "NULLABLE",
-    "description": "Unique identifier for the warehouse associated with the order."
+    "description": "Unique identifier for the warehouse associated with the order.",
+    "defaultValueExpression": "NULL"
   }
 ]
