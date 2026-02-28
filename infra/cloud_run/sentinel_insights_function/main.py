@@ -6,14 +6,12 @@ import datetime
 import logging
 import time
 import random
-import base64
 from typing import Dict, Any, Optional, Tuple, List
 
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Request
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from google.cloud import bigquery
-from google.cloud import storage
 
 import vertexai
 from vertexai.generative_models import GenerativeModel
@@ -37,24 +35,16 @@ AI_MODEL_HEAVY_NAME = os.environ.get("AI_MODEL_HEAVY", "gemini-2.5-pro")
 AI_MODEL_LITE_NAME = os.environ.get("AI_MODEL_LITE", "gemini-2.5-flash")
 
 COST_PER_TB = 6.25
-
-# Add the emails of users allowed to upload files to GCP Storage directly
-ALLOWED_ADMIN_USERS = [
-    "business.user@sentinel.ai",
-    "admin@sentinel.ai",
-    "vijay@sentinel.ai",
-]
+DEFAULT_DATASET = "sentinel_marts"
 
 bq_client: Optional[bigquery.Client] = None
-storage_client: Optional[storage.Client] = None
 
 try:
     if PROJECT_ID:
         bq_client = bigquery.Client(project=PROJECT_ID)
-        storage_client = storage.Client(project=PROJECT_ID)
         vertexai.init(project=PROJECT_ID, location=REGION)
         logger.info(
-            f"✅ [Init] Vertex AI & GCP Clients Online. Default Engine: {AI_MODEL_HEAVY_NAME}"
+            f"✅ [Init] Vertex AI & BigQuery Clients Online. Default Engine: {AI_MODEL_HEAVY_NAME}"
         )
 except Exception as e:
     logger.error(f"❌ [Init Fail] Failed to initialize GCP/Vertex clients: {e}")
@@ -128,6 +118,29 @@ def log_to_audit_table(
 
 
 # ==============================================================================
+# 🔍 ZERO-HALLUCINATION SCHEMA LOOKUP
+# ==============================================================================
+async def fetch_real_schema(dataset: str = DEFAULT_DATASET) -> str:
+    """Queries BigQuery INFORMATION_SCHEMA so AI doesn't hallucinate tables/columns."""
+    try:
+        query = f"SELECT table_name, column_name FROM `{PROJECT_ID}.{dataset}.INFORMATION_SCHEMA.COLUMNS`"
+        job = await asyncio.to_thread(bq_client.query, query)
+        results = await asyncio.to_thread(job.result)
+
+        schema_map = {}
+        for row in results:
+            if row.table_name not in schema_map:
+                schema_map[row.table_name] = []
+            if len(schema_map[row.table_name]) < 20:
+                schema_map[row.table_name].append(row.column_name)
+
+        return json.dumps(schema_map)
+    except Exception as e:
+        logger.warning(f"Schema Fetch Failed (Fallback to standard logic): {e}")
+        return "{}"
+
+
+# ==============================================================================
 # 🧠 INTENT ROUTER & EXECUTION
 # ==============================================================================
 async def agent_classify_intent(
@@ -143,8 +156,8 @@ async def agent_classify_intent(
     Analyze the user's intent: "{intent}"
     Classify into exactly one of these categories:
     - GREETING: If they say hi, hello, help, or ask what you can do.
-    - GET_SQL: If they explicitly ask for the SQL code, a .sql file, to build a table, or give them the query.
-    - EXPLORE: If they are asking for data, insights, or just running a query to see results/charts.
+    - GET_SQL: ONLY if they EXPLICITLY demand "Give me the SQL", "Show me the query code", or "SQL file".
+    - EXPLORE: If they are asking for data, insights, charts, or asking business questions (e.g., "Show me completed orders"). This is the default.
     Output ONLY the exact category word.
     """
     category = await asyncio.to_thread(
@@ -215,7 +228,7 @@ async def agent_draft_sql(
     await stream_log(
         ws,
         "INFO",
-        f"▶️ 🧠 [SQL Architect] Initiating translation using {active_model._model_name}...",
+        f"▶️ 🧠 [SQL Architect] Initiating semantic translation using {active_model._model_name}...",
         trace_id,
     )
     history_context = "\n".join(
@@ -229,16 +242,19 @@ async def agent_draft_sql(
     
     Current Business Intent: "{intent}"
     
-    Task: Write a highly optimized, complex BigQuery Standard SQL SELECT statement to fulfill this intent.
+    Task: Write a highly optimized BigQuery Standard SQL SELECT statement.
     
-    CRITICAL REQUIREMENTS:
-    1. TARGET DATASET: Assume standard schema naming conventions (e.g., `sentinel_marts.orders`, `sentinel_marts.products`). 
-    2. PRIORITIZATION: If the user explicitly mentions a table or column, YOU MUST USE IT exactly as typed.
-    3. MINIMALISM: Query ONLY the necessary columns required to answer the specific intent.
-    4. STRICT TYPING: Ensure calculated metrics are cast cleanly using SAFE_CAST.
-    5. SMART SEMANTIC FILTERING: If the user asks for textual statuses like "completed orders", "shipped", or "active", account for database variations! Use `REGEXP_CONTAINS(LOWER(status_column), r'complete|done|success')` or `LOWER(status_column) IN ('complete', 'completed', 'done')` to ensure you catch the correct rows regardless of exact DB string variations.
+    CRITICAL INTELLIGENCE & ROUTING RULES:
+    1. DEFAULT DATASET: You MUST pull tables from the `{DEFAULT_DATASET}` dataset (e.g., `{DEFAULT_DATASET}.orders`).
+    2. EXPLICIT OVERRIDES: IF the user writes `dataset:custom_name` or `table:custom_name`, you MUST override the default and strictly query the requested dataset/table.
+    3. SEMANTIC STATUS HEALING: Users speak in natural language. If they ask for "completed orders", "failed transactions", or "active users", DO NOT assume the database contains exactly that word. Use `REGEXP_CONTAINS(LOWER(status_column), r'complete|done|success')` or `LOWER(status_column) IN ('complete', 'completed', 'done', 'shipped')` to catch all semantic variations.
     
-    Output ONLY the raw SQL code. No markdown formatting.
+    CRITICAL CHART-READY FORMATTING:
+    To ensure seamless UI chart generation, you MUST structure your SELECT statement as follows whenever aggregating data:
+    - Column 1 MUST be the Primary Categorical Dimension (e.g., explicit STRING like `SAFE_CAST(region AS STRING) AS region_name`).
+    - Column 2 MUST be the Primary Numerical Metric (e.g., explicitly cast as FLOAT64/INT64 like `SAFE_CAST(SUM(amount) AS FLOAT64) AS total_sales`).
+    
+    Output ONLY the raw SQL code. No markdown formatting. No conversational text.
     """
     sql = await asyncio.to_thread(
         generate_content_with_retry, active_model, prompt, trace_id
@@ -247,7 +263,7 @@ async def agent_draft_sql(
     await stream_log(
         ws,
         "INFO",
-        "⏹️ 🧠 [SQL Architect] Successfully drafted intelligent SQL logic.",
+        "⏹️ 🧠 [SQL Architect] Successfully drafted chart-optimized SQL logic.",
         trace_id,
     )
     return sql
@@ -309,28 +325,35 @@ async def agent_suggest_schema(
     await stream_log(
         ws,
         "INFO",
-        f"▶️ 🔎 [Schema Advisor] Analyzing failure for fuzzy matching via {active_model._model_name}...",
+        f"▶️ 🔎 [Schema Advisor] Scanning INFORMATION_SCHEMA for true mapping...",
         trace_id,
     )
+
+    real_schema_json = await fetch_real_schema(DEFAULT_DATASET)
+
     prompt = f"""
     A user's query failed because a table or column does not exist.
     Intent: "{intent}"
     Failed SQL: {bad_sql}
     Error Message: {error_msg}
     
-    Analyze the error. Deduce what the user ACTUALLY meant based on standard enterprise naming conventions.
+    CRITICAL: Here is the ACTUAL database schema for the default dataset:
+    {real_schema_json}
+    
+    Task: Look at the actual schema provided above. Match what the user asked for with the REAL tables/columns that exist.
     
     Output strictly a JSON object with this structure:
     {{
-        "message": "It looks like the table/column was not found. Did you mean one of these?",
+        "message": "It looks like the table/column was not found. Based on the database, did you mean one of these?",
         "suggestions": ["suggestion_1", "suggestion_2", "suggestion_3"]
     }}
     """
     response = await asyncio.to_thread(
         generate_content_with_retry, active_model, prompt, trace_id
     )
+    response_clean = prune_markdown(response, "json")
     try:
-        return json.loads(prune_markdown(response, "json"))
+        return json.loads(response_clean)
     except:
         return {
             "message": "Schema error detected. Please verify your table or column names.",
@@ -349,7 +372,7 @@ async def agent_heal_sql(
     await stream_log(
         ws,
         "INFO",
-        f"▶️ 🚑 [SQL Healer] Attempting autonomous SQL repair via {active_model._model_name}...",
+        f"▶️ 🚑 [SQL Healer] Attempting autonomous SQL syntax repair via {active_model._model_name}...",
         trace_id,
     )
     prompt = f"""
@@ -357,7 +380,7 @@ async def agent_heal_sql(
     Business Intent: "{intent}"
     Failed SQL: {bad_sql}
     BigQuery Error: {error_msg}
-    Task: Fix the SQL query so it successfully executes. Output ONLY the raw SQL code. No markdown.
+    Task: Fix the SQL query so it successfully executes. Ensure it remains chart-optimized (Categorical First, Metric Second). Output ONLY the raw SQL code. No markdown.
     """
     healed_sql = await asyncio.to_thread(
         generate_content_with_retry, active_model, prompt, trace_id
@@ -380,30 +403,32 @@ async def websocket_endpoint(websocket: WebSocket):
     trace_id = uuid.uuid4().hex[:8]
 
     headers = dict(websocket.headers)
-    user_email = headers.get(
+    raw_email = headers.get(
         "x-goog-authenticated-user-email", "business.user@sentinel.ai"
-    ).replace("accounts.google.com:", "")
+    )
+    user_email = raw_email.split(":")[-1] if ":" in raw_email else raw_email
 
-    user_name_parts = user_email.split("@")[0].split(".")
-    user_name = " ".join([p.capitalize() for p in user_name_parts])
-    is_admin = user_email in ALLOWED_ADMIN_USERS
+    clean_name = user_email.split("@")[0].replace(".", " ").replace("_", " ")
+    user_name = (
+        " ".join([word.capitalize() for word in clean_name.split()])
+        if clean_name
+        else "User"
+    )
 
     await websocket.send_json(
         {
             "status": "init_info",
             "project_id": PROJECT_ID or "sentinel-local-dev",
-            "dataset": "sentinel_marts",
-            "is_admin": is_admin,
+            "dataset": DEFAULT_DATASET,
         }
     )
 
     greeting_msg = (
         f"Hello **{user_name}**! 👋 I am your autonomous Sentinel-Insight AI Analyst.\n\n"
         "**My God Level Capabilities:**\n"
-        "✨ **Smart Insights & Charting:** Ask me for business metrics (e.g. 'Show me completed orders'). I will handle database status variations automatically, write the SQL, and generate interactive Bar, Line, or Pie charts.\n"
-        "🎯 **Schema Auto-Healing:** If you misspell a table, I will scan the warehouse and suggest the closest semantic matches to auto-correct the query.\n"
-        "🗃️ **Cloud Storage Command:** Open the 'GCS Explorer' in the sidebar to view buckets. You can move files between buckets, or securely Upload local files directly to GCP.\n"
-        "📄 **SQL Generation:** Request the raw `.sql` file at any time for direct execution in BigQuery.\n\n"
+        "✨ **Smart Insights & Seamless Charting:** Ask me for business metrics (e.g. 'Show me completed orders by region'). I understand database variations natively, write optimized SQL, and provide instant buttons to generate beautiful Bar, Line, or Pie charts.\n"
+        "🎯 **True Schema Routing:** If you misspell a table, I query the real `INFORMATION_SCHEMA` to suggest precise corrections.\n"
+        "📄 **SQL Generation:** Just ask 'give me the sql' at any time to extract the raw BigQuery code for your own pipelines.\n\n"
         "How can I assist your data journey today?"
     )
     await websocket.send_json({"status": "greeting", "message": greeting_msg})
@@ -422,114 +447,6 @@ async def websocket_endpoint(websocket: WebSocket):
             chat_history = payload.get("history", [])
             target_sql = payload.get("sql", None)
 
-            # 🌟 GCS EXPLORER & OPERATIONS
-            if action_type == "LIST_BUCKETS":
-                try:
-                    buckets = [b.name for b in storage_client.list_buckets()]
-                    await websocket.send_json(
-                        {"status": "gcs_buckets", "buckets": buckets}
-                    )
-                except Exception as e:
-                    await websocket.send_json(
-                        {
-                            "status": "error",
-                            "message": f"Failed to list buckets: {str(e)}",
-                        }
-                    )
-                continue
-
-            elif action_type == "LIST_OBJECTS":
-                try:
-                    b_name = payload.get("bucket")
-                    objects = [o.name for o in storage_client.list_blobs(b_name)]
-                    await websocket.send_json(
-                        {"status": "gcs_objects", "bucket": b_name, "objects": objects}
-                    )
-                except Exception as e:
-                    await websocket.send_json(
-                        {
-                            "status": "error",
-                            "message": f"Failed to list objects: {str(e)}",
-                        }
-                    )
-                continue
-
-            elif action_type == "MOVE_OBJECT":
-                src_b = payload.get("src_bucket")
-                src_o = payload.get("src_object")
-                dst_b = payload.get("dest_bucket")
-                dst_o = payload.get("dest_object")
-                try:
-                    source_bucket = storage_client.bucket(src_b)
-                    source_blob = source_bucket.blob(src_o)
-                    destination_bucket = storage_client.bucket(dst_b)
-
-                    source_bucket.copy_blob(source_blob, destination_bucket, dst_o)
-                    source_blob.delete()
-
-                    await websocket.send_json(
-                        {
-                            "status": "gcs_move_success",
-                            "message": f"✅ Successfully moved object to `gs://{dst_b}/{dst_o}`.",
-                        }
-                    )
-                    log_to_audit_table(
-                        trace_id,
-                        "MOVE_OBJECT",
-                        "SUCCESS",
-                        {"action": f"Moved {src_b}/{src_o} to {dst_b}/{dst_o}"},
-                        user_email,
-                    )
-                except Exception as e:
-                    await websocket.send_json(
-                        {
-                            "status": "error",
-                            "message": f"Failed to move object: {str(e)}",
-                        }
-                    )
-                continue
-
-            elif action_type == "UPLOAD_OBJECT":
-                if not is_admin:
-                    await websocket.send_json(
-                        {
-                            "status": "error",
-                            "message": "Unauthorized: You do not have upload privileges.",
-                        }
-                    )
-                    continue
-                try:
-                    target_b = payload.get("bucket")
-                    target_f = payload.get("filename")
-                    b64_data = payload.get("filedata")
-                    if "," in b64_data:
-                        b64_data = b64_data.split(",")[1]
-                    file_bytes = base64.b64decode(b64_data)
-
-                    bucket = storage_client.bucket(target_b)
-                    blob = bucket.blob(target_f)
-                    blob.upload_from_string(file_bytes)
-
-                    await websocket.send_json(
-                        {
-                            "status": "gcs_upload_success",
-                            "message": f"✅ Successfully uploaded `{target_f}` to `gs://{target_b}`.",
-                        }
-                    )
-                    log_to_audit_table(
-                        trace_id,
-                        "UPLOAD_OBJECT",
-                        "SUCCESS",
-                        {"action": f"Uploaded {target_f} to {target_b}"},
-                        user_email,
-                    )
-                except Exception as e:
-                    await websocket.send_json(
-                        {"status": "error", "message": f"Upload failed: {str(e)}"}
-                    )
-                continue
-
-            # 🌟 CORE AI INTELLIGENCE LOOP
             if not action_type or action_type not in [
                 "CONFIRM_EXPLORE",
                 "CONFIRM_GET_SQL",
@@ -546,6 +463,9 @@ async def websocket_endpoint(websocket: WebSocket):
                 )
 
             try:
+                # ---------------------------------------------------------
+                # EXPLICIT CONFIRMATION LOGIC
+                # ---------------------------------------------------------
                 if action_type == "CONFIRM_EXPLORE" and target_sql:
                     results_dict = await execute_and_format_results(
                         target_sql, trace_id, websocket
@@ -553,7 +473,7 @@ async def websocket_endpoint(websocket: WebSocket):
                     await websocket.send_json(
                         {
                             "status": "explore_result",
-                            "message": "✅ Heavy query execution confirmed. Here are your insights:",
+                            "message": "✅ Heavy query execution confirmed. Select visualization below:",
                             "html": results_dict["html"],
                             "raw_data": results_dict["raw_data"],
                             "sql": target_sql,
@@ -586,9 +506,18 @@ async def websocket_endpoint(websocket: WebSocket):
                     )
                     continue
 
+                # ---------------------------------------------------------
+                # STANDARD INTELLIGENCE LOOP
+                # ---------------------------------------------------------
                 intent_type = await agent_classify_intent(
                     intent, trace_id, websocket, active_model_lite
                 )
+
+                if intent_type == "GREETING":
+                    await websocket.send_json(
+                        {"status": "greeting", "message": greeting_msg}
+                    )
+                    continue
 
                 sql = await agent_draft_sql(
                     intent, chat_history, trace_id, websocket, active_model
@@ -663,7 +592,7 @@ async def websocket_endpoint(websocket: WebSocket):
                     await websocket.send_json(
                         {
                             "status": "explore_result",
-                            "message": f"✅ Query executed safely using **{chosen_model_name}**. Select visualization below:",
+                            "message": f"✅ Insights successfully generated via **{chosen_model_name}**. Select visualization below:",
                             "html": results_dict["html"],
                             "raw_data": results_dict["raw_data"],
                             "sql": sql,
