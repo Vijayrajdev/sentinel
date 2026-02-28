@@ -3,9 +3,9 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Sentinel Insight | AI Data Analyst</title>
-    <script src="[https://cdn.tailwindcss.com](https://cdn.tailwindcss.com)"></script>
-    <script src="[https://cdn.jsdelivr.net/npm/chart.js](https://cdn.jsdelivr.net/npm/chart.js)"></script>
+    <title>Sentinel Insight | God Level AI</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <script>
       tailwind.config = {
         darkMode: "class",
@@ -14,164 +14,341 @@
             colors: {
               emerald: { 400: "#34d399", 500: "#10b981", 600: "#059669" },
             },
+            fontFamily: {
+              sans: ["Inter", "system-ui", "sans-serif"],
+              mono: ["Fira Code", "monospace"],
+            },
           },
         },
       };
     </script>
     <style>
-      /* Light/Dark Animated Backgrounds */
+      /* APPLE LIQUID GLASS & FLUID MESH ANIMATIONS */
       body {
-        transition: background 0.5s ease;
-        font-family:
-          -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica,
-          Arial, sans-serif;
+        font-family: "Inter", sans-serif;
         overflow: hidden;
+        color: #1e293b;
+        transition: color 0.5s ease;
       }
       body.dark {
-        background: linear-gradient(-45deg, #0f172a, #1e1b4b, #064e3b, #020617);
-        background-size: 400% 400%;
-        animation: gradientBG 15s ease infinite;
         color: #f8fafc;
       }
-      body.light {
-        background: linear-gradient(-45deg, #f8fafc, #e2e8f0, #d1fae5, #cbd5e1);
-        background-size: 400% 400%;
-        animation: gradientBG 15s ease infinite;
-        color: #0f172a;
+
+      .fluid-bg {
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100vw;
+        height: 100vh;
+        z-index: -1;
+        background: linear-gradient(
+          120deg,
+          #e0f2fe 0%,
+          #f0fdf4 50%,
+          #fdf4ff 100%
+        );
+        transition: background 0.8s ease;
       }
-      @keyframes gradientBG {
+      .dark .fluid-bg {
+        background: linear-gradient(
+          120deg,
+          #020617 0%,
+          #0f172a 50%,
+          #064e3b 100%
+        );
+      }
+
+      .orb {
+        position: absolute;
+        border-radius: 50%;
+        filter: blur(80px);
+        opacity: 0.6;
+        animation: floatOrb 20s infinite alternate ease-in-out;
+      }
+      .orb-1 {
+        width: 40vw;
+        height: 40vw;
+        background: #38bdf8;
+        top: -10%;
+        left: -10%;
+        animation-delay: 0s;
+      }
+      .orb-2 {
+        width: 50vw;
+        height: 50vw;
+        background: #34d399;
+        bottom: -20%;
+        right: -10%;
+        animation-delay: -5s;
+      }
+      .orb-3 {
+        width: 30vw;
+        height: 30vw;
+        background: #a78bfa;
+        top: 40%;
+        left: 40%;
+        animation-delay: -10s;
+      }
+
+      .dark .orb-1 {
+        background: #0ea5e9;
+        opacity: 0.3;
+      }
+      .dark .orb-2 {
+        background: #10b981;
+        opacity: 0.2;
+      }
+      .dark .orb-3 {
+        background: #6366f1;
+        opacity: 0.2;
+      }
+
+      @keyframes floatOrb {
         0% {
-          background-position: 0% 50%;
+          transform: translate(0, 0) scale(1);
         }
         50% {
-          background-position: 100% 50%;
+          transform: translate(5%, 10%) scale(1.1);
         }
         100% {
-          background-position: 0% 50%;
+          transform: translate(-5%, -5%) scale(0.9);
         }
       }
-      /* Adaptive Glassmorphism Classes */
-      .glass-panel {
-        background: rgba(255, 255, 255, 0.5);
-        backdrop-filter: blur(16px);
-        -webkit-backdrop-filter: blur(16px);
+
+      .apple-glass {
+        background: rgba(255, 255, 255, 0.4);
+        backdrop-filter: blur(40px) saturate(200%);
+        -webkit-backdrop-filter: blur(40px) saturate(200%);
         border: 1px solid rgba(255, 255, 255, 0.6);
-        box-shadow: 0 4px 30px rgba(0, 0, 0, 0.1);
+        box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.1);
       }
-      .dark .glass-panel {
-        background: rgba(255, 255, 255, 0.03);
+      .dark .apple-glass {
+        background: rgba(15, 23, 42, 0.4);
         border: 1px solid rgba(255, 255, 255, 0.1);
-        box-shadow: 0 4px 30px rgba(0, 0, 0, 0.5);
+        box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
       }
-      .glass-input {
-        background: rgba(255, 255, 255, 0.6);
-        border: 1px solid rgba(0, 0, 0, 0.1);
-        color: #0f172a;
+
+      .apple-glass-input {
+        background: rgba(255, 255, 255, 0.5);
+        backdrop-filter: blur(20px);
+        border: 1px solid rgba(255, 255, 255, 0.8);
       }
-      .dark .glass-input {
-        background: rgba(0, 0, 0, 0.2);
-        border: 1px solid rgba(255, 255, 255, 0.1);
+      .dark .apple-glass-input {
+        background: rgba(0, 0, 0, 0.3);
+        backdrop-filter: blur(20px);
+        border: 1px solid rgba(255, 255, 255, 0.15);
         color: white;
       }
-      .glass-input:focus {
+      .apple-glass-input:focus {
         outline: none;
-        border-color: rgba(52, 211, 153, 0.5);
-        box-shadow: 0 0 15px rgba(52, 211, 153, 0.2);
+        box-shadow: 0 0 0 3px rgba(16, 185, 129, 0.4);
       }
-      ::-webkit-scrollbar {
+      .apple-glass-select {
+        background: rgba(255, 255, 255, 0.7);
+        backdrop-filter: blur(20px);
+        outline: none;
+      }
+      .dark .apple-glass-select {
+        background: rgba(0, 0, 0, 0.5);
+        border: 1px solid rgba(255, 255, 255, 0.2);
+      }
+
+      .animate-slide-up {
+        animation: slideUpFade 0.6s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+      }
+      @keyframes slideUpFade {
+        from {
+          opacity: 0;
+          transform: translateY(20px) scale(0.98);
+        }
+        to {
+          opacity: 1;
+          transform: translateY(0) scale(1);
+        }
+      }
+
+      .custom-scrollbar::-webkit-scrollbar {
         width: 6px;
         height: 6px;
       }
-      ::-webkit-scrollbar-track {
+      .custom-scrollbar::-webkit-scrollbar-track {
         background: transparent;
       }
-      ::-webkit-scrollbar-thumb {
+      .custom-scrollbar::-webkit-scrollbar-thumb {
         background: rgba(156, 163, 175, 0.5);
         border-radius: 10px;
       }
+      .dark .custom-scrollbar::-webkit-scrollbar-thumb {
+        background: rgba(255, 255, 255, 0.3);
+      }
     </style>
   </head>
-  <body class="h-screen w-screen flex p-4 gap-4 dark">
+  <body
+    class="h-screen w-screen flex p-4 gap-6 text-slate-900 dark:text-white transition-colors duration-500"
+  >
+    <div class="fluid-bg">
+      <div class="orb orb-1"></div>
+      <div class="orb orb-2"></div>
+      <div class="orb orb-3"></div>
+    </div>
+
     <div
-      class="glass-panel w-72 rounded-3xl flex flex-col hidden md:flex shrink-0 relative overflow-hidden"
+      class="apple-glass w-80 rounded-[2rem] flex flex-col hidden lg:flex shrink-0 relative overflow-hidden transition-all duration-500 z-10 custom-scrollbar"
     >
       <div
-        class="p-5 border-b border-slate-300 dark:border-white/10 flex items-center justify-between"
+        class="p-6 border-b border-black/5 dark:border-white/10 flex items-center justify-between sticky top-0 bg-white/20 dark:bg-black/20 backdrop-blur-md z-20"
       >
         <h2
-          class="text-sm font-semibold tracking-wide text-emerald-600 dark:text-emerald-400"
+          class="text-xs font-black uppercase tracking-[0.2em] text-emerald-600 dark:text-emerald-400"
         >
-          Settings & History
+          Control Center
         </h2>
         <button
           onclick="toggleTheme()"
-          class="text-lg hover:scale-110 transition-transform"
-          title="Toggle Theme"
+          class="text-lg hover:scale-110 transition-transform p-1 rounded-full"
         >
-          🌓
+          <span id="theme-icon">☀️</span>
         </button>
-      </div>
-
-      <div class="p-5 border-b border-slate-300 dark:border-white/10">
-        <label class="block text-xs text-slate-500 dark:text-gray-400 mb-2"
-          >History Retention (Days)</label
-        >
-        <div class="flex items-center gap-2">
-          <input
-            type="range"
-            id="retention-slider"
-            min="1"
-            max="30"
-            value="7"
-            class="w-full accent-emerald-500"
-          />
-          <span
-            id="retention-val"
-            class="text-xs font-mono bg-slate-200 dark:bg-black/30 px-2 py-1 rounded text-slate-700 dark:text-gray-200"
-            >7d</span
-          >
-        </div>
-        <button
-          onclick="clearHistory()"
-          class="mt-4 w-full text-xs text-red-500 hover:text-red-600 dark:text-red-400 dark:hover:text-red-300 transition border border-red-500/20 py-2 rounded-lg bg-red-50 dark:bg-red-500/10"
-        >
-          Clear All History
-        </button>
-      </div>
-
-      <div class="flex-1 overflow-y-auto p-4 space-y-2" id="sidebar-history">
-        <div
-          class="text-xs text-slate-400 dark:text-gray-500 italic text-center mt-4"
-        >
-          No recent history
-        </div>
       </div>
 
       <div
-        class="mt-auto p-5 border-t border-slate-300 dark:border-white/10 text-center bg-white/20 dark:bg-black/10"
+        class="flex-1 overflow-y-auto space-y-4 p-5 custom-scrollbar text-slate-800 dark:text-slate-200"
       >
-        <p class="text-xs font-medium text-slate-600 dark:text-gray-400">
-          Made with ❤️ by
-          <span class="text-emerald-600 dark:text-emerald-400"
-            >Vijay</span
+        <div
+          class="bg-white/40 dark:bg-black/20 p-4 rounded-2xl border border-white/50 dark:border-white/10 shadow-sm"
+        >
+          <label
+            class="block text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-2"
+            >Target Environment</label
           >
-        </p>
+          <div class="flex flex-col gap-1 text-xs font-mono">
+            <div class="flex justify-between">
+              <span class="opacity-70">Project ID:</span
+              ><span
+                id="ui-project-id"
+                class="font-bold text-emerald-600 dark:text-emerald-400"
+                >Loading...</span
+              >
+            </div>
+            <div class="flex justify-between">
+              <span class="opacity-70">Dataset:</span
+              ><span
+                id="ui-dataset"
+                class="font-bold text-slate-800 dark:text-slate-200"
+                >Loading...</span
+              >
+            </div>
+          </div>
+        </div>
+
+        <div
+          class="bg-white/40 dark:bg-black/20 p-4 rounded-2xl border border-white/50 dark:border-white/10 shadow-sm text-slate-800 dark:text-slate-200"
+        >
+          <label
+            class="block text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-2"
+            >AI Engine Matrix</label
+          >
+          <select
+            id="ai-model-selector"
+            class="apple-glass-select w-full rounded-xl py-2 px-3 text-xs font-semibold cursor-pointer text-slate-800 dark:text-slate-200"
+          >
+            <option value="gemini-2.5-pro">Gemini 2.5 Pro (Deep Reason)</option>
+            <option value="gemini-2.5-flash">Gemini 2.5 Flash (Fast)</option>
+            <option value="gemini-2.5-flash-thinking">
+              Gemini 2.5 Flash Thinking (Reasoning)
+            </option>
+            <option value="gemini-2.0-pro-exp-0205">
+              Gemini 2.0 Pro Exp (Experimental)
+            </option>
+            <option value="gemini-1.5-pro">Gemini 1.5 Pro (Legacy Pro)</option>
+            <option value="gemini-1.5-flash">
+              Gemini 1.5 Flash (Legacy Fast)
+            </option>
+          </select>
+        </div>
+
+        <div
+          class="bg-white/40 dark:bg-black/20 p-4 rounded-2xl border border-white/50 dark:border-white/10 shadow-sm"
+        >
+          <div class="flex justify-between items-center mb-3">
+            <label
+              class="block text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider"
+              >☁️ GCS Explorer</label
+            >
+            <button
+              onclick="fetchBuckets()"
+              class="text-xs bg-emerald-500/20 text-emerald-700 dark:text-emerald-300 px-2 py-1 rounded-lg hover:bg-emerald-500/40 transition"
+            >
+              Refresh
+            </button>
+          </div>
+          <div id="gcs-container" class="text-xs space-y-1">
+            <div class="italic opacity-60 text-center py-2">
+              Click refresh to load buckets
+            </div>
+          </div>
+        </div>
+
+        <div
+          class="bg-white/40 dark:bg-black/20 p-4 rounded-2xl border border-white/50 dark:border-white/10 shadow-sm"
+        >
+          <label
+            class="block text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-2"
+            >Memory Span</label
+          >
+          <div class="flex items-center gap-3">
+            <input
+              type="range"
+              id="retention-slider"
+              min="1"
+              max="30"
+              value="7"
+              class="w-full accent-emerald-500 cursor-pointer"
+            />
+            <span
+              id="retention-val"
+              class="text-xs font-mono font-bold bg-black/5 dark:bg-white/10 px-2 py-1 rounded-lg"
+              >7d</span
+            >
+          </div>
+        </div>
+
+        <div
+          class="bg-white/40 dark:bg-black/20 p-4 rounded-2xl border border-white/50 dark:border-white/10 shadow-sm"
+        >
+          <div class="flex justify-between items-center mb-3">
+            <label
+              class="block text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider"
+              >Recent Queries</label
+            >
+            <button
+              onclick="clearHistory()"
+              class="text-[10px] text-red-500 hover:text-red-400 font-bold uppercase tracking-wider"
+            >
+              Clear
+            </button>
+          </div>
+          <div id="sidebar-history" class="space-y-2"></div>
+        </div>
       </div>
     </div>
 
     <div
-      class="glass-panel flex-1 rounded-3xl flex flex-col relative overflow-hidden"
+      class="apple-glass flex-1 rounded-[2.5rem] flex flex-col relative overflow-hidden z-10 transition-all duration-500"
     >
       <div
-        class="p-6 border-b border-slate-300 dark:border-white/10 flex items-center justify-between z-10"
+        class="px-8 py-5 border-b border-black/5 dark:border-white/10 flex items-center justify-between bg-white/30 dark:bg-black/20 backdrop-blur-md z-20"
       >
-        <div class="flex items-center space-x-3">
-          <div
-            class="w-3 h-3 rounded-full bg-emerald-500 dark:bg-emerald-400 shadow-[0_0_10px_#34d399] animate-pulse"
-          ></div>
-          <h1
-            class="text-xl font-semibold tracking-wide text-slate-800 dark:text-white"
-          >
+        <div class="flex items-center space-x-4">
+          <div class="relative flex h-4 w-4">
+            <span
+              class="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"
+            ></span>
+            <span
+              class="relative inline-flex rounded-full h-4 w-4 bg-emerald-500 shadow-[0_0_15px_#10b981]"
+            ></span>
+          </div>
+          <h1 class="text-2xl font-black tracking-tight">
             Sentinel<span
               class="text-emerald-600 dark:text-emerald-400 font-light"
               >Insight</span
@@ -179,45 +356,51 @@
           </h1>
         </div>
         <span
-          class="text-xs font-mono text-slate-600 dark:text-white/50 bg-slate-200 dark:bg-black/30 px-3 py-1 rounded-full border border-slate-300 dark:border-white/5"
-          >v4.0 Analytics</span
+          class="text-xs font-mono font-bold text-slate-700 dark:text-white bg-white/50 dark:bg-black/50 px-4 py-2 rounded-full border border-black/10 dark:border-white/10 shadow-sm"
+          >v5.0 Liquid Glass</span
         >
       </div>
 
       <div
         id="chat-container"
-        class="flex-1 overflow-y-auto p-6 space-y-6 z-10"
+        class="flex-1 overflow-y-auto p-4 md:p-8 space-y-8 custom-scrollbar scroll-smooth"
       >
-        <div class="flex flex-col items-start">
+        <div
+          id="init-bubble"
+          class="flex flex-col items-start w-full max-w-5xl mx-auto animate-pulse"
+        >
           <div
-            class="glass-panel px-5 py-4 rounded-2xl rounded-tl-sm max-w-[85%] text-sm leading-relaxed text-slate-700 dark:text-gray-200"
+            class="apple-glass px-6 py-5 rounded-3xl rounded-tl-sm text-sm leading-relaxed shadow-lg"
           >
-            Initializing secure connection... Type "hi" to see my capabilities.
+            Establishing secure neural link...
           </div>
         </div>
       </div>
 
       <div
-        class="p-4 border-t border-slate-300 dark:border-white/10 z-10 bg-slate-100/50 dark:bg-black/20"
+        class="p-4 md:p-6 border-t border-black/5 dark:border-white/10 bg-white/40 dark:bg-black/40 backdrop-blur-xl z-20"
       >
-        <form id="chat-form" class="relative flex items-center">
+        <form
+          id="chat-form"
+          class="relative flex items-center w-full max-w-5xl mx-auto group"
+        >
           <input
             type="text"
             id="user-input"
-            class="glass-input w-full rounded-2xl py-4 pl-5 pr-14 transition-all duration-300 placeholder-slate-400 dark:placeholder-gray-400"
-            placeholder="e.g., Show me the highest sold product by region for Q3..."
+            class="apple-glass-input w-full rounded-2xl py-4 pl-6 pr-16 transition-all placeholder-slate-500 dark:placeholder-slate-400 shadow-inner text-sm font-medium"
+            placeholder="Ask a data question or request a .sql file..."
             autocomplete="off"
             required
           />
           <button
             type="submit"
-            class="absolute right-2 p-2 bg-emerald-500 hover:bg-emerald-600 dark:hover:bg-emerald-400 text-white dark:text-black rounded-xl transition-colors duration-300 shadow-[0_0_15px_rgba(52,211,153,0.3)]"
+            class="absolute right-2 p-2.5 bg-emerald-500 hover:bg-emerald-400 text-white rounded-xl transition-all shadow-[0_0_20px_rgba(16,185,129,0.4)] hover:shadow-[0_0_25px_rgba(16,185,129,0.7)] group-focus-within:scale-105"
           >
             <svg
               xmlns="[http://www.w3.org/2000/svg](http://www.w3.org/2000/svg)"
               fill="none"
               viewBox="0 0 24 24"
-              stroke-width="2"
+              stroke-width="2.5"
               stroke="currentColor"
               class="w-5 h-5"
             >
@@ -232,48 +415,157 @@
       </div>
     </div>
 
+    <div
+      id="gcs-modal"
+      class="fixed inset-0 z-50 hidden flex items-center justify-center bg-slate-900/60 backdrop-blur-sm transition-opacity"
+    >
+      <div
+        class="apple-glass p-8 rounded-[2rem] w-[500px] shadow-2xl border border-white/20 animate-slide-up relative"
+      >
+        <h3
+          class="text-xl font-black text-emerald-500 mb-4 flex items-center gap-2"
+        >
+          ☁️ Route Object
+        </h3>
+        <p class="text-xs opacity-70 mb-6 font-medium">
+          Securely transfer Cloud Storage objects directly via WebSocket
+          infrastructure.
+        </p>
+
+        <div class="space-y-4">
+          <div>
+            <label
+              class="block text-[10px] font-bold uppercase tracking-wider mb-1 opacity-70"
+              >Source Object</label
+            >
+            <input
+              type="text"
+              id="modal-src-obj"
+              disabled
+              class="apple-glass-input w-full rounded-xl py-2 px-3 text-xs opacity-60 cursor-not-allowed"
+            />
+          </div>
+          <div>
+            <label
+              class="block text-[10px] font-bold uppercase tracking-wider mb-1 text-emerald-500"
+              >Destination Bucket</label
+            >
+            <input
+              type="text"
+              id="modal-dest-bucket"
+              placeholder="e.g. my-target-bucket"
+              class="apple-glass-input w-full rounded-xl py-2 px-3 text-xs focus:ring-2 focus:ring-emerald-500"
+            />
+          </div>
+          <div>
+            <label
+              class="block text-[10px] font-bold uppercase tracking-wider mb-1 text-emerald-500"
+              >Destination Path & Name</label
+            >
+            <input
+              type="text"
+              id="modal-dest-obj"
+              placeholder="e.g. processed/data.csv"
+              class="apple-glass-input w-full rounded-xl py-2 px-3 text-xs focus:ring-2 focus:ring-emerald-500"
+            />
+          </div>
+        </div>
+
+        <div class="flex gap-3 mt-8">
+          <button
+            onclick="executeGcsMove()"
+            class="flex-1 bg-emerald-500 hover:bg-emerald-400 text-white py-3 rounded-xl text-sm font-bold shadow-lg transition-all"
+          >
+            Move Object
+          </button>
+          <button
+            onclick="closeModal()"
+            class="flex-1 bg-white/10 hover:bg-white/20 border border-white/20 py-3 rounded-xl text-sm font-bold transition-all"
+          >
+            Cancel
+          </button>
+        </div>
+        <input type="hidden" id="modal-src-bucket" />
+      </div>
+    </div>
+
     <script>
       // --- Theme Logic ---
       function toggleTheme() {
         const html = document.documentElement;
-        const body = document.body;
-        if (html.classList.contains("dark")) {
-          html.classList.remove("dark");
-          body.classList.remove("dark");
-          body.classList.add("light");
-          localStorage.setItem("theme", "light");
-        } else {
-          html.classList.add("dark");
-          body.classList.remove("light");
-          body.classList.add("dark");
-          localStorage.setItem("theme", "dark");
-        }
+        html.classList.toggle("dark");
+        document.getElementById("theme-icon").textContent =
+          html.classList.contains("dark") ? "☀️" : "🌙";
+        localStorage.setItem(
+          "theme",
+          html.classList.contains("dark") ? "dark" : "light",
+        );
       }
-
       if (localStorage.theme === "light") {
-        document.documentElement.classList.remove("dark");
-        document.body.classList.remove("dark");
-        document.body.classList.add("light");
+        toggleTheme();
       }
 
-      // DOM Elements
-      const chatContainer = document.getElementById("chat-container");
-      const chatForm = document.getElementById("chat-form");
-      const userInput = document.getElementById("user-input");
-      const retentionSlider = document.getElementById("retention-slider");
-      const retentionVal = document.getElementById("retention-val");
-      const sidebarHistory = document.getElementById("sidebar-history");
-
+      // --- WebSocket & State ---
+      const ws = new WebSocket(
+        `${window.location.protocol === "https:" ? "wss" : "ws"}://${window.location.host}/ws`,
+      );
       let chatHistory = [];
       let retentionDays =
         parseInt(localStorage.getItem("sentinel_retention")) || 7;
-      retentionSlider.value = retentionDays;
-      retentionVal.textContent = `${retentionDays}d`;
-
-      const protocol = window.location.protocol === "https:" ? "wss" : "ws";
-      const ws = new WebSocket(`${protocol}://${window.location.host}/ws`);
       let currentAgentMessageDiv = null;
       let chartCounter = 0;
+
+      document.getElementById("retention-slider").value = retentionDays;
+      document.getElementById("retention-val").textContent =
+        `${retentionDays}d`;
+
+      // --- GCS Explorer Logic ---
+      function fetchBuckets() {
+        document.getElementById("gcs-container").innerHTML =
+          '<div class="opacity-70 animate-pulse py-2 text-slate-800 dark:text-slate-200">Scanning infrastructure...</div>';
+        ws.send(JSON.stringify({ action: "LIST_BUCKETS" }));
+      }
+
+      function fetchObjects(bucketName) {
+        event.target.innerHTML += ' <span class="animate-ping">...</span>';
+        ws.send(JSON.stringify({ action: "LIST_OBJECTS", bucket: bucketName }));
+      }
+
+      function openMoveModal(bucketName, objectName) {
+        document.getElementById("modal-src-bucket").value = bucketName;
+        document.getElementById("modal-src-obj").value = objectName;
+        document.getElementById("modal-dest-bucket").value = bucketName;
+        document.getElementById("modal-dest-obj").value = `moved/${objectName}`;
+        document.getElementById("gcs-modal").classList.remove("hidden");
+      }
+
+      function closeModal() {
+        document.getElementById("gcs-modal").classList.add("hidden");
+      }
+
+      function executeGcsMove() {
+        const srcB = document.getElementById("modal-src-bucket").value;
+        const srcO = document.getElementById("modal-src-obj").value;
+        const destB = document.getElementById("modal-dest-bucket").value;
+        const destO = document.getElementById("modal-dest-obj").value;
+
+        if (!destB || !destO) return alert("Destination fields required!");
+
+        appendUserMessage(
+          `Move object \`${srcO}\` to \`gs://${destB}/${destO}\``,
+        );
+        createAgentMessageBlock();
+        ws.send(
+          JSON.stringify({
+            action: "MOVE_OBJECT",
+            src_bucket: srcB,
+            src_object: srcO,
+            dest_bucket: destB,
+            dest_object: destO,
+          }),
+        );
+        closeModal();
+      }
 
       // --- History Logic ---
       function loadHistory() {
@@ -289,7 +581,6 @@
         }
         renderSidebar();
       }
-
       function saveMessageToHistory(role, content) {
         chatHistory.push({
           role,
@@ -299,331 +590,402 @@
         localStorage.setItem("sentinel_history", JSON.stringify(chatHistory));
         renderSidebar();
       }
-
       function clearHistory() {
         chatHistory = [];
         localStorage.setItem("sentinel_history", JSON.stringify([]));
         renderSidebar();
       }
-
       function renderSidebar() {
+        const container = document.getElementById("sidebar-history");
         if (chatHistory.length === 0) {
-          sidebarHistory.innerHTML =
-            "<div class='text-xs text-slate-400 dark:text-gray-500 italic text-center mt-4'>No recent history</div>";
+          container.innerHTML =
+            "<div class='text-[10px] text-slate-400 italic text-center py-2'>Awaiting instructions...</div>";
           return;
         }
-        sidebarHistory.innerHTML = "";
-        const recentUserQueries = chatHistory
+        container.innerHTML = "";
+        chatHistory
           .filter((h) => h.role === "user")
-          .slice(-10)
-          .reverse();
-        recentUserQueries.forEach((q) => {
-          const div = document.createElement("div");
-          div.className =
-            "text-xs text-slate-600 dark:text-gray-300 bg-slate-100 dark:bg-white/5 border border-slate-300 dark:border-white/10 p-2 rounded-lg truncate cursor-pointer hover:bg-slate-200 dark:hover:bg-white/10 transition";
-          div.textContent = q.content;
-          div.onclick = () => {
-            userInput.value = q.content;
-          };
-          sidebarHistory.appendChild(div);
+          .slice(-15)
+          .reverse()
+          .forEach((q) => {
+            const div = document.createElement("div");
+            div.className =
+              "text-[10px] font-medium bg-black/5 dark:bg-white/10 p-2 rounded-lg truncate cursor-pointer hover:bg-black/10 dark:hover:bg-white/20 transition-all shadow-sm text-slate-800 dark:text-slate-200";
+            div.textContent = q.content;
+            div.onclick = () => {
+              document.getElementById("user-input").value = q.content;
+            };
+            container.appendChild(div);
+          });
+      }
+      document
+        .getElementById("retention-slider")
+        .addEventListener("input", (e) => {
+          retentionDays = e.target.value;
+          document.getElementById("retention-val").textContent =
+            `${retentionDays}d`;
+          localStorage.setItem("sentinel_retention", retentionDays);
+          loadHistory();
         });
+
+      // --- Chat UI Actions ---
+      function scrollToBottom() {
+        const c = document.getElementById("chat-container");
+        c.scrollTop = c.scrollHeight;
       }
 
-      retentionSlider.addEventListener("input", (e) => {
-        retentionDays = e.target.value;
-        retentionVal.textContent = `${retentionDays}d`;
-        localStorage.setItem("sentinel_retention", retentionDays);
-        loadHistory();
-      });
-
-      // --- Chart & Render Logic ---
-      function renderChart(data, container) {
-        if (!data || data.length === 0 || data.length > 50) return;
-
-        const keys = Object.keys(data[0]);
-        let labelKey =
-          keys.find(
-            (k) => isNaN(data[0][k]) && typeof data[0][k] === "string",
-          ) || keys[0];
-        let valueKey = keys.find((k) => !isNaN(data[0][k]) && k !== labelKey);
-
-        if (!valueKey) return;
-
-        chartCounter++;
-        const canvasId = `chart-${chartCounter}`;
-
-        const chartHtml = `
-                <div class="mt-4 bg-white/50 dark:bg-black/30 p-4 rounded-xl border border-slate-300 dark:border-white/10 relative">
-                    <canvas id="${canvasId}" style="max-height: 250px;"></canvas>
-                    <button onclick="downloadChart('${canvasId}')" class="absolute top-2 right-2 text-xs bg-slate-200 dark:bg-white/10 hover:bg-slate-300 dark:hover:bg-white/20 px-2 py-1 rounded text-slate-700 dark:text-white transition border border-slate-300 dark:border-white/20 shadow-sm">⬇️ Download Chart</button>
-                </div>
-            `;
-        container.insertAdjacentHTML("beforeend", chartHtml);
-
-        const labels = data.map((row) => row[labelKey]);
-        const values = data.map((row) => parseFloat(row[valueKey]));
-        const isDark = document.documentElement.classList.contains("dark");
-        const gridColor = isDark ? "rgba(255,255,255,0.1)" : "rgba(0,0,0,0.05)";
-        const tickColor = isDark ? "rgba(255,255,255,0.5)" : "rgba(0,0,0,0.5)";
-
-        new Chart(document.getElementById(canvasId), {
-          type: "bar",
-          data: {
-            labels: labels,
-            datasets: [
-              {
-                label: valueKey,
-                data: values,
-                backgroundColor: "rgba(16, 185, 129, 0.7)",
-                borderColor: "rgba(16, 185, 129, 1)",
-                borderWidth: 1,
-                borderRadius: 4,
-              },
-            ],
-          },
-          options: {
-            responsive: true,
-            plugins: { legend: { labels: { color: tickColor } } },
-            scales: {
-              y: { ticks: { color: tickColor }, grid: { color: gridColor } },
-              x: { ticks: { color: tickColor }, grid: { display: false } },
-            },
-          },
-        });
-      }
-
-      window.downloadChart = function (canvasId) {
-        const canvas = document.getElementById(canvasId);
-        const link = document.createElement("a");
-        link.download = "sentinel_insight_chart.png";
-        link.href = canvas.toDataURL("image/png");
-        link.click();
-      };
-
-      window.downloadSQL = function (sqlBase64) {
-        const sql = atob(sqlBase64);
-        const blob = new Blob([sql], { type: "text/sql" });
-        const url = window.URL.createObjectURL(blob);
-        const a = document.createElement("a");
-        a.href = url;
-        a.download = `sentinel_insight_query_${Date.now()}.sql`;
-        a.click();
-        window.URL.revokeObjectURL(url);
-      };
-
-      // --- Chat UI Logic ---
       function appendUserMessage(text) {
         const div = document.createElement("div");
-        div.className = "flex flex-col items-end animate-fade-in-up";
-        div.innerHTML = `<div class="bg-emerald-500 text-white px-5 py-4 rounded-2xl rounded-tr-sm max-w-[85%] text-sm leading-relaxed shadow-lg">${text}</div>`;
-        chatContainer.appendChild(div);
+        div.className =
+          "flex flex-col items-end animate-slide-up w-full max-w-5xl mx-auto";
+        div.innerHTML = `<div class="bg-gradient-to-r from-emerald-500 to-emerald-400 text-white px-6 py-4 rounded-3xl rounded-tr-sm max-w-[85%] text-sm leading-relaxed shadow-lg font-medium border border-emerald-300/30">${text}</div>`;
+        document.getElementById("chat-container").appendChild(div);
         saveMessageToHistory("user", text);
         scrollToBottom();
       }
 
       function createAgentMessageBlock() {
         const div = document.createElement("div");
-        div.className = "flex flex-col items-start animate-fade-in-up w-full";
+        div.className =
+          "flex flex-col items-start animate-slide-up w-full max-w-5xl mx-auto";
         div.innerHTML = `
-                <div class="glass-panel px-5 py-4 rounded-2xl rounded-tl-sm max-w-[95%] w-full text-sm leading-relaxed text-slate-800 dark:text-gray-200 flex flex-col gap-2">
-                    <div id="typing-indicator" class="text-emerald-600 dark:text-emerald-400 font-mono text-xs animate-pulse">Initializing Agent Swarm...</div>
-                    <div class="stream-content text-slate-500 dark:text-gray-300 text-xs font-mono border-l-2 border-emerald-500/50 pl-3 py-1 mt-1 space-y-1"></div>
-                </div>
-            `;
-        chatContainer.appendChild(div);
+                <div class="apple-glass px-6 py-5 rounded-3xl rounded-tl-sm max-w-[95%] w-full text-sm leading-relaxed flex flex-col gap-3 shadow-xl">
+                    <div id="typing-indicator" class="text-emerald-600 dark:text-emerald-400 font-mono text-[10px] font-bold uppercase tracking-widest flex items-center gap-2">
+                        <span class="relative flex h-2.5 w-2.5"><span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span><span class="relative inline-flex rounded-full h-2.5 w-2.5 bg-emerald-500"></span></span> Processing...
+                    </div>
+                    <div class="stream-content text-slate-600 dark:text-slate-300 text-xs font-mono border-l-2 border-emerald-500/50 pl-4 py-1 mt-1 space-y-2"></div>
+                </div>`;
+        document.getElementById("chat-container").appendChild(div);
         currentAgentMessageDiv = div;
         scrollToBottom();
       }
 
-      // --- Guardrail Interactions ---
-      window.confirmExecution = function (intentType, sqlBase64) {
-        const sql = atob(sqlBase64);
-        const intent =
-          intentType === "GET_SQL" ? "CONFIRM_GET_SQL" : "CONFIRM_EXPLORE";
-
-        const div = document.createElement("div");
-        div.className = "flex flex-col items-end animate-fade-in-up mt-2";
-        div.innerHTML = `<div class="bg-emerald-500/40 border border-emerald-500/50 text-slate-800 dark:text-white font-semibold px-4 py-2 rounded-xl text-xs shadow-lg">Authorization Granted. Execute.</div>`;
-        chatContainer.appendChild(div);
-
+      // --- Core Dispatch & Response Handlers ---
+      document.getElementById("chat-form").addEventListener("submit", (e) => {
+        e.preventDefault();
+        const text = document.getElementById("user-input").value.trim();
+        if (!text) return;
+        appendUserMessage(text);
+        const selectedModel =
+          document.getElementById("ai-model-selector").value;
         ws.send(
           JSON.stringify({
-            intent: intent,
-            action: intent,
-            sql: sql,
+            intent: text,
             history: chatHistory,
+            ai_model: selectedModel,
+          }),
+        );
+        document.getElementById("user-input").value = "";
+        createAgentMessageBlock();
+      });
+
+      ws.onmessage = (event) => {
+        const data = JSON.parse(event.data);
+
+        // Handle Init Info
+        if (data.status === "init_info") {
+          document.getElementById("ui-project-id").textContent =
+            data.project_id;
+          document.getElementById("ui-dataset").textContent = data.dataset;
+          return;
+        }
+
+        // Handle Server-Sent Auto Greeting (Bypasses regular stream logic)
+        if (data.status === "greeting") {
+          const initBubble = document.getElementById("init-bubble");
+          if (initBubble) initBubble.remove();
+
+          const div = document.createElement("div");
+          div.className =
+            "flex flex-col items-start animate-slide-up w-full max-w-5xl mx-auto";
+          let formattedMsg = data.message.replace(
+            /\*\*(.*?)\*\*/g,
+            '<strong class="text-emerald-700 dark:text-emerald-400 font-black">$1</strong>',
+          );
+          formattedMsg = formattedMsg.replace(/\n/g, "<br>");
+          div.innerHTML = `<div class="apple-glass px-6 py-5 rounded-3xl rounded-tl-sm max-w-[95%] w-full shadow-xl leading-relaxed text-sm text-slate-800 dark:text-slate-200">${formattedMsg}</div>`;
+          document.getElementById("chat-container").appendChild(div);
+
+          saveMessageToHistory("assistant", "Greeting provided.");
+          scrollToBottom();
+          return;
+        }
+
+        // Handle GCS Explorer Payloads
+        if (data.status === "gcs_buckets") {
+          let html =
+            '<div class="space-y-1 max-h-40 overflow-y-auto custom-scrollbar pr-1">';
+          data.buckets.forEach((b) => {
+            html += `<div onclick="fetchObjects('${b}')" class="p-2 bg-black/5 dark:bg-white/5 rounded-lg cursor-pointer hover:bg-emerald-500/20 hover:text-emerald-600 dark:hover:text-emerald-400 transition font-mono truncate text-[10px] text-slate-800 dark:text-slate-200">📁 ${b}</div>`;
+          });
+          document.getElementById("gcs-container").innerHTML = html + "</div>";
+          return;
+        } else if (data.status === "gcs_objects") {
+          let html = `<div class="mb-2 pb-2 border-b border-black/10 dark:border-white/10 font-bold truncate text-[10px] text-emerald-500">Bucket: ${data.bucket}</div>`;
+          html +=
+            '<div class="space-y-1 max-h-40 overflow-y-auto custom-scrollbar pr-1">';
+          if (data.objects.length === 0)
+            html +=
+              '<div class="opacity-50 italic text-slate-800 dark:text-slate-200">Empty bucket</div>';
+          data.objects.forEach((o) => {
+            html += `<div onclick="openMoveModal('${data.bucket}', '${o}')" title="Click to Move" class="p-2 bg-black/5 dark:bg-white/5 rounded-lg cursor-pointer hover:bg-blue-500/20 hover:text-blue-600 dark:hover:text-blue-400 transition font-mono truncate text-[10px] flex justify-between group text-slate-800 dark:text-slate-200"><span>📄 ${o}</span><span class="opacity-0 group-hover:opacity-100 transition">➡️ Move</span></div>`;
+          });
+          document.getElementById("gcs-container").innerHTML =
+            html +
+            '</div><button onclick="fetchBuckets()" class="mt-2 text-[10px] opacity-70 hover:opacity-100 w-full text-center text-slate-800 dark:text-slate-200">🔙 Back to Buckets</button>';
+          return;
+        } else if (data.status === "gcs_move_success") {
+          if (currentAgentMessageDiv) {
+            currentAgentMessageDiv.querySelector(
+              "#typing-indicator",
+            ).style.display = "none";
+            currentAgentMessageDiv.firstElementChild.innerHTML += `<div class="text-sm font-bold text-emerald-600 dark:text-emerald-400">${data.message}</div>`;
+            currentAgentMessageDiv = null;
+          }
+          return;
+        }
+
+        // Handle Standard AI Stream
+        if (!currentAgentMessageDiv) return;
+        const streamContent =
+          currentAgentMessageDiv.querySelector(".stream-content");
+        const indicator =
+          currentAgentMessageDiv.querySelector("#typing-indicator");
+        const panel = currentAgentMessageDiv.firstElementChild;
+
+        if (data.status === "clarification_needed") {
+          indicator.innerHTML = "Schema Suggestion Generated";
+          indicator.classList.replace("text-emerald-600", "text-blue-600");
+          indicator.classList.replace(
+            "dark:text-emerald-400",
+            "dark:text-blue-400",
+          );
+          panel.insertAdjacentHTML(
+            "beforeend",
+            `<div class="mt-4 text-sm text-blue-900 dark:text-blue-100 bg-blue-500/10 dark:bg-blue-400/20 p-5 rounded-2xl border border-blue-500/30 font-medium backdrop-blur-md">${data.message}</div>`,
+          );
+          let btns = `<div class="flex flex-wrap gap-3 mt-4">`;
+          data.suggestions.forEach((sug) => {
+            btns += `<button onclick="window.submitClarification('${sug}')" class="bg-white/50 dark:bg-black/40 hover:bg-white/80 dark:hover:bg-black/60 border border-white/40 dark:border-white/20 px-4 py-2 rounded-xl transition-all text-sm font-bold shadow-md text-slate-800 dark:text-slate-200">${sug}</button>`;
+          });
+          panel.insertAdjacentHTML("beforeend", btns + "</div>");
+          currentAgentMessageDiv = null;
+        } else if (data.status === "explore_result") {
+          indicator.innerHTML = "Exploration Complete";
+          indicator.classList.replace("text-emerald-600", "text-slate-500");
+          indicator.classList.replace(
+            "dark:text-emerald-400",
+            "dark:text-slate-400",
+          );
+          let formattedMsg = data.message.replace(
+            /\*\*(.*?)\*\*/g,
+            '<strong class="text-emerald-600 dark:text-emerald-400">$1</strong>',
+          );
+          panel.insertAdjacentHTML(
+            "beforeend",
+            `<div class="mt-3 text-sm font-semibold text-slate-800 dark:text-slate-200">${formattedMsg}</div>`,
+          );
+          if (data.raw_data && data.raw_data.length > 0) {
+            renderChart(data.raw_data, panel);
+          }
+          panel.insertAdjacentHTML("beforeend", data.html);
+          const btnHtml = `<button onclick="window.sendGetSqlIntent('${btoa(data.sql)}')" class="mt-6 w-max inline-flex items-center gap-3 bg-emerald-500 hover:bg-emerald-400 text-white px-5 py-3 rounded-2xl transition-all font-bold shadow-[0_10px_25px_rgba(16,185,129,0.3)] hover:shadow-[0_15px_30px_rgba(16,185,129,0.5)] border border-emerald-400/50">📄 Extract .sql File</button>`;
+          panel.insertAdjacentHTML("beforeend", btnHtml);
+          saveMessageToHistory("assistant", "Displayed query results.");
+          currentAgentMessageDiv = null;
+        } else if (data.status === "confirmation_needed") {
+          indicator.innerHTML = "Authorization Required";
+          indicator.classList.replace("text-emerald-600", "text-amber-600");
+          indicator.classList.replace(
+            "dark:text-emerald-400",
+            "dark:text-amber-400",
+          );
+          let formattedMsg = data.message.replace(
+            /\*\*(.*?)\*\*/g,
+            '<strong class="text-amber-800 dark:text-amber-200 font-black">$1</strong>',
+          );
+          panel.insertAdjacentHTML(
+            "beforeend",
+            `<div class="mt-4 text-sm text-amber-900 dark:text-amber-100 bg-amber-500/20 p-5 rounded-2xl border border-amber-500/40 leading-relaxed font-medium backdrop-blur-md shadow-inner">${formattedMsg.replace(/\n/g, "<br>")}</div>`,
+          );
+          const btnHtml = `
+                    <div class="flex gap-4 mt-5">
+                        <button onclick="window.confirmExecution('${data.intent_type}', '${btoa(data.sql)}')" class="inline-flex items-center gap-2 bg-emerald-500 hover:bg-emerald-400 text-white px-6 py-3 rounded-xl transition-all text-sm font-bold shadow-lg border border-emerald-400/50">✅ Proceed</button>
+                        <button onclick="this.parentElement.parentElement.innerHTML = '<div class=\\'mt-4 text-sm opacity-70 italic font-medium text-slate-800 dark:text-slate-200\\'>Operation aborted by user.</div>'" class="inline-flex items-center gap-2 bg-red-500 hover:bg-red-400 text-white px-6 py-3 rounded-xl transition-all text-sm font-bold shadow-lg border border-red-400/50">❌ Cancel</button>
+                    </div>`;
+          panel.insertAdjacentHTML("beforeend", btnHtml);
+          currentAgentMessageDiv = null;
+        } else if (data.status === "sql_only") {
+          indicator.innerHTML = "SQL Generation Complete";
+          indicator.classList.replace("text-emerald-600", "text-slate-500");
+          indicator.classList.replace(
+            "dark:text-emerald-400",
+            "dark:text-slate-400",
+          );
+          panel.insertAdjacentHTML(
+            "beforeend",
+            `<div class="mt-3 text-sm font-semibold text-slate-800 dark:text-slate-200">${data.message.replace(/\*\*(.*?)\*\*/g, '<strong class="text-emerald-600 dark:text-emerald-400">$1</strong>')}</div>`,
+          );
+          panel.insertAdjacentHTML(
+            "beforeend",
+            `<div class="mt-5 p-5 rounded-2xl bg-slate-900/80 dark:bg-black/60 border border-slate-700 dark:border-white/10 text-emerald-400 font-mono text-sm overflow-x-auto shadow-inner backdrop-blur-xl custom-scrollbar whitespace-pre-wrap">${data.sql}</div>`,
+          );
+          const btnHtml = `<button onclick="window.downloadSQL('${btoa(data.sql)}')" class="mt-6 inline-flex items-center gap-3 bg-white hover:bg-slate-100 text-slate-900 px-5 py-3 rounded-2xl transition-all font-bold shadow-xl border border-white/20">💾 Download .sql File</button>`;
+          panel.insertAdjacentHTML("beforeend", btnHtml);
+          saveMessageToHistory("assistant", "Provided .sql file.");
+          currentAgentMessageDiv = null;
+        } else {
+          const line = document.createElement("div");
+          line.className =
+            "flex items-start gap-3 animate-slide-up text-slate-800 dark:text-slate-200";
+          line.innerHTML = `<span class="text-emerald-500/70 font-bold">></span> <span class="${data.status === "error" ? "text-red-600 dark:text-red-400 font-bold" : ""}">${data.message}</span>`;
+          streamContent.appendChild(line);
+        }
+        scrollToBottom();
+      };
+
+      // --- Chart & Guardrails ---
+      function renderChart(data, container) {
+        if (!data || data.length === 0 || data.length > 50) return;
+        const keys = Object.keys(data[0]);
+        let labelKey =
+          keys.find(
+            (k) => isNaN(data[0][k]) && typeof data[0][k] === "string",
+          ) || keys[0];
+        let valueKey = keys.find((k) => !isNaN(data[0][k]) && k !== labelKey);
+        if (!valueKey) return;
+        chartCounter++;
+        const canvasId = `chart-${chartCounter}`;
+        container.insertAdjacentHTML(
+          "beforeend",
+          `
+                <div class="mt-6 bg-white/20 dark:bg-black/20 p-6 rounded-3xl relative shadow-xl border border-white/30 dark:border-white/10 backdrop-blur-md">
+                    <canvas id="${canvasId}" style="max-height: 300px;"></canvas>
+                    <button onclick="window.downloadChart('${canvasId}')" class="absolute top-4 right-4 text-[10px] font-bold bg-white/50 dark:bg-black/40 hover:bg-white/80 px-3 py-1.5 rounded-lg transition-all border border-white/20 shadow-md text-slate-800 dark:text-slate-200">⬇️ Save PNG</button>
+                </div>`,
+        );
+        new Chart(document.getElementById(canvasId), {
+          type: "bar",
+          data: {
+            labels: data.map((row) => row[labelKey]),
+            datasets: [
+              {
+                label: valueKey,
+                data: data.map((row) => parseFloat(row[valueKey])),
+                backgroundColor: "#10b981",
+                borderRadius: 8,
+                barPercentage: 0.5,
+              },
+            ],
+          },
+          options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: {
+              legend: {
+                labels: {
+                  color: document.documentElement.classList.contains("dark")
+                    ? "rgba(255,255,255,0.7)"
+                    : "rgba(0,0,0,0.6)",
+                  font: { family: "Inter", weight: "bold" },
+                },
+              },
+            },
+            scales: {
+              y: {
+                ticks: {
+                  color: document.documentElement.classList.contains("dark")
+                    ? "rgba(255,255,255,0.7)"
+                    : "rgba(0,0,0,0.6)",
+                },
+                grid: {
+                  color: document.documentElement.classList.contains("dark")
+                    ? "rgba(255,255,255,0.1)"
+                    : "rgba(0,0,0,0.05)",
+                  borderDash: [5, 5],
+                },
+              },
+              x: {
+                ticks: {
+                  color: document.documentElement.classList.contains("dark")
+                    ? "rgba(255,255,255,0.7)"
+                    : "rgba(0,0,0,0.6)",
+                },
+                grid: { display: false },
+              },
+            },
+          },
+        });
+      }
+      window.downloadChart = function (canvasId) {
+        const link = document.createElement("a");
+        link.download = "sentinel_chart.png";
+        link.href = document.getElementById(canvasId).toDataURL("image/png");
+        link.click();
+      };
+      window.downloadSQL = function (sqlBase64) {
+        const blob = new Blob([atob(sqlBase64)], { type: "text/sql" });
+        const url = window.URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = `sentinel_query.sql`;
+        a.click();
+        window.URL.revokeObjectURL(url);
+      };
+
+      window.submitClarification = function (suggestion) {
+        appendUserMessage(`Yes, use: ${suggestion}`);
+        const selectedModel =
+          document.getElementById("ai-model-selector").value;
+        ws.send(
+          JSON.stringify({
+            intent: `Please update the query to use: ${suggestion}`,
+            history: chatHistory,
+            ai_model: selectedModel,
           }),
         );
         createAgentMessageBlock();
       };
 
       window.sendGetSqlIntent = function (sqlBase64) {
-        const sql = atob(sqlBase64);
         appendUserMessage("Give me the .sql file for this query.");
+        const selectedModel =
+          document.getElementById("ai-model-selector").value;
         ws.send(
           JSON.stringify({
             intent: "Provide SQL File",
             action: "CONFIRM_GET_SQL",
-            sql: sql,
+            sql: atob(sqlBase64),
             history: chatHistory,
+            ai_model: selectedModel,
           }),
         );
         createAgentMessageBlock();
       };
 
-      window.submitClarification = function (suggestion) {
-        appendUserMessage(`Yes, use: ${suggestion}`);
+      window.confirmExecution = function (intentType, sqlBase64) {
+        const intent =
+          intentType === "GET_SQL" ? "CONFIRM_GET_SQL" : "CONFIRM_EXPLORE";
+        const div = document.createElement("div");
+        div.className =
+          "flex flex-col items-end animate-slide-up mt-2 w-full max-w-5xl mx-auto";
+        div.innerHTML = `<div class="bg-slate-900/50 dark:bg-white/20 backdrop-blur-md text-white font-bold px-5 py-3 rounded-xl text-xs shadow-lg border border-white/10">Authorization Granted.</div>`;
+        document.getElementById("chat-container").appendChild(div);
+        const selectedModel =
+          document.getElementById("ai-model-selector").value;
         ws.send(
           JSON.stringify({
-            intent: `Please update the query to use: ${suggestion}`,
+            intent: intent,
+            action: intent,
+            sql: atob(sqlBase64),
             history: chatHistory,
+            ai_model: selectedModel,
           }),
         );
         createAgentMessageBlock();
-      };
-
-      function appendToAgentStream(data) {
-        if (!currentAgentMessageDiv) return;
-        const streamContent =
-          currentAgentMessageDiv.querySelector(".stream-content");
-        const indicator =
-          currentAgentMessageDiv.querySelector("#typing-indicator");
-        const panel = currentAgentMessageDiv.querySelector(".glass-panel");
-
-        if (data.status === "greeting") {
-          indicator.style.display = "none";
-          streamContent.style.display = "none";
-          panel.innerHTML = data.message.replace(/\n/g, "<br>");
-          saveMessageToHistory("assistant", "Greeting provided.");
-          currentAgentMessageDiv = null;
-        } else if (data.status === "clarification_needed") {
-          indicator.textContent = "Schema Suggestion Generated.";
-          indicator.classList.remove("animate-pulse", "text-emerald-400");
-          indicator.classList.add("text-blue-500", "dark:text-blue-400");
-
-          panel.insertAdjacentHTML(
-            "beforeend",
-            `<div class="mt-2 text-sm text-blue-800 dark:text-blue-100 bg-blue-100 dark:bg-blue-500/10 p-3 rounded border border-blue-300 dark:border-blue-500/30">${data.message}</div>`,
-          );
-
-          let btns = `<div class="flex flex-wrap gap-2 mt-3">`;
-          data.suggestions.forEach((sug) => {
-            btns += `<button onclick="window.submitClarification('${sug}')" class="bg-blue-100 dark:bg-blue-500/20 hover:bg-blue-200 dark:hover:bg-blue-500/40 border border-blue-300 dark:border-blue-500/50 px-3 py-1 rounded-lg transition-all text-blue-700 dark:text-blue-100 text-xs">${sug}</button>`;
-          });
-          btns += `</div>`;
-          panel.insertAdjacentHTML("beforeend", btns);
-          currentAgentMessageDiv = null;
-        } else if (data.status === "explore_result") {
-          indicator.textContent = "Exploration Complete.";
-          indicator.classList.remove(
-            "animate-pulse",
-            "text-emerald-400",
-            "text-emerald-600",
-          );
-          indicator.classList.add("text-slate-500", "dark:text-gray-400");
-
-          panel.insertAdjacentHTML(
-            "beforeend",
-            `<div class="mt-2 text-sm text-slate-800 dark:text-gray-100">${data.message}</div>`,
-          );
-
-          if (data.raw_data && data.raw_data.length > 0) {
-            renderChart(data.raw_data, panel);
-          }
-          panel.insertAdjacentHTML("beforeend", data.html);
-
-          const b64Sql = btoa(data.sql);
-          const btnHtml = `<button onclick="window.sendGetSqlIntent('${b64Sql}')" class="mt-4 w-max inline-flex items-center gap-2 bg-emerald-100 dark:bg-emerald-500/20 hover:bg-emerald-200 dark:hover:bg-emerald-500/40 border border-emerald-300 dark:border-emerald-500/50 px-4 py-2 rounded-xl transition-all text-emerald-800 dark:text-emerald-100 text-sm shadow-[0_0_15px_rgba(52,211,153,0.2)]">📄 Get SQL File for BigQuery</button>`;
-          panel.insertAdjacentHTML("beforeend", btnHtml);
-
-          saveMessageToHistory(
-            "assistant",
-            "Displayed query results and charts.",
-          );
-          currentAgentMessageDiv = null;
-        } else if (data.status === "confirmation_needed") {
-          indicator.textContent =
-            "Guardrail Triggered. Waiting for User Authorization.";
-          indicator.classList.remove(
-            "animate-pulse",
-            "text-emerald-400",
-            "text-emerald-600",
-          );
-          indicator.classList.add("text-yellow-600", "dark:text-yellow-400");
-
-          panel.insertAdjacentHTML(
-            "beforeend",
-            `<div class="mt-2 text-sm text-yellow-800 dark:text-yellow-100 bg-yellow-100 dark:bg-yellow-500/10 p-3 rounded border border-yellow-300 dark:border-yellow-500/30">${data.message.replace(/\n/g, "<br>")}</div>`,
-          );
-
-          const b64Sql = btoa(data.sql);
-          const btnHtml = `
-                    <div class="flex gap-3 mt-4">
-                        <button onclick="window.confirmExecution('${data.intent_type}', '${b64Sql}')" class="inline-flex items-center gap-2 bg-yellow-100 dark:bg-yellow-500/20 hover:bg-yellow-200 dark:hover:bg-yellow-500/40 border border-yellow-300 dark:border-yellow-500/50 px-4 py-2 rounded-xl transition-all text-yellow-800 dark:text-yellow-100 text-sm">✅ Proceed & Execute</button>
-                        <button onclick="this.parentElement.parentElement.innerHTML = '<i>Operation aborted by user.</i>'" class="inline-flex items-center gap-2 bg-red-100 dark:bg-red-500/20 hover:bg-red-200 dark:hover:bg-red-500/40 border border-red-300 dark:border-red-500/50 px-4 py-2 rounded-xl transition-all text-red-800 dark:text-red-100 text-sm">❌ Cancel</button>
-                    </div>`;
-          panel.insertAdjacentHTML("beforeend", btnHtml);
-          currentAgentMessageDiv = null;
-        } else if (data.status === "sql_only") {
-          indicator.textContent = "SQL Generation Complete.";
-          indicator.classList.remove(
-            "animate-pulse",
-            "text-emerald-400",
-            "text-emerald-600",
-          );
-          indicator.classList.add("text-slate-500", "dark:text-gray-400");
-
-          panel.insertAdjacentHTML(
-            "beforeend",
-            `<div class="mt-2 text-sm text-slate-800 dark:text-gray-100">${data.message}</div>`,
-          );
-
-          const sqlHtml = `<div class="mt-4 p-4 rounded-xl bg-slate-800 dark:bg-black/50 border border-slate-700 dark:border-white/10 text-emerald-400 font-mono text-xs overflow-x-auto whitespace-pre-wrap">${data.sql}</div>`;
-          panel.insertAdjacentHTML("beforeend", sqlHtml);
-
-          const b64Sql = btoa(data.sql);
-          const btnHtml = `<button onclick="window.downloadSQL('${b64Sql}')" class="mt-4 inline-flex items-center gap-2 bg-white/80 dark:bg-white/10 hover:bg-white dark:hover:bg-white/20 border border-slate-300 dark:border-white/20 px-4 py-2 rounded-xl transition-all text-slate-800 dark:text-white no-underline text-sm shadow-sm">💾 Download .sql File</button>`;
-          panel.insertAdjacentHTML("beforeend", btnHtml);
-          saveMessageToHistory("assistant", "Provided .sql file.");
-          currentAgentMessageDiv = null;
-        } else {
-          const line = document.createElement("div");
-          line.textContent = `> ${data.message}`;
-          if (data.status === "error")
-            line.classList.add("text-red-600", "dark:text-red-400");
-          streamContent.appendChild(line);
-        }
-        scrollToBottom();
-      }
-
-      function scrollToBottom() {
-        chatContainer.scrollTop = chatContainer.scrollHeight;
-      }
-
-      chatForm.addEventListener("submit", (e) => {
-        e.preventDefault();
-        const text = userInput.value.trim();
-        if (!text) return;
-
-        appendUserMessage(text);
-        ws.send(JSON.stringify({ intent: text, history: chatHistory }));
-        userInput.value = "";
-        createAgentMessageBlock();
-      });
-
-      ws.onmessage = (event) => {
-        const data = JSON.parse(event.data);
-        appendToAgentStream(data);
       };
 
       loadHistory();
-
-      const style = document.createElement("style");
-      style.textContent = `
-            .animate-fade-in-up { animation: fadeInUp 0.4s ease-out forwards; }
-            @keyframes fadeInUp { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
-        `;
-      document.head.appendChild(style);
     </script>
   </body>
 </html>
