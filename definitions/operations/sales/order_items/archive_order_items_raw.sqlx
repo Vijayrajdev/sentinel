@@ -1,0 +1,18 @@
+config {
+  type: "operations",
+  dependencies: ["fct_order_items"],
+  tags: ["sales", "order_items", "archive"]
+}
+
+INSERT INTO `sentinel-486707.sentinel_raw.order_items_raw_hist` (order_id, product_id, quantity, unit_price, batch_date, processed_dttm)
+SELECT
+  order_id,
+  product_id,
+  quantity,
+  unit_price,
+  CURRENT_DATE() AS batch_date,
+  processed_dttm
+FROM
+  ${ref("order_items_raw")};
+
+TRUNCATE TABLE ${ref("order_items_raw")};
