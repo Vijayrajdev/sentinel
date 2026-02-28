@@ -8,10 +8,11 @@ import time
 import random
 from typing import Dict, Any, Optional, Tuple, List
 
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Request
 from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from google.cloud import bigquery
+from google.cloud import storage
 
 import vertexai
 from vertexai.generative_models import GenerativeModel
@@ -31,18 +32,20 @@ AUDIT_TABLE = os.environ.get(
     "AUDIT_TABLE", f"{PROJECT_ID}.sentinel_audit.insight_audit_log"
 )
 
-AI_MODEL_HEAVY_NAME = os.environ.get("AI_MODEL_HEAVY", "gemini-2.5-flash")
-AI_MODEL_LITE_NAME = os.environ.get("AI_MODEL_LITE", "gemini-2.5-flash-lite")
+AI_MODEL_HEAVY_NAME = os.environ.get("AI_MODEL_HEAVY", "gemini-2.5-pro")
+AI_MODEL_LITE_NAME = os.environ.get("AI_MODEL_LITE", "gemini-2.5-flash")
 
 COST_PER_TB = 6.25  # Standard BigQuery On-Demand Pricing
 
 bq_client: Optional[bigquery.Client] = None
+storage_client: Optional[storage.Client] = None
 model_heavy = None
 model_lite = None
 
 try:
     if PROJECT_ID:
         bq_client = bigquery.Client(project=PROJECT_ID)
+        storage_client = storage.Client(project=PROJECT_ID)
         vertexai.init(project=PROJECT_ID, location=REGION)
         model_heavy = GenerativeModel(AI_MODEL_HEAVY_NAME)
         model_lite = GenerativeModel(AI_MODEL_LITE_NAME)
@@ -136,7 +139,9 @@ def log_to_audit_table(
 # ==============================================================================
 # 🧠 INTENT ROUTER & EXECUTION
 # ==============================================================================
-async def agent_classify_intent(intent: str, trace_id: str, ws: WebSocket) -> str:
+async def agent_classify_intent(
+    intent: str, trace_id: str, ws: WebSocket, active_model_lite
+) -> str:
     """Agent 0: Classifies the user's intent into GREETING, EXPLORE, or GET_SQL."""
     await stream_log(
         ws, "INFO", "▶️ 🧠 [Agent 0: Router] Analyzing cognitive intent...", trace_id
@@ -150,7 +155,7 @@ async def agent_classify_intent(intent: str, trace_id: str, ws: WebSocket) -> st
     Output ONLY the exact category word.
     """
     category = await asyncio.to_thread(
-        generate_content_with_retry, model_lite, prompt, trace_id
+        generate_content_with_retry, active_model_lite, prompt, trace_id
     )
     category = category.strip().upper()
     await stream_log(
@@ -160,7 +165,7 @@ async def agent_classify_intent(intent: str, trace_id: str, ws: WebSocket) -> st
 
 
 async def execute_and_format_results(sql: str, trace_id: str, ws: WebSocket) -> dict:
-    """Executes the dry-run-validated SQL and formats it into HTML and JSON for Charts."""
+    """Executes the dry-run-validated SQL and formats it into sleek HTML and JSON for Charts."""
     await stream_log(
         ws,
         "INFO",
@@ -172,29 +177,29 @@ async def execute_and_format_results(sql: str, trace_id: str, ws: WebSocket) -> 
         query_job = await asyncio.to_thread(bq_client.query, safe_sql)
         results = list(await asyncio.to_thread(query_job.result))
 
-        # HTML Table adapted for Light/Dark mode
-        html = "<div class='overflow-x-auto w-full mt-4 rounded-xl border border-slate-300 dark:border-white/10 shadow-lg max-h-96 bg-white/50 dark:bg-black/20'>"
-        html += "<table class='w-full text-left text-xs text-slate-700 dark:text-gray-300 border-collapse'>"
+        # UI Adaptive HTML Injection
+        html = "<div class='apple-glass overflow-x-auto w-full mt-4 rounded-2xl shadow-xl max-h-96 custom-scrollbar text-slate-800 dark:text-slate-200'>"
+        html += "<table class='w-full text-left text-sm border-collapse'>"
 
         if not results:
             return {
-                "html": "<div class='text-sm text-slate-500 dark:text-gray-400 italic mt-2'>Query returned zero results.</div>",
+                "html": "<div class='text-sm italic mt-2 opacity-70 text-slate-800 dark:text-slate-200'>Query returned zero results.</div>",
                 "raw_data": [],
             }
 
         headers = [field.name for field in query_job.schema]
-        html += "<thead class='bg-slate-200 dark:bg-white/5 text-emerald-600 dark:text-emerald-400 font-mono sticky top-0 shadow-sm'><tr>"
+        html += "<thead class='bg-white/10 dark:bg-black/20 font-semibold sticky top-0 backdrop-blur-md z-10 text-emerald-700 dark:text-emerald-400'><tr>"
         for header in headers:
-            html += f"<th class='px-4 py-3 border-b border-slate-300 dark:border-white/10'>{header}</th>"
+            html += f"<th class='px-4 py-3 border-b border-white/20 dark:border-white/10 tracking-wide'>{header}</th>"
         html += "</tr></thead><tbody>"
 
         raw_data = []
         for row in results:
             row_dict = dict(row.items())
             raw_data.append(row_dict)
-            html += "<tr class='hover:bg-slate-100 dark:hover:bg-white/5 transition-colors duration-200'>"
+            html += "<tr class='hover:bg-white/40 dark:hover:bg-white/10 transition-colors duration-300'>"
             for val in row:
-                html += f"<td class='px-4 py-3 border-b border-slate-200 dark:border-white/5 whitespace-nowrap'>{str(val)}</td>"
+                html += f"<td class='px-4 py-3 border-b border-white/10 dark:border-white/5 whitespace-nowrap'>{str(val)}</td>"
             html += "</tr>"
 
         html += "</tbody></table></div>"
@@ -214,13 +219,17 @@ async def execute_and_format_results(sql: str, trace_id: str, ws: WebSocket) -> 
 # 🧠 THE AGENT SWARM FUNCTIONS
 # ==============================================================================
 async def agent_draft_sql(
-    intent: str, chat_history: List[Dict], trace_id: str, ws: WebSocket
+    intent: str,
+    chat_history: List[Dict],
+    trace_id: str,
+    ws: WebSocket,
+    active_model_heavy,
 ) -> str:
     """Agent 1: Writes the initial SQL based on intent, history, and strict data typing."""
     await stream_log(
         ws,
         "INFO",
-        "▶️ 🧠 [Agent 1: SQL Architect] Initiating translation of business intent to SQL...",
+        f"▶️ 🧠 [Agent 1: SQL Architect] Initiating translation using {active_model_heavy._model_name}...",
         trace_id,
     )
     history_context = "\n".join(
@@ -245,7 +254,7 @@ async def agent_draft_sql(
     Output ONLY the raw SQL code. No markdown formatting.
     """
     sql = await asyncio.to_thread(
-        generate_content_with_retry, model_heavy, prompt, trace_id
+        generate_content_with_retry, active_model_heavy, prompt, trace_id
     )
     sql = prune_markdown(sql, "sql")
     await stream_log(
@@ -305,7 +314,12 @@ async def sandbox_dry_run_and_count(
 
 
 async def agent_suggest_schema(
-    intent: str, bad_sql: str, error_msg: str, trace_id: str, ws: WebSocket
+    intent: str,
+    bad_sql: str,
+    error_msg: str,
+    trace_id: str,
+    ws: WebSocket,
+    active_model_lite,
 ) -> dict:
     """Agent: Analyzes 'Not Found' errors and suggests closely matching tables/columns."""
     await stream_log(
@@ -329,7 +343,7 @@ async def agent_suggest_schema(
     }}
     """
     response = await asyncio.to_thread(
-        generate_content_with_retry, model_lite, prompt, trace_id
+        generate_content_with_retry, active_model_lite, prompt, trace_id
     )
     response_clean = prune_markdown(response, "json")
     try:
@@ -342,7 +356,12 @@ async def agent_suggest_schema(
 
 
 async def agent_heal_sql(
-    intent: str, bad_sql: str, error_msg: str, trace_id: str, ws: WebSocket
+    intent: str,
+    bad_sql: str,
+    error_msg: str,
+    trace_id: str,
+    ws: WebSocket,
+    active_model_heavy,
 ) -> str:
     """Agent 1b: Heals the SQL based on BigQuery error messages (Syntax errors, not missing tables)."""
     await stream_log(
@@ -359,7 +378,7 @@ async def agent_heal_sql(
     Task: Fix the SQL query so it successfully executes. Output ONLY the raw SQL code. No markdown.
     """
     healed_sql = await asyncio.to_thread(
-        generate_content_with_retry, model_heavy, prompt, trace_id
+        generate_content_with_retry, active_model_heavy, prompt, trace_id
     )
     return prune_markdown(healed_sql, "sql")
 
@@ -383,22 +402,121 @@ async def websocket_endpoint(websocket: WebSocket):
         "x-goog-authenticated-user-email", "business.user@sentinel.ai"
     ).replace("accounts.google.com:", "")
 
+    # Dynamically format Name from Email (e.g. john.doe@... -> John Doe)
+    user_name_parts = user_email.split("@")[0].split(".")
+    user_name = " ".join([p.capitalize() for p in user_name_parts])
+
+    # 🌟 INITIALIZATION PAYLOAD
+    await websocket.send_json(
+        {
+            "status": "init_info",
+            "project_id": PROJECT_ID or "sentinel-local-dev",
+            "dataset": "sentinel_marts",
+        }
+    )
+
+    # 🌟 AUTO-GREETING ON LOAD
+    greeting_msg = (
+        f"Hello **{user_name}**! 👋 I am your autonomous Sentinel-Insight AI Analyst.\n\n"
+        "**My God Level Capabilities:**\n"
+        "✨ **Explore & Visualize:** Ask me to pull business metrics. I will autonomously write the SQL, execute it safely, and render interactive charts.\n"
+        "🎯 **Smart Schema Routing:** If you misspell a table, I will scan the warehouse and suggest the closest semantic matches to auto-heal the query.\n"
+        "🗃️ **Cloud Storage Command:** Open the 'GCS Explorer' in the sidebar to view buckets and move/route files seamlessly without leaving the chat.\n"
+        "📄 **Generate SQL:** Ask me for the SQL, and I will provide the perfect `.sql` file for you to run in the BigQuery console.\n\n"
+        "How can I assist your data journey today?"
+    )
+    await websocket.send_json({"status": "greeting", "message": greeting_msg})
+
     try:
         while True:
             data = await websocket.receive_text()
             payload = json.loads(data)
 
+            chosen_model_name = payload.get("ai_model", AI_MODEL_HEAVY_NAME)
+            active_model_heavy = GenerativeModel(chosen_model_name)
+            active_model_lite = GenerativeModel(AI_MODEL_LITE_NAME)
+
+            action_type = payload.get("action", None)
             intent = payload.get("intent", "").strip()
             chat_history = payload.get("history", [])
-            action_override = payload.get("action", None)
             target_sql = payload.get("sql", None)
 
-            logger.info(f"[{trace_id}] Received Intent: {intent} from {user_email}")
+            # 🌟 GCS EXPLORER & OPERATIONS
+            if action_type == "LIST_BUCKETS":
+                try:
+                    buckets = [b.name for b in storage_client.list_buckets()]
+                    await websocket.send_json(
+                        {"status": "gcs_buckets", "buckets": buckets}
+                    )
+                except Exception as e:
+                    await websocket.send_json(
+                        {
+                            "status": "error",
+                            "message": f"Failed to list buckets: {str(e)}",
+                        }
+                    )
+                continue
+
+            elif action_type == "LIST_OBJECTS":
+                try:
+                    b_name = payload.get("bucket")
+                    objects = [o.name for o in storage_client.list_blobs(b_name)]
+                    await websocket.send_json(
+                        {"status": "gcs_objects", "bucket": b_name, "objects": objects}
+                    )
+                except Exception as e:
+                    await websocket.send_json(
+                        {
+                            "status": "error",
+                            "message": f"Failed to list objects: {str(e)}",
+                        }
+                    )
+                continue
+
+            elif action_type == "MOVE_OBJECT":
+                src_b = payload.get("src_bucket")
+                src_o = payload.get("src_object")
+                dst_b = payload.get("dest_bucket")
+                dst_o = payload.get("dest_object")
+                try:
+                    source_bucket = storage_client.bucket(src_b)
+                    source_blob = source_bucket.blob(src_o)
+                    destination_bucket = storage_client.bucket(dst_b)
+
+                    source_bucket.copy_blob(source_blob, destination_bucket, dst_o)
+                    source_blob.delete()
+
+                    await websocket.send_json(
+                        {
+                            "status": "gcs_move_success",
+                            "message": f"✅ Successfully moved object to `gs://{dst_b}/{dst_o}`.",
+                        }
+                    )
+                    log_to_audit_table(
+                        trace_id,
+                        "MOVE_OBJECT",
+                        "SUCCESS",
+                        {"action": f"Moved {src_b}/{src_o} to {dst_b}/{dst_o}"},
+                        user_email,
+                    )
+                except Exception as e:
+                    await websocket.send_json(
+                        {
+                            "status": "error",
+                            "message": f"Failed to move object: {str(e)}",
+                        }
+                    )
+                continue
+
+            # 🌟 CORE AI INTELLIGENCE LOOP
+            logger.info(
+                f"[{trace_id}] Received Intent: {intent} from {user_email} via {chosen_model_name}"
+            )
             log_to_audit_table(
                 trace_id,
                 intent,
                 "STARTED",
-                {"action": "User submitted query"},
+                {"action": "User submitted query", "model": chosen_model_name},
                 user_email,
             )
 
@@ -406,7 +524,7 @@ async def websocket_endpoint(websocket: WebSocket):
                 # ---------------------------------------------------------
                 # EXPLICIT CONFIRMATION LOGIC
                 # ---------------------------------------------------------
-                if action_override == "CONFIRM_EXPLORE" and target_sql:
+                if action_type == "CONFIRM_EXPLORE" and target_sql:
                     results_dict = await execute_and_format_results(
                         target_sql, trace_id, websocket
                     )
@@ -428,7 +546,7 @@ async def websocket_endpoint(websocket: WebSocket):
                     )
                     continue
 
-                elif action_override == "CONFIRM_GET_SQL" and target_sql:
+                elif action_type == "CONFIRM_GET_SQL" and target_sql:
                     await websocket.send_json(
                         {
                             "status": "sql_only",
@@ -448,23 +566,19 @@ async def websocket_endpoint(websocket: WebSocket):
                 # ---------------------------------------------------------
                 # STANDARD INTELLIGENCE LOOP
                 # ---------------------------------------------------------
-                intent_type = await agent_classify_intent(intent, trace_id, websocket)
+                intent_type = await agent_classify_intent(
+                    intent, trace_id, websocket, active_model_lite
+                )
 
                 if intent_type == "GREETING":
-                    greeting_msg = (
-                        f"Hello `{user_email}`! 👋 I am your autonomous Sentinel-Insight Analyst.\n\n"
-                        "**My Capabilities:**\n"
-                        "1️⃣ **Explore Data & Generate Charts:** Ask me to pull business metrics. I will write the SQL, execute it safely, show you the data, and automatically plot interactive charts that you can download.\n"
-                        "2️⃣ **Smart Schema Routing:** If you misspell a table or column name, I will scan the data warehouse and suggest the closest matches to correct it.\n"
-                        "3️⃣ **Generate SQL Files:** If you want to build a table or just need the code, ask me for the SQL. I will provide the perfectly formatted `.sql` block for you to run in the BigQuery console.\n\n"
-                        "How can I assist your data journey today?"
-                    )
                     await websocket.send_json(
                         {"status": "greeting", "message": greeting_msg}
                     )
                     continue
 
-                sql = await agent_draft_sql(intent, chat_history, trace_id, websocket)
+                sql = await agent_draft_sql(
+                    intent, chat_history, trace_id, websocket, active_model_heavy
+                )
 
                 is_valid, error_msg, cost, row_count, schema_fields = (
                     await sandbox_dry_run_and_count(sql, trace_id, websocket)
@@ -478,7 +592,12 @@ async def websocket_endpoint(websocket: WebSocket):
                         or "unrecognized name" in error_msg.lower()
                     ):
                         advisor_resp = await agent_suggest_schema(
-                            intent, sql, error_msg, trace_id, websocket
+                            intent,
+                            sql,
+                            error_msg,
+                            trace_id,
+                            websocket,
+                            active_model_lite,
                         )
                         await websocket.send_json(
                             {
@@ -498,7 +617,7 @@ async def websocket_endpoint(websocket: WebSocket):
                         break
 
                     sql = await agent_heal_sql(
-                        intent, sql, error_msg, trace_id, websocket
+                        intent, sql, error_msg, trace_id, websocket, active_model_heavy
                     )
                     is_valid, error_msg, cost, row_count, schema_fields = (
                         await sandbox_dry_run_and_count(sql, trace_id, websocket)
@@ -537,7 +656,7 @@ async def websocket_endpoint(websocket: WebSocket):
                     await websocket.send_json(
                         {
                             "status": "explore_result",
-                            "message": "✅ Query executed safely. Here are your insights and charts:",
+                            "message": f"✅ Query executed safely using **{chosen_model_name}**. Here are your insights:",
                             "html": results_dict["html"],
                             "raw_data": results_dict["raw_data"],
                             "sql": sql,
@@ -547,7 +666,7 @@ async def websocket_endpoint(websocket: WebSocket):
                         trace_id,
                         intent,
                         "SUCCESS",
-                        {"action": "Data Explored"},
+                        {"action": "Data Explored", "model": chosen_model_name},
                         user_email,
                     )
 
@@ -555,7 +674,7 @@ async def websocket_endpoint(websocket: WebSocket):
                     await websocket.send_json(
                         {
                             "status": "sql_only",
-                            "message": "✅ Here is the validated SQL you requested. You can execute this directly in the BigQuery Console to build your table.",
+                            "message": f"✅ Here is the validated SQL generated via **{chosen_model_name}**.",
                             "sql": sql,
                         }
                     )
@@ -563,7 +682,7 @@ async def websocket_endpoint(websocket: WebSocket):
                         trace_id,
                         intent,
                         "SUCCESS",
-                        {"action": "SQL File Provided"},
+                        {"action": "SQL File Provided", "model": chosen_model_name},
                         user_email,
                     )
 
