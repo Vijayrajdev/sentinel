@@ -1,130 +1,165 @@
-# 🤖 Sentinel-Forge: Autonomous DataOps Agent
+# 🛡️ Sentinel-Forge: Autonomous Agentic Data Engineering
 
-**Sentinel-Forge** is an enterprise-grade, event-driven Multi-Agent AI system designed to autonomously monitor, self-heal, and scale Google Cloud data pipelines. 
+![Python](https://img.shields.io/badge/Python-3.10+-blue.svg)
+![GCP](https://img.shields.io/badge/Google_Cloud-Functions_|_BigQuery_|_PubSub-4285F4.svg)
+![VertexAI](https://img.shields.io/badge/Vertex_AI-Gemini_2.5_Flash-orange.svg)
+![Dataform](https://img.shields.io/badge/Dataform-Core_v3.x-blueviolet.svg)
+![Terraform](https://img.shields.io/badge/Terraform-HCL-purple.svg)
 
-Operating as a virtual Data Engineer, Analytics Engineer, and QA Lead, Sentinel-Forge intercepts pipeline anomalies—specifically schema drifts and missing landing tables—and automatically generates the necessary BigQuery Schemas, Terraform infrastructure (HCL), and Dataform transformations (SQLX). It then peer-reviews its own code and submits a highly detailed Pull Request to your Git repository for final human approval.
+> **Stop building pipelines. They are the technical debt of 2024.**
+>
+> In 2026, if you are still manually mapping `source_field_a` to `target_field_b`, you aren't an engineer; you're a human compiler. The era of Agentic Data Engineering is here. We don't write ETL anymore—we define Intent.
 
----
+**Sentinel-Forge** is a fully autonomous, self-healing data ingestion and infrastructure platform. When upstream source files change (Schema Drift) or new datasets arrive, Sentinel doesn't just alert you. A swarm of specialized AI agents analyzes the payload, writes the Terraform infrastructure, generates the Dataform (`.sqlx`) pipelines with dynamic casting, and opens a Pull Request for your review.
 
-## ✨ Core Capabilities
-
-* **Autonomous Self-Healing:** Intercepts missing tables and schema drifts in real-time, completely eliminating manual pipeline bottlenecks.
-* **Semantic Domain Routing:** Intelligently scans existing Dataform workspaces using fuzzy matching to route new tables (e.g., `orders_raw`) to existing semantic domain folders (e.g., `ecommerce`), maintaining strict repository taxonomy.
-* **Zero-Shot History Table Generation:** Automatically provisions 30-day auto-expiring `_hist` BigQuery tables for any new `_raw` landing table by mimicking existing repository patterns via RAG (Retrieval-Augmented Generation).
-* **Automated Data Quality:** Dynamically infers and injects Dataform `assertions` (e.g., `uniqueKey`, `nonNull`, `rowConditions`) into SQLX config blocks based on AI schema analysis.
-* **Idempotent Operations:** Automatically generates `TRUNCATE` operations post-archival to maintain clean landing zones and optimize BigQuery costs.
-* **Enterprise Audit Logging:** Logs every AI thought process, action, and detailed JSON payload to a BigQuery Audit table (`ai_ops_log`) with explicit PR link references.
-
----
-
-## 🧠 The Multi-Agent Architecture
-
-Sentinel-Forge employs a strict **Planner-Doer-Reviewer** pattern utilizing Vertex AI (Gemini 2.5 Pro). The workflow is parallelized across 7 specialized AI Agents orchestrated by a central gateway.
-
-### 1. 🧩 Schema Designer (Agent 1)
-* **Role:** Data Architect.
-* **Function:** Generates BigQuery JSON schemas from raw sample data or extracts new columns.
-* **Governance:** Strictly enforces `STRING` data types for the raw layer, sets all modes to `NULLABLE`, and seamlessly appends enterprise audit columns (`batch_date`, `processed_dttm`).
-
-### 2. 🏗️ Terraform Architect (Agent 2)
-* **Role:** Cloud Infrastructure Engineer.
-* **Function:** Generates or patches `google_bigquery_table` Terraform HCL blocks.
-* **Mimicry:** Scans the repo for existing `_hist` table configurations and perfectly replicates your enterprise's exact infrastructure style for history tables without hallucinating new variables.
-
-### 3. 🔍 Dataform Scanner (Agent 3)
-* **Role:** Repository Context Analyst.
-* **Function:** Performs semantic matching to locate existing `.sqlx` files. If `orders_raw` triggers an event, it hunts for variations like `order` in `definitions/marts/` subdirectories to ensure patches are routed correctly and extracts existing SQL styles for RAG.
-
-### 4. 🪄 Dataform Architect (Agent 4)
-* **Role:** Analytics Engineer.
-* **Function:** Synthesizes Google Cloud Dataform Core v3.x code, explicitly embedding Data Quality assertions.
-* **Output:** Generates 4 distinct layers per entity:
-    1.  `sources/` (Declaration)
-    2.  `staging/` (View with DQ)
-    3.  `marts/` (Incremental Fact Table with DQ)
-    4.  `operations/` (Archive Insert & Truncate)
-
-### 5. 🕵️‍♀️ Dataform QA Verifier (Agent 5)
-* **Role:** Analytics QA Lead.
-* **Function:** Peer-reviews Agent 4's code. It validates that 100% of the new columns are explicitly selected, corrects misplaced folder paths, validates `${ref()}` syntax, and confirms Data Quality Assertions are present.
-
-### 6. 🕵️‍♀️ Schema QA Verifier (Agent 6)
-* **Role:** Data Governance Lead.
-* **Function:** Intercepts the generated JSON schema before commit to ensure absolute compliance with the `STRING`/`NULLABLE` mandate and verifies audit column inclusion.
-
-### 7. 🕵️‍♀️ Terraform QA Verifier (Agent 7)
-* **Role:** DevOps QA Lead.
-* **Function:** Parses the generated HCL code for missing brackets, quotes, and strictly enforces that a `_hist` table resource is generated whenever a `_raw` table is processed.
+The role of the Senior Data Engineer has officially moved from "Plumber" to "Agent Controller."
 
 ---
 
-## 🚀 Event-Driven Trigger Mechanism (Sentinel-Ingestor)
+## 🏗️ High-Level Architecture
 
-Sentinel-Forge operates dynamically, reacting to live pipeline pain points rather than running on a static schedule. The primary tripwire for this Multi-Agent system is the **Sentinel-Ingestor**.
+The system is split into two primary microservices:
 
-### The Sentinel-Ingestor Pipeline
-The `sentinel-ingestor` is the frontline component of the data platform, responsible for monitoring the Cloud Storage landing zone and executing metadata-driven loads into BigQuery based on `sentinel_audit.ingestion_master`. 
+1. **`sentinel-ingestor`**: The intelligent vanguard. A Cloud Function triggered by GCS uploads. It dynamically validates incoming files against the BigQuery warehouse. If the schema matches, it loads the data. If it detects **Schema Drift** or a **Missing Table**, it halts, packages a payload containing sample data and domain telemetry, and fires it to a Pub/Sub event mesh.
+2. **`sentinel-forge`**: The AI Agent swarm. Triggered by the Pub/Sub drift event, this multi-agent engine utilizes Vertex AI (Gemini 2.5 Flash & Flash-Lite) to reverse-engineer the required infrastructure and pipeline code, submitting a flawless PR to your GitHub repository.
 
-Before loading a file, the Ingestor acts as a schema validation gateway:
-1. **Header Extraction:** Reads the header row of the incoming raw file (e.g., CSV).
-2. **Schema Comparison:** Compares incoming headers against the existing BigQuery raw table schema. 
-3. **Anomaly Detection:** If the target table does not exist, or if the file contains new schema drifts (new columns), the Ingestor safely halts the load for that specific file.
-4. **The Trigger:** The Ingestor immediately publishes a structured JSON payload (containing `table_ref`, `new_column_headers`, and `sample_data_rows`) to the `schema_drift_events` Pub/Sub topic. 
+```mermaid
+graph TD
+    %% Global Link Styling (Vibrant Cyan for Dark Mode visibility)
+    linkStyle default stroke:#00D2D3,stroke-width:3px;
 
-This Pub/Sub message wakes up **Sentinel-Forge** to begin the autonomous self-healing process.
+    %% Node Definitions with Detailed Labels
+    A[🪣 GCS Landing Bucket<br>Raw CSV/JSON/Parquet]:::storage
+    B(🛡️ Sentinel Ingestor<br>Cloud Function / Python):::compute
+    C[(🏛️ BigQuery Raw Tables<br>Data Warehouse)]:::database
+    D{📬 Pub/Sub Drift Topic<br>Event Mesh}:::pubsub
 
----
+    E((🧠 Sentinel-Forge AI Swarm<br>Vertex AI Gemini 2.5)):::ai
 
-## 📦 Orchestration & Git Injection
+    %% The Makers
+    F[🧩 Agent 1: Schema Designer<br>BigQuery JSON Schema]:::ai
+    G[🏗️ Agent 2: TF Architect<br>Terraform HCL Code]:::ai
+    H[🪄 Agent 4: DF Architect<br>Dataform SQLX Code]:::ai
 
-Once the Multi-Agent system is triggered and has successfully generated and peer-reviewed the necessary infrastructure and transformation code, the **Git Injector** finalizes the workflow:
+    %% The Checkers
+    Q1[🕵️‍♀️ Agent 6: Schema QA<br>Enforce STRING & Defaults]:::ai
+    Q2[🕵️‍♀️ Agent 7: TF QA<br>Enforce DRY & Locals]:::ai
+    Q3[🕵️‍♀️ Agent 5: DF QA<br>Enforce Tags & Syntax]:::ai
 
-1. **Branching:** Creates a dynamically named, isolated branch from `master` (e.g., `ai/ops-orders_raw-a1b2c3`).
-2. **Committing:** Commits the generated JSON schemas, Terraform HCL, and Dataform SQLX files using standard conventional commits (`feat:`, `fix:`).
-3. **Pull Request:** Opens a highly detailed Pull Request on GitHub. The PR body is dynamically generated to include Markdown tables outlining the exact schema changes, specific paths modified, and data quality assertions added.
+    I[🐙 GitHub API<br>Branch & Commit Injector]:::git
+    J[🏆 Pull Request Created<br>Self-Healed Pipeline]:::git
 
-Once the PR is merged by a human engineer, the standard CI/CD pipeline (e.g., Terraform Cloud/GitHub Actions) applies the changes, and the Dataform workflows resume naturally.
+    %% Connections
+    A -->|Upload Event| B
+    B -->|Schema Valid & Loaded| C
+    B -->|Schema Drift / Missing Table| D
+    D -->|Trigger Payload + Domain| E
 
----
+    E -->|Drafts Schema| F
+    E -->|Drafts Infra| G
+    E -->|Drafts Pipeline| H
 
-## 📊 Observability & Telemetry
+    F -->|Validates| Q1
+    G -->|Validates| Q2
+    H -->|Validates| Q3
 
-Sentinel-Forge employs strict "Black Box" observability to ensure absolute transparency into the AI's decision-making process.
+    Q1 & Q2 & Q3 -->|Injects Verified Code| I
+    I --> J
 
-* **Cloud Logging:** Every single function entry and exit is logged using strict `▶️` (Start) and `⏹️` (End) indicators. All logs share a unified `trace_id` for perfect chronological debugging in Google Cloud Logging.
-* **BigQuery Audit Ledger:** The agent records every successful PR generation or critical system failure into the `sentinel_audit.ai_ops_log` table. The payload includes a highly detailed, nested JSON object (`change_payload`) detailing exactly which columns were added, which files were touched, whether a history table was synced, and the direct URL to the GitHub PR.
-
----
-
-## 🛠️ Environment Configuration
-
-To deploy this Gen 2 Cloud Function, the following Environment Variables must be configured:
-
-| Variable | Description | Example |
-| :--- | :--- | :--- |
-| `GCP_PROJECT` | Your Google Cloud Project ID | `sentinel-486707` |
-| `GCP_REGION` | Vertex AI & BigQuery Region | `us-central1` |
-| `REPO_NAME` | Target GitHub Repository | `Vijayrajdev/sentinel` |
-| `GITHUB_TOKEN` | PAT with `repo` & `pull_request` access stored securely | `ghp_...` |
-| `AI_AUDIT_TABLE` | BigQuery destination for AI operations logs | `sentinel_audit.ai_ops_log` |
-| `SCHEMA_BASE_PATH` | Repository path for Schema JSON definitions | `infra/bigquery/tables/json/` |
-| `TF_BASE_PATH` | Repository path for Terraform HCL configurations | `infra/bigquery/tables/` |
-
-## 📄 `requirements.txt`
-
-```text
-functions-framework==3.8.1
-google-cloud-vertexai==1.71.1
-PyGithub==2.3.0
-google-cloud-bigquery==3.20.1
-google-cloud-storage==2.9.0
-google-cloud-aiplatform>=1.38.0
-google-cloud-pubsub==2.18.0
-pandas>=2.1.0
-numpy<2.0.0
-gcsfs>=2023.9.2
-pyarrow>=13.0.0
-openpyxl>=3.1.2
-db-dtypes>=1.2.0
+    %% Class Definitions (Rich light shades with high-contrast dark borders & text)
+    classDef storage fill:#D6EAF8,stroke:#2980B9,stroke-width:2px,color:#154360,rx:8px,ry:8px;
+    classDef compute fill:#E8DAEF,stroke:#8E44AD,stroke-width:2px,color:#4A235A,rx:8px,ry:8px;
+    classDef database fill:#D1F2EB,stroke:#16A085,stroke-width:2px,color:#0B5345,rx:8px,ry:8px;
+    classDef pubsub fill:#FDEBD0,stroke:#D68910,stroke-width:2px,color:#7E5109,rx:8px,ry:8px;
+    classDef ai fill:#FDEDEC,stroke:#C0392B,stroke-width:2px,color:#641E16,rx:8px,ry:8px;
+    classDef git fill:#EAECEE,stroke:#2C3E50,stroke-width:2px,color:#17202A,rx:8px,ry:8px;
 ```
-*Built with ❤️ for the Sentinel Data Platform.*
+
+## 🧠 The Agent Swarm (`sentinel-forge`)
+
+Sentinel-Forge employs a highly optimized **Maker/Checker Multi-Agent Architecture** to autonomously engineer and heal your data platform. To drastically reduce costs and maintain high efficiency, tasks are dynamically routed to **Tiered Models**: Heavy reasoning goes to `gemini-2.5-flash`, while routing and QA go to `gemini-2.5-flash-lite`.
+
+### 🤖 The Agents
+
+- **🕵️‍♂️ The Scanners & Routers [Lite]:** The Scanner reads the existing Dataform repository via the GitHub API to infer active domains, target datasets, and existing SQLX code styles. The Dataset Analyst uses semantic matching to securely map incoming tables to the correct raw, staging, and mart layers without hallucinating new dataset names.
+- **🧩 The Schema Designer [Lite]:** Formulates strict BigQuery JSON schemas based on the data payload. It enforces absolute `STRING` types for all incoming raw columns to prevent ingestion crashes and embeds mandatory `defaultValueExpression` attributes for enterprise compliance.
+- **🏗️ The Terraform Architect [Heavy]:** Synthesizes HCL to deploy infrastructure.
+  - **Adaptive Feature:** It intelligently parses existing repository structures and injects resources into existing `locals` map dictionaries (e.g., `tables_raw = {}`) to prevent duplicate block hallucination.
+  - It also automatically provisions `_hist` archive tables, enforcing the DRY (Don't Repeat Yourself) principle by reusing the main table's JSON schema file.
+- **🪄 The Dataform Architect [Heavy]:** The core Analytics Engineer.
+  - Generates perfectly formatted `.sqlx` files utilizing explicit domain folder routing (`layer/domain/entity/file.sqlx`).
+  - Analyzes sample data to dynamically inject the correct `SAFE_CAST` and `SAFE.PARSE_DATE` logic for every column.
+  - Implements `incremental` models with BigQuery cluster/partition configurations and strict `CURRENT_DATE() AS batch_date` temporal lineage across all layers.
+- **🕵️‍♀️ The QA Gatekeepers [Lite]:** The ruthless reviewers of the swarm. They cross-examine the JSON, Terraform, and Dataform code generated by the Architects.
+  - They forcefully strip out hallucinated variables and fake dependencies.
+  - Correct SQL syntax and align formatting.
+  - Validate explicit casting logic.
+  - Enforce a strict 3-part tag taxonomy (`[domain, entity, layer]`) on all Dataform configs.
+
+---
+
+## ✨ Enterprise Features
+
+### 🛡️ Anti-Hallucination & Governance
+
+- **Locked File Paths:** The Forge enforces strict path constraints, physically preventing the AI from hallucinating duplicate files or changing the folder architecture.
+- **Adaptive Terraform Injection:** Recognizes advanced Terraform patterns (like `for_each` over `locals` maps) and injects configurations into the maps rather than appending clumsy duplicate `resource` blocks.
+- **Strict Template Adherence:** Dataform `type: "declaration"` files are stripped of illegal `tags` properties, while staging and marts are strictly bound to enterprise standards (Assertions, Qualify Deduplication, etc.).
+
+### 🚦 Google Cloud Quota Protection (Traffic Smoothing)
+
+Multi-agent systems fire a massive burst of LLM requests in seconds, easily hitting HTTP 429 (Resource Exhausted) errors. Sentinel-Forge includes:
+
+- **Traffic Smoothing:** Base 3-second pacing between LLM executions.
+- **Exponential Backoff with Jitter:** A custom resilience wrapper that detects 429 quota hits, applying randomized exponential backoff (5s, 10s, 20s...) and retrying up to 5 times to ensure the pipeline always heals successfully without crashing.
+
+### 🧬 Dynamic Telemetry & Domain Threading
+
+The `sentinel-ingestor` reads routing rules from a dynamic metadata table (`ingestion_master`). It extracts the business `domain` and threads this metadata directly through the Pub/Sub event mesh. The Forge agents use this `domain` to natively organize Dataform folders and tag taxonomies without human intervention.
+
+---
+
+## 🚀 Setup & Deployment
+
+### 1. BigQuery Metadata Tables
+
+You must provision the telemetry and routing tables in your `sentinel_audit` dataset:
+
+- `ingestion_master`: Defines `file_pattern`, `target_dataset`, `target_table`, `domain`, `skip_header_rows`, etc.
+- `ingestion_log`: Stores the historical audit ledger of all ingestion attempts (successes, fail-overs, schema drift events).
+- `ai_ops_log`: Stores the deferred audit logs generated by the Sentinel-Forge agents containing the Pull Request URLs.
+
+### 2. Environment Variables (`sentinel-ingestor`)
+
+| Variable             | Description                           | Example                                   |
+| :------------------- | :------------------------------------ | :---------------------------------------- |
+| `GCP_PROJECT`        | Your Google Cloud Project ID          | `my-data-project`                         |
+| `METADATA_DATASET`   | Dataset housing routing/audit logs    | `sentinel_audit`                          |
+| `MASTER_TABLE`       | Routing rules table                   | `ingestion_master`                        |
+| `LOGS_TABLE`         | Ingestion audit log table             | `ingestion_log`                           |
+| `ARCHIVE_BUCKET`     | Fallback bucket for quarantined files | `my-archive-bucket`                       |
+| `PUBSUB_TOPIC_DRIFT` | Pub/Sub topic to trigger the AI Swarm | `projects/my-project/topics/schema-drift` |
+
+### 3. Environment Variables (`sentinel-forge`)
+
+| Variable           | Description                           | Example                       |
+| :----------------- | :------------------------------------ | :---------------------------- |
+| `GCP_PROJECT`      | Your Google Cloud Project ID          | `my-data-project`             |
+| `GCP_REGION`       | Vertex AI Execution Region            | `us-central1`                 |
+| `REPO_NAME`        | Target GitHub Repository              | `org/data-platform`           |
+| `GITHUB_TOKEN`     | PAT with repo write access            | `ghp_xxxxxxxx`                |
+| `SCHEMA_BASE_PATH` | Path in repo for BQ JSON schemas      | `infra/bigquery/tables/json/` |
+| `TF_BASE_PATH`     | Path in repo for TF configs           | `infra/bigquery/tables/`      |
+| `AI_MODEL_HEAVY`   | Vertex AI model for complex synthesis | `gemini-2.5-flash`            |
+| `AI_MODEL_LITE`    | Vertex AI model for routing and QA    | `gemini-2.5-flash-lite`       |
+
+---
+
+## 🤝 How to trigger the magic
+
+1. Upload a CSV/JSON/Parquet file to your GCS Landing bucket with a completely new column or structural change.
+2. Watch `sentinel-ingestor` detect the drift, safely quarantine the file, and ping Pub/Sub.
+3. Open GitHub and watch as `sentinel-forge` creates a new branch, writes the Terraform, patches the JSON schema, authors dynamic Dataform `.sqlx` code, and opens a ready-to-merge Pull Request.
+
+**Welcome to 2026.**
+_Built with ❤️ for the Sentinel Data Platform._
