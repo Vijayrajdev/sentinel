@@ -1,0 +1,6 @@
+config {
+  type: "declaration",
+  database: "sentinel-486707",
+  schema: "sentinel_raw",
+  name: "order_items_raw"
+}
