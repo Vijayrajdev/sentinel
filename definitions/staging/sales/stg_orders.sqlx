@@ -2,13 +2,14 @@ config {
   type: "view",
   schema: "sentinel_staging",
   assertions: {
-    uniqueKey: ["order_id"],      
-    nonNull: ["order_id", "amount"], 
+    uniqueKey: ["order_id"],
+    nonNull: ["order_id", "amount", "order_date", "processed_dttm"],
     rowConditions: [
-      "amount >= 0",              
+      "amount >= 0",
       "order_date <= CURRENT_DATE()"
     ]
-  }
+  },
+  tags: ["sales", "orders", "staging"]
 }
 
 SELECT
@@ -17,8 +18,12 @@ SELECT
   SAFE_CAST(amount AS FLOAT64) AS amount,
   status,
   SAFE.PARSE_DATE('%Y-%m-%d', order_date) AS order_date,
-  batch_date,
-  processed_dttm,
-  warehouse_id
+  product_id,
+  SAFE_CAST(unit_price AS FLOAT64) AS unit_price,
+  SAFE_CAST(quantity AS INT64) AS quantity,
+  warehouse_id,
+  CURRENT_DATE() AS batch_date,
+  SAFE_CAST(processed_dttm AS TIMESTAMP) AS processed_dttm
 FROM
   ${ref("orders_raw")}
+QUALIFY ROW_NUMBER() OVER(PARTITION BY order_id ORDER BY SAFE_CAST(processed_dttm AS TIMESTAMP) DESC) = 1
