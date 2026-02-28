@@ -108,7 +108,7 @@ resource "google_bigquery_table" "sentinel_raw_hist_tables" {
 
   dataset_id          = "sentinel_raw"
   table_id            = "${each.key}_hist"
-  friendly_name       = "sentinel_${each.key}"
+  friendly_name       = "sentinel_${each.key}_hist"
   deletion_protection = false
 
   # 1. The Dynamic Block
