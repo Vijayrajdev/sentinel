@@ -310,8 +310,6 @@ def generate_dynamic_schema(
             "⏳ 🧩 [Agent 1: Schema Design] Awaiting AI generation response...",
             trace_id,
         )
-
-        # REQUIRED UPDATE: Replaced basic call with retry wrapper
         response = generate_content_with_retry(model_lite, prompt, trace_id)
 
         text = response.text.strip()
@@ -500,7 +498,6 @@ def ask_ai_is_definition(content: str, table_id: str, trace_id: str) -> bool:
     Return TRUE or FALSE.
     """
     try:
-        # REQUIRED UPDATE: Replaced basic call with retry wrapper
         response = generate_content_with_retry(model_lite, prompt, trace_id)
         return "TRUE" in response.text.upper()
     except:
@@ -626,10 +623,7 @@ def generate_tf_patch_or_create(
             "⏳ 🏗️ [Agent 2: TF Architect] Awaiting AI infrastructure generation...",
             trace_id,
         )
-
-        # REQUIRED UPDATE: Replaced basic call with retry wrapper
         response = generate_content_with_retry(model_heavy, prompt, trace_id)
-
         text = response.text.strip()
         if text.startswith("```"):
             text = text.split("\n", 1)[1].rsplit("\n", 1)[0]
@@ -820,7 +814,6 @@ def infer_pipeline_datasets_with_ai(
             trace_id,
         )
 
-        # REQUIRED UPDATE: Replaced basic call with retry wrapper
         response = generate_content_with_retry(model_lite, prompt, trace_id)
 
         text = response.text.strip()
@@ -855,7 +848,7 @@ def infer_pipeline_datasets_with_ai(
 
 
 # ==============================================================================
-# 🧠 AGENT 4: DATAFORM ARCHITECT (Enhanced with Dynamic Templates, Parsing & Formatting)
+# 🧠 AGENT 4: DATAFORM ARCHITECT (Enhanced Templates, Pathing & Formatting)
 # ==============================================================================
 def generate_ai_dataform_pipeline(
     table_name: str,
@@ -865,9 +858,10 @@ def generate_ai_dataform_pipeline(
     new_cols: List[str],
     sample_data: List[Dict],
     datasets: Dict[str, str],
+    target_domain: str,  # FEATURE ADDITION: Target Domain variable threaded down
     trace_id: str,
 ) -> Dict[str, str]:
-    """Goal: Dynamically generate Dataform files, strictly enforcing datasets, tags, syntax, templates, formatting, and temporal logic."""
+    """Goal: Dynamically generate Dataform files, strictly enforcing datasets, tags, syntax, paths, templates, formatting, and temporal logic."""
     log_event(
         "INFO",
         f"▶️ 🪄 [Agent 4: DF Architect] Analyzing requirements for '{table_name}'...",
@@ -895,7 +889,13 @@ def generate_ai_dataform_pipeline(
     inferred_domain = df_state.get("inferred_domain", "")
 
     action_type = "Updated" if existing_files else "Created"
-    actual_domain = inferred_domain if inferred_domain else "logical_domain"
+
+    # FEATURE ADDITION: Establish rigorous domain calculation for pathing and tags
+    actual_domain = (
+        target_domain
+        if target_domain and target_domain != "unknown_domain"
+        else (inferred_domain if inferred_domain else "logical_domain")
+    )
 
     if existing_files:
         existing_paths = list(existing_files.keys())
@@ -917,19 +917,15 @@ def generate_ai_dataform_pipeline(
             "✨ 🪄 [Agent 4: DF Architect] No files detected. Operating in CREATE mode.",
             trace_id,
         )
-        domain_instruction = (
-            f"Use the detected domain folder '{inferred_domain}' or invent a logical one"
-            if inferred_domain
-            else "Invent a logical domain folder name (e.g., 'sales', 'hr', 'ecommerce')"
-        )
+        # FEATURE ADDITION: Forced deeply nested domain/entity routing syntax
         instruction_block = f"""
         Create files from scratch.
-        CRITICAL DOMAIN ROUTING: {domain_instruction}.
-        Structure MUST be:
-        - definitions/sources/{table_name}.sqlx
-        - definitions/staging/<logical_domain_folder>/stg_{base_name}.sqlx
-        - definitions/marts/<logical_domain_folder>/fct_{base_name}.sqlx
-        - definitions/operations/archive_{table_name}.sqlx
+        CRITICAL DOMAIN ROUTING: Use domain '{actual_domain}'.
+        Structure MUST strictly follow this pattern:
+        - definitions/sources/{actual_domain}/{base_name}/{table_name}.sqlx
+        - definitions/staging/{actual_domain}/{base_name}/stg_{base_name}.sqlx
+        - definitions/marts/{actual_domain}/{base_name}/fct_{base_name}.sqlx
+        - definitions/operations/{actual_domain}/{base_name}/archive_{table_name}.sqlx
         
         STYLE GUIDE (Mimic format): ```sql\n{prune_whitespace(style_guide[:2000])}\n```
         """
@@ -950,11 +946,11 @@ def generate_ai_dataform_pipeline(
     
     DATAFORM TEMPLATES TO STRICTLY FOLLOW (Use these exact structures):
     
-    1. Source Declaration (`definitions/sources/{table_name}.sqlx`):
+    1. Source Declaration (`definitions/sources/{actual_domain}/{base_name}/{table_name}.sqlx`):
        config {{ type: "declaration", database: "{PROJECT_ID}", schema: "{datasets['raw']}", name: "{table_name}" }}
        (DO NOT ADD TAGS OR ANYTHING ELSE HERE)
 
-    2. Staging View (`definitions/staging/<domain>/stg_{base_name}.sqlx`):
+    2. Staging View (`definitions/staging/{actual_domain}/{base_name}/stg_{base_name}.sqlx`):
        config {{ type: "view", schema: "{datasets['stg']}", assertions: {{ uniqueKey: ["<pk>"], nonNull: ["<pk>", "..."] }}, tags: ["{actual_domain}", "{base_name}", "staging"] }}
        SELECT 
          <pk>, 
@@ -965,14 +961,14 @@ def generate_ai_dataform_pipeline(
        FROM ${{ref("{table_name}")}} 
        QUALIFY ROW_NUMBER() OVER(PARTITION BY <pk> ORDER BY SAFE_CAST(processed_dttm AS TIMESTAMP) DESC) = 1
        
-    3. Operations/Archive (`definitions/operations/archive_{table_name}.sqlx`):
+    3. Operations/Archive (`definitions/operations/{actual_domain}/{base_name}/archive_{table_name}.sqlx`):
        config {{ type: "operations", dependencies: ["fct_{base_name}"], tags: ["{actual_domain}", "{base_name}", "archive"] }}
        INSERT INTO `{PROJECT_ID}.{datasets['raw']}.{table_name}_hist` (col1, batch_date, processed_dttm)
        SELECT col1, CURRENT_DATE() AS batch_date, processed_dttm FROM ${{ref("{table_name}")}};
        TRUNCATE TABLE ${{ref("{table_name}")}};
        (NO post_operations BLOCK ALLOWED)
 
-    4. Marts Incremental (`definitions/marts/<domain>/fct_{base_name}.sqlx`):
+    4. Marts Incremental (`definitions/marts/{actual_domain}/{base_name}/fct_{base_name}.sqlx`):
        config {{ type: "incremental", schema: "{datasets['marts']}", uniqueKey: ["<pk>"], bigquery: {{ partitionBy: "date_col", clusterBy: ["col1"] }}, assertions: {{ uniqueKey: ["<pk>"] }}, tags: ["{actual_domain}", "{base_name}", "marts"] }}
        SELECT *, processed_dttm AS updated_at, CURRENT_DATE() AS batch_date FROM ${{ref("stg_{base_name}")}}
        ${{when(incremental(), `WHERE processed_dttm > (SELECT MAX(updated_at) FROM ${{self()}})` )}}
@@ -998,10 +994,7 @@ def generate_ai_dataform_pipeline(
             "⏳ 🪄 [Agent 4: DF Architect] Instructing Gemini to synthesize Dataform files with Tags, Rules, Formatting, and Dynamic Sample Data parsing...",
             trace_id,
         )
-
-        # REQUIRED UPDATE: Replaced basic call with retry wrapper
         response = generate_content_with_retry(model_heavy, prompt, trace_id)
-
         text = response.text.strip()
         if text.startswith("```"):
             text = text.split("\n", 1)[1].rsplit("\n", 1)[0]
@@ -1067,6 +1060,7 @@ def verify_dataform_pipeline(
     datasets: Dict[str, str],
     df_state: Dict[str, Any],
     base_name: str,
+    target_domain: str,  # FEATURE ADDITION: Threaded Domain target downstream
     trace_id: str,
 ) -> Dict[str, str]:
     """Goal: QA Lead verifies exact syntax match with templates, dynamic casting, temporal date updates, tags, and formatting."""
@@ -1090,7 +1084,12 @@ def verify_dataform_pipeline(
         if c["name"] not in ["batch_date", "processed_dttm"]
     ]
 
-    inferred_domain = df_state.get("inferred_domain", "domain_placeholder")
+    # FEATURE ADDITION: Safely default to target domain logic
+    actual_domain = (
+        target_domain
+        if target_domain and target_domain != "unknown_domain"
+        else df_state.get("inferred_domain", "domain_placeholder")
+    )
     existing_paths = list(df_state.get("existing_files", {}).keys())
 
     prompt = f"""
@@ -1103,7 +1102,7 @@ def verify_dataform_pipeline(
     EXPECTED EXISTING PATHS: {existing_paths}
     
     Checklist:
-    1. ANTI-HALLUCINATION (FILE PATHS): Forcefully revert hallucinated keys back to the 'EXPECTED EXISTING PATHS' if present.
+    1. ANTI-HALLUCINATION (FILE PATHS): Forcefully revert hallucinated keys back to the 'EXPECTED EXISTING PATHS' if present. If creating new files, ensure they follow the `definitions/<layer>/{actual_domain}/{base_name}/...` structure.
     2. SCHEMA VALIDATION: Are all required columns explicitly selected?
     3. DECLARATION SYNTAX: Ensure the source file uses `type: "declaration"` with explicit `database`, `schema`, and `name` attributes ONLY. Strictly NO `tags` array allowed in declarations.
     4. BATCH DATE ENFORCEMENT (GLOBAL): Across ALL files (staging, marts, operations), ensure the `batch_date` column is explicitly updated using `CURRENT_DATE() AS batch_date`. If they just select `batch_date`, replace it with `CURRENT_DATE() AS batch_date`.
@@ -1111,11 +1110,10 @@ def verify_dataform_pipeline(
     6. STAGING DYNAMIC CASTING & DEDUP: Does the staging file dynamically apply the correct `SAFE_CAST()`, `SAFE.PARSE_DATE()`, or other appropriate native BigQuery type conversions based on the column logic? Does it include `QUALIFY ROW_NUMBER() OVER(...) = 1`?
     7. MARTS INCREMENTAL: Does the marts file use `type: "incremental"`, include a `bigquery: {{ partitionBy, clusterBy }}` block, and use the exact `${{when(incremental(), ...)}}` logic?
     8. DATA QUALITY: Does the `config` block of `stg_` and `fct_` files contain an `assertions` dictionary? If missing, ADD THEM.
-    9. TAG TAXONOMY: Ensure `config` blocks of EVERY file (EXCEPT declarations) contains a `tags: ["{inferred_domain}", "{base_name}", "<layer>"]` array.
+    9. TAG TAXONOMY: Ensure `config` blocks of EVERY file (EXCEPT declarations) contains a `tags: ["{actual_domain}", "{base_name}", "<layer>"]` array.
     10. CONFIG BLOCK SYNTAX: Remove any comments (`--`, `//`, `/* */`) inside the `config {{ ... }}` blocks.
     11. PROPER FORMATTING: Ensure all SQLX code is cleanly formatted. Standardize SQL indentation (2 spaces), ensure keywords are aligned, and guarantee the file structure looks professionally written. Reformat if messy.
     12. POST_OPERATIONS BAN (CRITICAL): Ensure the `archive_` operations file DOES NOT contain a `post_operations {{ ... }}` block. The TRUNCATE statement must simply be sequential SQL.
-    13. TAG TAXONOMY (CRITICAL): Ensure the `config` block of EVERY file EXCEPT declarations contains a `tags: []` array. Dataform `type: "declaration"` DOES NOT support tags. If a declaration file has tags, REMOVE the tags property. For all other files, it MUST contain exactly these 3 elements: the domain name (e.g., "{inferred_domain}"), the entity name ("{base_name}"), and the layer ("staging", "marts", or "archive"). Add them if missing.
     
     Output STRICTLY a JSON object where keys are the corrected full file paths and values are the corrected SQLX string content. Output JSON ONLY.
     """
@@ -1126,10 +1124,7 @@ def verify_dataform_pipeline(
             "⏳ 🕵️‍♀️ [Agent 5: DF QA] Awaiting QA review, global temporal enforcement, dynamic casting, tagging, and formatting validation...",
             trace_id,
         )
-
-        # REQUIRED UPDATE: Replaced basic call with retry wrapper
         response = generate_content_with_retry(model_lite, prompt, trace_id)
-
         text = response.text.strip()
         if text.startswith("```"):
             text = text.split("\n", 1)[1].rsplit("\n", 1)[0]
@@ -1200,10 +1195,7 @@ def verify_schema_json(
         log_event(
             "INFO", "⏳ 🕵️‍♀️ [Agent 6: Schema QA] Awaiting Schema QA review...", trace_id
         )
-
-        # REQUIRED UPDATE: Replaced basic call with retry wrapper
         response = generate_content_with_retry(model_lite, prompt, trace_id)
-
         text = response.text.strip()
         if text.startswith("```"):
             text = text.split("\n", 1)[1].rsplit("\n", 1)[0]
@@ -1289,10 +1281,7 @@ def verify_terraform_hcl(
 
     try:
         log_event("INFO", "⏳ 🕵️‍♀️ [Agent 7: TF QA] Awaiting TF QA review...", trace_id)
-
-        # REQUIRED UPDATE: Replaced basic call with retry wrapper
         response = generate_content_with_retry(model_lite, prompt, trace_id)
-
         text = response.text.strip()
         if text.startswith("```"):
             text = text.split("\n", 1)[1].rsplit("\n", 1)[0]
@@ -1382,6 +1371,7 @@ def apply_infrastructure_update(
     trace_id: str,
     sample_data: List[Dict] = None,
     error_context: str = "Automated AI trigger",
+    target_domain: str = "unknown_domain",  # FEATURE ADDITION: Dynamic domain threading
 ) -> Dict[str, Any]:
 
     log_event(
@@ -1623,6 +1613,7 @@ def apply_infrastructure_update(
             [c["name"] for c in added_cols_for_pr],
             sample_data or [],
             datasets_map,
+            target_domain,
             trace_id,
         )
         if raw_df_pipeline:
@@ -1633,6 +1624,7 @@ def apply_infrastructure_update(
                 datasets_map,
                 df_state,
                 base_name,
+                target_domain,
                 trace_id,
             )
             df_files_changed, df_commit_log = inject_dataform_into_repo(
@@ -1696,7 +1688,9 @@ def apply_infrastructure_update(
                 )
         except GithubException as ge:
             log_event(
-                "WARNING", f"⚠️ 🚀 [Orchestrator] JSON commit skipped: {ge}", trace_id
+                "WARNING",
+                f"⚠️ 🚀 [Orchestrator] JSON commit skipped (Likely identical content): {ge}",
+                trace_id,
             )
 
     if tf_changed:
@@ -1716,7 +1710,7 @@ def apply_infrastructure_update(
         except GithubException as ge:
             log_event(
                 "WARNING",
-                f"⚠️ 🚀 [Orchestrator] Terraform commit skipped: {ge}",
+                f"⚠️ 🚀 [Orchestrator] Terraform commit skipped (Likely identical content): {ge}",
                 trace_id,
             )
 
@@ -1902,6 +1896,9 @@ def ai_agent_main(cloud_event):
         table_ref = data.get("table_ref", "unknown_table")
         new_cols = data.get("new_column_headers", [])
         sample_data = data.get("sample_data_rows", [])
+        target_domain = data.get(
+            "domain", "unknown_domain"
+        )  # FEATURE ADDITION: Extract domain
 
         log_event(
             "INFO", f"🎯 🔌 [Gateway] Processing target entity: {table_ref}", trace_id
@@ -1962,6 +1959,7 @@ def ai_agent_main(cloud_event):
             trace_id,
             sample_data,
             error_context,
+            target_domain,  # FEATURE ADDITION: Pass domain to the orchestrator
         )
 
         log_event(
