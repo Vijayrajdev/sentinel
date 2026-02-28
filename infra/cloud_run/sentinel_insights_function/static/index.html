@@ -183,12 +183,14 @@
         background: rgba(255, 255, 255, 0.3);
       }
 
-      /* Custom Detail/Summary arrow removal */
       details > summary {
         list-style: none;
       }
       details > summary::-webkit-details-marker {
         display: none;
+      }
+      details[open] summary ~ * {
+        animation: slideUpFade 0.3s ease-in-out;
       }
     </style>
   </head>
@@ -240,7 +242,7 @@
               >
             </div>
             <div class="flex justify-between">
-              <span class="opacity-70">Dataset:</span
+              <span class="opacity-70">Default Dataset:</span
               ><span
                 id="ui-dataset"
                 class="font-bold text-slate-800 dark:text-slate-200"
@@ -274,30 +276,25 @@
         <div
           class="bg-white/40 dark:bg-black/20 p-4 rounded-2xl border border-white/50 dark:border-white/10 shadow-sm"
         >
-          <div class="flex justify-between items-center mb-3">
-            <label
-              class="block text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider"
-              >☁️ GCS Explorer</label
-            >
-            <button
-              onclick="fetchBuckets()"
-              class="text-[10px] font-bold text-emerald-600 dark:text-emerald-400 uppercase tracking-wider hover:opacity-70"
-            >
-              Refresh
-            </button>
-          </div>
-          <div id="gcs-container" class="text-xs space-y-1">
-            <div class="italic opacity-60 text-center py-2">
-              Click refresh to load buckets
-            </div>
-          </div>
-          <button
-            id="admin-upload-btn"
-            onclick="openUploadModal()"
-            class="hidden w-full mt-3 text-xs font-bold bg-blue-500 hover:bg-blue-400 text-white py-2 rounded-xl transition-all shadow-md"
+          <label
+            class="block text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-2"
+            >Memory Span</label
           >
-            ☁️ Upload File
-          </button>
+          <div class="flex items-center gap-3">
+            <input
+              type="range"
+              id="retention-slider"
+              min="1"
+              max="30"
+              value="7"
+              class="w-full accent-emerald-500 cursor-pointer"
+            />
+            <span
+              id="retention-val"
+              class="text-xs font-mono font-bold bg-black/5 dark:bg-white/10 px-2 py-1 rounded-lg"
+              >7d</span
+            >
+          </div>
         </div>
 
         <div
@@ -344,7 +341,7 @@
         </div>
         <span
           class="text-xs font-mono font-bold text-slate-700 dark:text-white bg-white/50 dark:bg-black/50 px-4 py-2 rounded-full border border-black/10 dark:border-white/10 shadow-sm"
-          >v5.0 Semantic UI</span
+          >v5.0 Deep Analyst</span
         >
       </div>
 
@@ -375,7 +372,7 @@
             type="text"
             id="user-input"
             class="apple-glass-input w-full rounded-2xl py-4 pl-6 pr-16 transition-all placeholder-slate-500 dark:placeholder-slate-400 shadow-inner text-sm font-medium text-slate-900 dark:text-white"
-            placeholder="e.g. Show me completed orders..."
+            placeholder="e.g. 'Show me completed orders' or 'Give me the sql for sales'"
             autocomplete="off"
             required
           />
@@ -399,143 +396,6 @@
             </svg>
           </button>
         </form>
-      </div>
-    </div>
-
-    <div
-      id="gcs-modal"
-      class="fixed inset-0 z-50 hidden flex items-center justify-center bg-slate-900/60 backdrop-blur-sm transition-opacity"
-    >
-      <div
-        class="apple-glass p-8 rounded-[2rem] w-[500px] shadow-2xl border border-white/20 animate-slide-up relative text-slate-900 dark:text-white"
-      >
-        <h3
-          class="text-xl font-black text-emerald-600 dark:text-emerald-500 mb-4 flex items-center gap-2"
-        >
-          ☁️ Route Object
-        </h3>
-        <p class="text-xs opacity-70 mb-6 font-medium">
-          Securely transfer Cloud Storage objects directly via WebSocket
-          infrastructure.
-        </p>
-        <div class="space-y-4">
-          <div>
-            <label
-              class="block text-[10px] font-bold uppercase tracking-wider mb-1 opacity-70"
-              >Source Object</label
-            >
-            <input
-              type="text"
-              id="modal-src-obj"
-              disabled
-              class="apple-glass-input w-full rounded-xl py-2 px-3 text-xs opacity-60 cursor-not-allowed"
-            />
-          </div>
-          <div>
-            <label
-              class="block text-[10px] font-bold uppercase tracking-wider mb-1 text-emerald-600 dark:text-emerald-500"
-              >Destination Bucket</label
-            >
-            <select
-              id="modal-dest-bucket"
-              class="apple-glass-select w-full rounded-xl py-2 px-3 text-xs focus:ring-2 focus:ring-emerald-500 cursor-pointer"
-            ></select>
-          </div>
-          <div>
-            <label
-              class="block text-[10px] font-bold uppercase tracking-wider mb-1 text-emerald-600 dark:text-emerald-500"
-              >Destination Path & Name</label
-            >
-            <input
-              type="text"
-              id="modal-dest-obj"
-              placeholder="e.g. processed/data.csv"
-              class="apple-glass-input w-full rounded-xl py-2 px-3 text-xs focus:ring-2 focus:ring-emerald-500"
-            />
-          </div>
-        </div>
-        <div class="flex gap-3 mt-8">
-          <button
-            onclick="executeGcsMove()"
-            class="flex-1 bg-emerald-500 hover:bg-emerald-400 text-white py-3 rounded-xl text-sm font-bold shadow-lg transition-all"
-          >
-            Move Object
-          </button>
-          <button
-            onclick="closeModal('gcs-modal')"
-            class="flex-1 bg-black/10 dark:bg-white/10 hover:bg-black/20 dark:hover:bg-white/20 border border-black/20 dark:border-white/20 py-3 rounded-xl text-sm font-bold transition-all"
-          >
-            Cancel
-          </button>
-        </div>
-        <input type="hidden" id="modal-src-bucket" />
-      </div>
-    </div>
-
-    <div
-      id="upload-modal"
-      class="fixed inset-0 z-50 hidden flex items-center justify-center bg-slate-900/60 backdrop-blur-sm transition-opacity"
-    >
-      <div
-        class="apple-glass p-8 rounded-[2rem] w-[500px] shadow-2xl border border-white/20 animate-slide-up relative text-slate-900 dark:text-white"
-      >
-        <h3
-          class="text-xl font-black text-blue-600 dark:text-blue-400 mb-4 flex items-center gap-2"
-        >
-          ☁️ Upload Object
-        </h3>
-        <p class="text-xs opacity-70 mb-6 font-medium">
-          Stream local files directly into Cloud Storage via Base64.
-        </p>
-        <div class="space-y-4">
-          <div>
-            <label
-              class="block text-[10px] font-bold uppercase tracking-wider mb-1 text-blue-600 dark:text-blue-400"
-              >Target Bucket</label
-            >
-            <select
-              id="upload-dest-bucket"
-              class="apple-glass-select w-full rounded-xl py-2 px-3 text-xs focus:ring-2 focus:ring-blue-500 cursor-pointer"
-            ></select>
-          </div>
-          <div>
-            <label
-              class="block text-[10px] font-bold uppercase tracking-wider mb-1 text-blue-600 dark:text-blue-400"
-              >Target Path & Name (Optional)</label
-            >
-            <input
-              type="text"
-              id="upload-dest-obj"
-              placeholder="Leave blank to use original filename"
-              class="apple-glass-input w-full rounded-xl py-2 px-3 text-xs focus:ring-2 focus:ring-blue-500"
-            />
-          </div>
-          <div>
-            <label
-              class="block text-[10px] font-bold uppercase tracking-wider mb-1 text-blue-600 dark:text-blue-400"
-              >Select File</label
-            >
-            <input
-              type="file"
-              id="upload-file-input"
-              class="w-full text-xs text-slate-500 dark:text-slate-400 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-xs file:font-semibold file:bg-blue-50 dark:file:bg-blue-900/30 file:text-blue-700 dark:file:text-blue-300 hover:file:bg-blue-100 dark:hover:file:bg-blue-800/50 cursor-pointer"
-            />
-          </div>
-        </div>
-        <div class="flex gap-3 mt-8">
-          <button
-            onclick="executeGcsUpload()"
-            class="flex-1 bg-blue-500 hover:bg-blue-400 text-white py-3 rounded-xl text-sm font-bold shadow-lg transition-all"
-          >
-            Upload
-          </button>
-          <button
-            onclick="closeModal('upload-modal')"
-            class="flex-1 bg-black/10 dark:bg-white/10 hover:bg-black/20 dark:hover:bg-white/20 border border-black/20 dark:border-white/20 py-3 rounded-xl text-sm font-bold transition-all"
-          >
-            Cancel
-          </button>
-        </div>
       </div>
     </div>
 
@@ -563,98 +423,11 @@
       let retentionDays =
         parseInt(localStorage.getItem("sentinel_retention")) || 7;
       let currentAgentMessageDiv = null;
-      let gcsBucketsCache = [];
+      let chartCounter = 0;
 
-      // --- GCS Explorer & Modal Logic ---
-      function fetchBuckets() {
-        document.getElementById("gcs-container").innerHTML =
-          '<div class="opacity-70 animate-pulse py-2 text-slate-800 dark:text-slate-200 text-center">Scanning infrastructure...</div>';
-        ws.send(JSON.stringify({ action: "LIST_BUCKETS" }));
-      }
-
-      function fetchObjects(bucketName) {
-        event.target.innerHTML += ' <span class="animate-ping">...</span>';
-        ws.send(JSON.stringify({ action: "LIST_OBJECTS", bucket: bucketName }));
-      }
-
-      function openMoveModal(bucketName, objectName) {
-        document.getElementById("modal-src-bucket").value = bucketName;
-        document.getElementById("modal-src-obj").value = objectName;
-
-        const sel = document.getElementById("modal-dest-bucket");
-        sel.innerHTML = gcsBucketsCache
-          .map((b) => `<option value="${b}">${b}</option>`)
-          .join("");
-        sel.value = bucketName;
-
-        document.getElementById("modal-dest-obj").value = `moved/${objectName}`;
-        document.getElementById("gcs-modal").classList.remove("hidden");
-      }
-
-      function openUploadModal() {
-        const sel = document.getElementById("upload-dest-bucket");
-        sel.innerHTML = gcsBucketsCache
-          .map((b) => `<option value="${b}">${b}</option>`)
-          .join("");
-        document.getElementById("upload-modal").classList.remove("hidden");
-      }
-
-      function closeModal(id) {
-        document.getElementById(id).classList.add("hidden");
-      }
-
-      function executeGcsMove() {
-        const srcB = document.getElementById("modal-src-bucket").value;
-        const srcO = document.getElementById("modal-src-obj").value;
-        const destB = document.getElementById("modal-dest-bucket").value;
-        const destO = document.getElementById("modal-dest-obj").value;
-
-        if (!destB || !destO) return alert("Destination fields required!");
-
-        appendUserMessage(
-          `Move object \`${srcO}\` to \`gs://${destB}/${destO}\``,
-        );
-        createAgentMessageBlock();
-        const selectedModel =
-          document.getElementById("ai-model-selector").value;
-        ws.send(
-          JSON.stringify({
-            action: "MOVE_OBJECT",
-            src_bucket: srcB,
-            src_object: srcO,
-            dest_bucket: destB,
-            dest_object: destO,
-            ai_model: selectedModel,
-          }),
-        );
-        closeModal("gcs-modal");
-      }
-
-      function executeGcsUpload() {
-        const bucket = document.getElementById("upload-dest-bucket").value;
-        const fileInput = document.getElementById("upload-file-input");
-        if (fileInput.files.length === 0) return alert("Please select a file.");
-
-        const file = fileInput.files[0];
-        let filename = document.getElementById("upload-dest-obj").value.trim();
-        if (!filename) filename = file.name;
-
-        const reader = new FileReader();
-        reader.onload = function (e) {
-          appendUserMessage(`Upload \`${filename}\` to \`gs://${bucket}\``);
-          createAgentMessageBlock();
-          ws.send(
-            JSON.stringify({
-              action: "UPLOAD_OBJECT",
-              bucket: bucket,
-              filename: filename,
-              filedata: e.target.result,
-            }),
-          );
-          closeModal("upload-modal");
-        };
-        reader.readAsDataURL(file);
-      }
+      document.getElementById("retention-slider").value = retentionDays;
+      document.getElementById("retention-val").textContent =
+        `${retentionDays}d`;
 
       // --- History Logic ---
       function loadHistory() {
@@ -707,6 +480,15 @@
             container.appendChild(div);
           });
       }
+      document
+        .getElementById("retention-slider")
+        .addEventListener("input", (e) => {
+          retentionDays = e.target.value;
+          document.getElementById("retention-val").textContent =
+            `${retentionDays}d`;
+          localStorage.setItem("sentinel_retention", retentionDays);
+          loadHistory();
+        });
 
       // --- Chat UI Actions ---
       function scrollToBottom() {
@@ -770,12 +552,6 @@
           document.getElementById("ui-project-id").textContent =
             data.project_id;
           document.getElementById("ui-dataset").textContent = data.dataset;
-          if (data.is_admin) {
-            document
-              .getElementById("admin-upload-btn")
-              .classList.remove("hidden");
-            fetchBuckets(); // Auto fetch buckets for upload modal cache
-          }
           return;
         }
 
@@ -795,43 +571,6 @@
           document.getElementById("chat-container").appendChild(div);
           saveMessageToHistory("assistant", "Greeting provided.");
           scrollToBottom();
-          return;
-        }
-
-        if (data.status === "gcs_buckets") {
-          gcsBucketsCache = data.buckets; // Save to global cache for modals
-          let html =
-            '<div class="space-y-1 max-h-40 overflow-y-auto custom-scrollbar pr-1">';
-          data.buckets.forEach((b) => {
-            html += `<div onclick="fetchObjects('${b}')" class="p-2 bg-black/5 dark:bg-white/5 rounded-lg cursor-pointer hover:bg-emerald-500/20 hover:text-emerald-600 dark:hover:text-emerald-400 transition font-mono truncate text-[10px] text-slate-800 dark:text-slate-200">📁 ${b}</div>`;
-          });
-          document.getElementById("gcs-container").innerHTML = html + "</div>";
-          return;
-        } else if (data.status === "gcs_objects") {
-          let html = `<div class="mb-2 pb-2 border-b border-black/10 dark:border-white/10 font-bold truncate text-[10px] text-emerald-600 dark:text-emerald-500">Bucket: ${data.bucket}</div>`;
-          html +=
-            '<div class="space-y-1 max-h-40 overflow-y-auto custom-scrollbar pr-1">';
-          if (data.objects.length === 0)
-            html +=
-              '<div class="opacity-50 italic text-slate-800 dark:text-slate-200">Empty bucket</div>';
-          data.objects.forEach((o) => {
-            html += `<div onclick="openMoveModal('${data.bucket}', '${o}')" title="Click to Move" class="p-2 bg-black/5 dark:bg-white/5 rounded-lg cursor-pointer hover:bg-blue-500/20 hover:text-blue-600 dark:hover:text-blue-400 transition font-mono truncate text-[10px] flex justify-between group text-slate-800 dark:text-slate-200"><span>📄 ${o}</span><span class="opacity-0 group-hover:opacity-100 transition font-bold">➡️ Route</span></div>`;
-          });
-          document.getElementById("gcs-container").innerHTML =
-            html +
-            '</div><button onclick="fetchBuckets()" class="mt-2 text-[10px] opacity-70 hover:opacity-100 w-full text-center text-slate-800 dark:text-slate-200 font-bold uppercase">🔙 Back to Buckets</button>';
-          return;
-        } else if (
-          data.status === "gcs_move_success" ||
-          data.status === "gcs_upload_success"
-        ) {
-          if (currentAgentMessageDiv) {
-            currentAgentMessageDiv.querySelector("details").style.display =
-              "none";
-            currentAgentMessageDiv.querySelector(".agent-output").innerHTML =
-              `<div class="text-sm font-bold text-emerald-600 dark:text-emerald-400">${data.message}</div>`;
-            currentAgentMessageDiv = null;
-          }
           return;
         }
 
@@ -863,29 +602,32 @@
           );
           outputPanel.insertAdjacentHTML(
             "beforeend",
-            `<div class="text-sm font-semibold">${formattedMsg}</div>`,
+            `<div class="text-sm font-semibold mb-3">${formattedMsg}</div>`,
           );
           outputPanel.insertAdjacentHTML("beforeend", data.html);
 
-          // Save raw data globally for this specific trace to allow dynamic charting
           window[`data_${data.trace_id}`] = data.raw_data;
 
           const b64Sql = btoa(data.sql);
           const actionHtml = `
                     <div class="mt-6 p-4 bg-black/5 dark:bg-white/5 rounded-2xl border border-black/10 dark:border-white/10">
-                        <div class="text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-3">Visualization & Export</div>
+                        <div class="text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-3">Visualization Engine</div>
                         <div class="flex flex-wrap gap-3">
-                            <button onclick="renderCustomChart('bar', '${data.trace_id}')" class="bg-indigo-500/20 hover:bg-indigo-500/40 text-indigo-700 dark:text-indigo-300 px-4 py-2 rounded-xl text-sm font-bold transition-all shadow-sm">📊 Bar Chart</button>
-                            <button onclick="renderCustomChart('line', '${data.trace_id}')" class="bg-fuchsia-500/20 hover:bg-fuchsia-500/40 text-fuchsia-700 dark:text-fuchsia-300 px-4 py-2 rounded-xl text-sm font-bold transition-all shadow-sm">📈 Line Chart</button>
-                            <button onclick="renderCustomChart('pie', '${data.trace_id}')" class="bg-amber-500/20 hover:bg-amber-500/40 text-amber-700 dark:text-amber-300 px-4 py-2 rounded-xl text-sm font-bold transition-all shadow-sm">🍩 Pie Chart</button>
-                            <button onclick="window.sendGetSqlIntent('${b64Sql}')" class="bg-emerald-500/20 hover:bg-emerald-500/40 text-emerald-700 dark:text-emerald-300 px-4 py-2 rounded-xl text-sm font-bold transition-all shadow-sm">📄 View SQL</button>
-                            <button onclick="window.downloadCSV('${data.trace_id}')" class="bg-slate-500/20 hover:bg-slate-500/40 text-slate-700 dark:text-slate-300 px-4 py-2 rounded-xl text-sm font-bold transition-all shadow-sm">📥 CSV</button>
+                            <button onclick="renderCustomChart('bar', '${data.trace_id}')" class="bg-indigo-500/20 hover:bg-indigo-500/40 text-indigo-700 dark:text-indigo-300 px-4 py-2 rounded-xl text-xs font-bold transition-all shadow-sm">📊 Bar Chart</button>
+                            <button onclick="renderCustomChart('line', '${data.trace_id}')" class="bg-fuchsia-500/20 hover:bg-fuchsia-500/40 text-fuchsia-700 dark:text-fuchsia-300 px-4 py-2 rounded-xl text-xs font-bold transition-all shadow-sm">📈 Line Chart</button>
+                            <button onclick="renderCustomChart('pie', '${data.trace_id}')" class="bg-amber-500/20 hover:bg-amber-500/40 text-amber-700 dark:text-amber-300 px-4 py-2 rounded-xl text-xs font-bold transition-all shadow-sm">🍩 Pie Chart</button>
+                            <div class="w-px h-8 bg-slate-300 dark:bg-slate-700 mx-2 hidden md:block"></div>
+                            <button onclick="window.sendGetSqlIntent('${b64Sql}')" class="bg-emerald-500/20 hover:bg-emerald-500/40 text-emerald-700 dark:text-emerald-300 px-4 py-2 rounded-xl text-xs font-bold transition-all shadow-sm">📄 View SQL</button>
+                            <button onclick="window.downloadCSV('${data.trace_id}')" class="bg-slate-500/20 hover:bg-slate-500/40 text-slate-700 dark:text-slate-300 px-4 py-2 rounded-xl text-xs font-bold transition-all shadow-sm">📥 CSV</button>
                         </div>
                     </div>
                     <div id="chart-container-${data.trace_id}" class="w-full"></div>
                 `;
           outputPanel.insertAdjacentHTML("beforeend", actionHtml);
-          saveMessageToHistory("assistant", "Displayed query results.");
+          saveMessageToHistory(
+            "assistant",
+            "Displayed insights and visualization engine.",
+          );
           currentAgentMessageDiv = null;
         } else if (data.status === "confirmation_needed") {
           indicator.style.display = "none";
@@ -936,7 +678,7 @@
         if (!data || data.length === 0)
           return alert("No data available to chart.");
 
-        container.innerHTML = ""; // Clear existing chart
+        container.innerHTML = "";
 
         const keys = Object.keys(data[0]);
         let labelKey =
