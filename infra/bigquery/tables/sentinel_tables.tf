@@ -27,6 +27,10 @@ locals {
       partition_type  = "DAY"
       partition_field = "batch_date"
     }
+    "product_raw" = {
+      partition_type  = "DAY"
+      partition_field = "batch_date"
+    }
   }
   tables_raw_hist = {
     "orders_raw" = {
@@ -44,6 +48,11 @@ locals {
       partition_field = "batch_date"
       expiration_ms   = 2592000000
     }
+    "product_raw" = {
+      partition_type  = "DAY"
+      partition_field = "batch_date"
+      expiration_ms   = 2592000000
+    }
   }
 }
 
@@ -55,14 +64,11 @@ resource "google_bigquery_table" "sentinel_audit_tables" {
   friendly_name       = "sentinel_${each.key}"
   deletion_protection = false
 
-  # 1. The Dynamic Block
-  # This creates the 'time_partitioning' block ONLY if partition_type is not null
   dynamic "time_partitioning" {
     for_each = each.value.partition_type != null ? [1] : []
-
     content {
-      type  = each.value.partition_type
-      field = lookup(each.value, "partition_field", null)
+      type          = each.value.partition_type
+      field         = lookup(each.value, "partition_field", null)
       expiration_ms = lookup(each.value, "expiration_ms", null)
     }
   }
@@ -71,7 +77,6 @@ resource "google_bigquery_table" "sentinel_audit_tables" {
     env = "dev"
   }
 
-  # Note: Since we changed locals to objects, we still refer to each.key for the filename
   schema = file("${path.module}/json/${each.key}.json")
 }
 
@@ -83,14 +88,11 @@ resource "google_bigquery_table" "sentinel_raw_tables" {
   friendly_name       = "sentinel_${each.key}"
   deletion_protection = false
 
-  # 1. The Dynamic Block
-  # This creates the 'time_partitioning' block ONLY if partition_type is not null
   dynamic "time_partitioning" {
     for_each = each.value.partition_type != null ? [1] : []
-
     content {
-      type  = each.value.partition_type
-      field = lookup(each.value, "partition_field", null)
+      type          = each.value.partition_type
+      field         = lookup(each.value, "partition_field", null)
       expiration_ms = lookup(each.value, "expiration_ms", null)
     }
   }
@@ -99,7 +101,6 @@ resource "google_bigquery_table" "sentinel_raw_tables" {
     env = "dev"
   }
 
-  # Note: Since we changed locals to objects, we still refer to each.key for the filename
   schema = file("${path.module}/json/${each.key}.json")
 }
 
@@ -111,14 +112,11 @@ resource "google_bigquery_table" "sentinel_raw_hist_tables" {
   friendly_name       = "sentinel_${each.key}_hist"
   deletion_protection = false
 
-  # 1. The Dynamic Block
-  # This creates the 'time_partitioning' block ONLY if partition_type is not null
   dynamic "time_partitioning" {
     for_each = each.value.partition_type != null ? [1] : []
-
     content {
-      type  = each.value.partition_type
-      field = lookup(each.value, "partition_field", null)
+      type          = each.value.partition_type
+      field         = lookup(each.value, "partition_field", null)
       expiration_ms = lookup(each.value, "expiration_ms", null)
     }
   }
@@ -127,7 +125,5 @@ resource "google_bigquery_table" "sentinel_raw_hist_tables" {
     env = "dev"
   }
 
-  # Note: Since we changed locals to objects, we still refer to each.key for the filename
   schema = file("${path.module}/json/${each.key}.json")
 }
-
