@@ -48,10 +48,16 @@
     "description": "When the function finished"
   },
   {
-    "name": "target_table",
+    "name": "domain",
     "type": "STRING",
     "mode": "NULLABLE",
     "description": "Where the data tried to go"
+  },
+  {
+    "name": "target_table",
+    "type": "STRING",
+    "mode": "NULLABLE",
+    "description": "Domain the table belonged"
   },
   {
     "name": "total_records",

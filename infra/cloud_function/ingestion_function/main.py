@@ -38,17 +38,21 @@ logging.basicConfig(level=logging.INFO)
 # CUSTOM EXCEPTIONS
 # ==============================================================================
 class SchemaDriftError(Exception):
-    def __init__(self, message, new_columns, sample_rows=None):
+    # FEATURE ADDITION: Added domain to exception context to persist telemetry
+    def __init__(self, message, new_columns, sample_rows=None, domain=None):
         super().__init__(message)
         self.new_columns = new_columns
         self.sample_rows = sample_rows
+        self.domain = domain
 
 
 class TableNotFoundError(Exception):
-    def __init__(self, message, columns=None, sample_rows=None):
+    # FEATURE ADDITION: Added domain to exception context to persist telemetry
+    def __init__(self, message, columns=None, sample_rows=None, domain=None):
         super().__init__(message)
         self.columns = columns
         self.sample_rows = sample_rows
+        self.domain = domain
 
 
 # ==============================================================================
@@ -164,7 +168,10 @@ def get_file_metadata(
         raise Exception(f"Failed to read metadata from {file_name}: {str(e)}")
 
 
-def trigger_ai_agent(bucket, file_name, table_ref, new_columns, sample_data, trace_id):
+# FEATURE ADDITION: Passed the Domain attribute straight through to the AI Agent
+def trigger_ai_agent(
+    bucket, file_name, table_ref, new_columns, sample_data, domain, trace_id
+):
     """Summons the AI Agent via Pub/Sub."""
     log_event(
         "INFO", f"📡 [AI Trigger] Waking up Sentinel Forge for {table_ref}...", trace_id
@@ -188,6 +195,7 @@ def trigger_ai_agent(bucket, file_name, table_ref, new_columns, sample_data, tra
         "bucket": bucket,
         "file_name": file_name,
         "table_ref": table_ref,
+        "domain": domain,  # FEATURE ADDITION: Crucial for accurate tags downstream
         "new_column_headers": new_columns,
         "sample_data_rows": sample_data,
         "timestamp": datetime.datetime.now().isoformat(),
@@ -207,7 +215,9 @@ def trigger_ai_agent(bucket, file_name, table_ref, new_columns, sample_data, tra
         log_event("ERROR", f"🔇 [Publish Fail] Messaging system failure: {e}", trace_id)
 
 
-def validate_schema(final_table_ref: str, file_headers: List[str], trace_id: str):
+def validate_schema(
+    final_table_ref: str, file_headers: List[str], domain: str, trace_id: str
+):
     """Validates incoming file headers against BigQuery destination."""
     log_event(
         "INFO",
@@ -229,7 +239,10 @@ def validate_schema(final_table_ref: str, file_headers: List[str], trace_id: str
             f"👻 [Not Found] Destination table {final_table_ref} is completely missing.",
             trace_id,
         )
-        raise TableNotFoundError(f"Target table '{final_table_ref}' does not exist.")
+        # FEATURE ADDITION: Pass domain through exception object
+        raise TableNotFoundError(
+            f"Target table '{final_table_ref}' does not exist.", domain=domain
+        )
 
     log_event(
         "INFO",
@@ -246,9 +259,11 @@ def validate_schema(final_table_ref: str, file_headers: List[str], trace_id: str
             f"🌪️ [Drift] Structural mutation identified. Rogue columns: {unknown_cols}",
             trace_id,
         )
+        # FEATURE ADDITION: Pass domain through exception object
         raise SchemaDriftError(
             f"Schema Drift Detected. New columns: {unknown_cols}",
             new_columns=unknown_cols,
+            domain=domain,
         )
 
     log_event(
@@ -287,6 +302,9 @@ def load_raw_strings(
     delimiter = rule.get("delimiter") or ","
     quote_char = rule.get("quote_char") or '"'
 
+    # FEATURE ADDITION: Safely grab the domain for downstream routing
+    target_domain = rule.get("domain", "unknown_domain")
+
     raw_skip = rule.get("skip_header_rows")
     skip_header_rows = (
         int(raw_skip) if pd.notna(raw_skip) and raw_skip is not None else 1
@@ -296,7 +314,7 @@ def load_raw_strings(
     headers, sample_rows = get_file_metadata(bucket, file_name, rule, trace_id)
 
     try:
-        validate_schema(final_table_ref, headers, trace_id)
+        validate_schema(final_table_ref, headers, target_domain, trace_id)
     except SchemaDriftError as e:
         log_event(
             "WARNING",
@@ -306,14 +324,18 @@ def load_raw_strings(
         filtered_samples = [
             {k: row.get(k) for k in e.new_columns} for row in sample_rows
         ]
-        raise SchemaDriftError(str(e), e.new_columns, filtered_samples)
+        # FEATURE ADDITION: Push domain into error class
+        raise SchemaDriftError(str(e), e.new_columns, filtered_samples, e.domain)
     except TableNotFoundError as e:
         log_event(
             "WARNING",
             "🕳️ [Missing Catch] Target void. Packaging creation telemetry...",
             trace_id,
         )
-        raise TableNotFoundError(str(e), columns=headers, sample_rows=sample_rows)
+        # FEATURE ADDITION: Push domain into error class
+        raise TableNotFoundError(
+            str(e), columns=headers, sample_rows=sample_rows, domain=e.domain
+        )
 
     staging_table_id = f"{PROJECT_ID}.{rule['target_dataset']}.staging_{rule['target_table']}_{uuid.uuid4().hex[:8]}"
     log_event(
@@ -549,6 +571,7 @@ def archive_file(
         raise
 
 
+# FEATURE ADDITION: Updated schema to explicitly accept `domain` argument
 def audit_log(
     trace_id,
     ingestion_id,
@@ -558,6 +581,7 @@ def audit_log(
     start_time,
     metrics=None,
     target_table=None,
+    domain=None,
     error_msg=None,
 ):
     """Writes standardized audit trace into BigQuery."""
@@ -576,6 +600,7 @@ def audit_log(
         "file_uri": file_uri,
         "status": status,
         "target_table": target_table,
+        "domain": domain,  # FEATURE ADDITION: Crucial for AI mapping
         "error_message": error_msg[:2000] if error_msg else None,
         "start_time": (
             start_time.isoformat()
@@ -618,6 +643,7 @@ def handle_failure(
     start_time,
     target_folder="exempted",
     archive_bucket=None,
+    domain=None,  # FEATURE ADDITION: Pushed domain through to Audit Logger
 ):
     """Fallback handler for clean archiving of broken files."""
     log_event(
@@ -644,6 +670,7 @@ def handle_failure(
             final_uri,
             status,
             start_time,
+            domain=domain,
             error_msg=error_msg,
         )
 
@@ -688,6 +715,7 @@ def process_file(cloud_event):
     )
     final_table_ref = "UNKNOWN"
     rule_archive_bucket = None
+    target_domain = None
 
     try:
         log_event("INFO", "🗺️ [Step 1] Requesting navigation vectors...", trace_id)
@@ -706,6 +734,7 @@ def process_file(cloud_event):
             return
 
         rule_archive_bucket = rule.get("archive_bucket")
+        target_domain = rule.get("domain", "unknown_domain")
         final_table_ref = (
             f"{PROJECT_ID}.{rule['target_dataset']}.{rule['target_table']}"
         )
@@ -732,6 +761,7 @@ def process_file(cloud_event):
             start_time,
             metrics,
             final_table_ref,
+            domain=target_domain,
         )
 
         log_event(
@@ -751,6 +781,7 @@ def process_file(cloud_event):
             final_table_ref,
             e.new_columns,
             e.sample_rows,
+            e.domain,  # FEATURE ADDITION: Pass domain payload downstream to AI
             trace_id,
         )
         handle_failure(
@@ -763,13 +794,20 @@ def process_file(cloud_event):
             start_time,
             "schema_pending",
             rule_archive_bucket,
+            domain=e.domain,
         )
 
     except TableNotFoundError as e:
         error_msg = f"Table Missing: {str(e)}"
         log_event("WARNING", f"🕳️ [Catch Missing] Target absent: {error_msg}", trace_id)
         trigger_ai_agent(
-            bucket_name, file_name, final_table_ref, e.columns, e.sample_rows, trace_id
+            bucket_name,
+            file_name,
+            final_table_ref,
+            e.columns,
+            e.sample_rows,
+            e.domain,
+            trace_id,
         )
         handle_failure(
             bucket_name,
@@ -781,6 +819,7 @@ def process_file(cloud_event):
             start_time,
             "schema_pending",
             rule_archive_bucket,
+            domain=e.domain,
         )
 
     except Exception as e:
@@ -798,4 +837,5 @@ def process_file(cloud_event):
             start_time,
             "exempted",
             rule_archive_bucket,
+            domain=target_domain,
         )

@@ -18,6 +18,12 @@
     "description": "Destination Table Name (e.g., 'raw_sales')"
   },
   {
+    "name": "domain",
+    "mode": "REQUIRED",
+    "type": "STRING",
+    "description": "The tables domain (e.g., 'Sales')"
+  },
+  {
     "name": "file_format",
     "mode": "NULLABLE",
     "type": "STRING",
