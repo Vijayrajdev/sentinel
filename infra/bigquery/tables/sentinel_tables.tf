@@ -13,6 +13,10 @@ locals {
       partition_type  = null
       partition_field = null
     }
+    "insight_audit_log" = {
+      partition_type  = "DAY"
+      partition_field = "timestamp"
+    }
   }
   tables_raw = {
     "orders_raw" = {

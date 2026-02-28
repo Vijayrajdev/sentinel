@@ -71,19 +71,6 @@ module "secret" {
 }
 
 # ==========================================
-# MODULE 6: Create Cloud Composer
-# ==========================================
-# module "composer" {
-#   source     = "./composer"
-
-#   # Pass variables from Root -> Module
-#   airflow_sa_email                         = var.airflow_sa_email
-#   region                                   = var.region
-#   project_id                               = var.project_id
-#   composer_bucket_name                     = var.composer_bucket_name
-# }
-
-# ==========================================
 # MODULE 6: Create Dataform Pipeline
 # ==========================================
 module "dataform" {
@@ -93,4 +80,19 @@ module "dataform" {
   region                                   = var.region
   project_id                               = var.project_id
   secret_id                                = var.secret_id
+}
+
+# ==========================================
+# MODULE 7: Create Cloud Run
+# ==========================================
+module "cloud_run" {
+  source     = "./cloud_run"
+
+  # Pass variables from Root -> Module
+  region                                   = var.region
+  project_id                               = var.project_id
+  secret_id                                = var.secret_id
+  repo_name                                = var.repo_name
+  code_bucket_name                         = var.code_bucket_name
+  insights_audit                           = var.insights_audit
 }
