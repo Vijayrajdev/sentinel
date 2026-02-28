@@ -32,8 +32,8 @@ resource "null_resource" "build_insight_image" {
   }
 
   provisioner "local-exec" {
-    # Submits the code to Cloud Build and pushes to the Artifact Registry
-    command = "gcloud builds submit gs://${var.code_bucket_name}/${google_storage_bucket_object.insight_app_source.name} --tag ${var.region}-docker.pkg.dev/${var.project_id}/sentinel-insight-repo/insight-app:${data.archive_file.insight_app_zip.output_md5} --project ${var.project_id} --suppress-logs"
+    # We route the logs to your existing bucket to bypass the default Google bucket IAM/VPC blocks
+    command = "gcloud builds submit gs://${var.code_bucket_name}/${google_storage_bucket_object.insight_app_source.name} --tag ${var.region}-docker.pkg.dev/${var.project_id}/sentinel-insight-repo/insight-app:${data.archive_file.insight_app_zip.output_md5} --project ${var.project_id} --gcs-log-dir=gs://${var.code_bucket_name}/build-logs"
   }
   
   depends_on = [google_artifact_registry_repository.insight_repo]
