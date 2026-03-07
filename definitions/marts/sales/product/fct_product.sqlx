@@ -1,0 +1,25 @@
+config {
+  type: "incremental",
+  schema: "sentinel_marts",
+  bigquery: { partitionBy: "batch_date", clusterBy: ["category"] },
+  tags: ["sales", "product", "marts"],
+  assertions: {
+    uniqueKey: ["product_id"],
+    nonNull: ["product_id", "product_name", "category", "base_price", "batch_date", "updated_at"],
+    rowConditions: [
+      "REGEXP_CONTAINS(product_id, '^P_ID_[0-9]{3}$')",
+      "category IN ('Storage', 'Electronics', 'Furniture', 'Maintenance')",
+      "base_price BETWEEN 0.01 AND 50000.00"
+    ]
+  }
+}
+
+SELECT
+  product_id,
+  product_name,
+  category,
+  base_price,
+  processed_dttm AS updated_at,
+  CURRENT_DATE() AS batch_date
+FROM ${ref("stg_product")}
+${when(incremental(), `WHERE updated_at > (SELECT MAX(updated_at) FROM ${self()})` )}
