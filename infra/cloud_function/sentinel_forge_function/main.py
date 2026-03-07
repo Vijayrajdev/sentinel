@@ -347,7 +347,7 @@ def fetch_or_generate_data_contract(
 
 
 # ==============================================================================
-# 🧠 AGENT 1: SCHEMA DESIGNER
+# 🧠 AGENT: SCHEMA DESIGNER
 # ==============================================================================
 def generate_dynamic_schema(
     table_name: str,
@@ -359,19 +359,19 @@ def generate_dynamic_schema(
     """Goal: Create valid BigQuery JSON schema matching strict enterprise standards."""
     log_event(
         "INFO",
-        f"▶️ 🧩 [Agent 1: Schema Design] Initiating dynamic schema generation for '{table_name}'...",
+        f"▶️ 🧩 [Agent: Schema Designer] Initiating dynamic schema generation for '{table_name}'...",
         trace_id,
     )
 
     if not model_lite:
         log_event(
             "WARNING",
-            "⚠️ 🧩 [Agent 1: Schema Design] AI Service unavailable. Falling back to basic programmatic schema.",
+            "⚠️ 🧩 [Agent: Schema Designer] AI Service unavailable. Falling back to basic programmatic schema.",
             trace_id,
         )
         log_event(
             "INFO",
-            "⏹️ 🧩 [Agent 1: Schema Design] Finished schema generation (Fallback mode).",
+            "⏹️ 🧩 [Agent: Schema Designer] Finished schema generation (Fallback mode).",
             trace_id,
         )
         return [
@@ -386,7 +386,7 @@ def generate_dynamic_schema(
 
     log_event(
         "INFO",
-        f"🧠 🧩 [Agent 1: Schema Design] Instructing AI to map {len(new_cols)} incoming columns...",
+        f"🧠 🧩 [Agent: Schema Designer] Instructing AI to map {len(new_cols)} incoming columns...",
         trace_id,
     )
 
@@ -394,7 +394,7 @@ def generate_dynamic_schema(
     if reference_json:
         log_event(
             "INFO",
-            "🎨 🧩 [Agent 1: Schema Design] Injecting reference JSON style guide into AI context...",
+            "🎨 🧩 [Agent: Schema Designer] Injecting reference JSON style guide into AI context...",
             trace_id,
         )
         style_guide = f"STYLE GUIDE (Mimic this format):\n```json\n{prune_whitespace(reference_json[:3000])}\n```"
@@ -422,7 +422,7 @@ def generate_dynamic_schema(
     try:
         log_event(
             "INFO",
-            "⏳ 🧩 [Agent 1: Schema Design] Awaiting AI generation response...",
+            "⏳ 🧩 [Agent: Schema Designer] Awaiting AI generation response...",
             trace_id,
         )
         response = generate_content_with_retry(model_lite, prompt, trace_id)
@@ -434,7 +434,7 @@ def generate_dynamic_schema(
         parsed_schema = json.loads(text)
         log_event(
             "INFO",
-            f"✅ 🧩 [Agent 1: Schema Design] AI successfully formulated JSON schema with {len(parsed_schema)} fields.",
+            f"✅ 🧩 [Agent: Schema Designer] AI successfully formulated JSON schema with {len(parsed_schema)} fields.",
             trace_id,
         )
 
@@ -451,7 +451,7 @@ def generate_dynamic_schema(
         )
         log_event(
             "INFO",
-            "⏹️ 🧩 [Agent 1: Schema Design] Finished schema generation.",
+            "⏹️ 🧩 [Agent: Schema Designer] Finished schema generation.",
             trace_id,
         )
         return parsed_schema
@@ -459,7 +459,7 @@ def generate_dynamic_schema(
     except Exception as e:
         log_event(
             "ERROR",
-            f"❌ 🧩 [Agent 1: Schema Design] Schema Generation Failed: {e}. Falling back to basic generation.",
+            f"❌ 🧩 [Agent: Schema Designer] Schema Generation Failed: {e}. Falling back to basic generation.",
             trace_id,
         )
         log_ai_action(
@@ -474,7 +474,7 @@ def generate_dynamic_schema(
         )
         log_event(
             "INFO",
-            "⏹️ 🧩 [Agent 1: Schema Design] Finished schema generation (Fallback mode).",
+            "⏹️ 🧩 [Agent: Schema Designer] Finished schema generation (Fallback mode).",
             trace_id,
         )
         return [
@@ -489,7 +489,7 @@ def generate_dynamic_schema(
 
 
 # ==============================================================================
-# 🧠 AGENT 2: TERRAFORM ARCHITECT
+# 🧠 AGENT: TERRAFORM ARCHITECT
 # ==============================================================================
 def analyze_tf_repo_state(
     repo, branch_sha: str, table_id: str, trace_id: str
@@ -630,19 +630,19 @@ def generate_tf_patch_or_create(
     """Goal: Write HCL code. Enforces adaptive injection based on locals maps vs distinct resources."""
     log_event(
         "INFO",
-        f"▶️ 🏗️ [Agent 2: TF Architect] Initiating Terraform HCL synthesis for '{table_id}'...",
+        f"▶️ 🏗️ [Agent: TF Architect] Initiating Terraform HCL synthesis for '{table_id}'...",
         trace_id,
     )
 
     if not model_heavy:
         log_event(
             "WARNING",
-            "⚠️ 🏗️ [Agent 2: TF Architect] AI Service offline. Returning empty block.",
+            "⚠️ 🏗️ [Agent: TF Architect] AI Service offline. Returning empty block.",
             trace_id,
         )
         log_event(
             "INFO",
-            "⏹️ 🏗️ [Agent 2: TF Architect] Finished TF generation (Abort).",
+            "⏹️ 🏗️ [Agent: TF Architect] Finished TF generation (Abort).",
             trace_id,
         )
         return ""
@@ -650,7 +650,7 @@ def generate_tf_patch_or_create(
     action = "CREATE_NEW" if not host_file_content else "PATCH_EXISTING"
     log_event(
         "INFO",
-        f"🛠️ 🏗️ [Agent 2: TF Architect] Determining infrastructure action vector: {action}",
+        f"🛠️ 🏗️ [Agent: TF Architect] Determining infrastructure action vector: {action}",
         trace_id,
     )
 
@@ -659,7 +659,7 @@ def generate_tf_patch_or_create(
     if table_id.endswith("_raw"):
         log_event(
             "INFO",
-            f"⏳ 🏗️ [Agent 2: TF Architect] Raw table detected. Injecting STRICT _hist infrastructure rules with schema reuse...",
+            f"⏳ 🏗️ [Agent: TF Architect] Raw table detected. Injecting STRICT _hist infrastructure rules with schema reuse...",
             trace_id,
         )
         mimic_rule = (
@@ -680,7 +680,7 @@ def generate_tf_patch_or_create(
     if action == "PATCH_EXISTING":
         log_event(
             "INFO",
-            "🩹 🏗️ [Agent 2: TF Architect] Constructing prompt for intelligent HCL injection (Patch)...",
+            "🩹 🏗️ [Agent: TF Architect] Constructing prompt for intelligent HCL injection (Patch)...",
             trace_id,
         )
         prompt = f"""
@@ -706,12 +706,15 @@ def generate_tf_patch_or_create(
         4. DO NOT invent variables like `var.project_id` or `var.dataset` unless they already exist. 
         5. Return the **FULL UPDATED FILE CONTENT**, including the original code and your new appended/injected blocks. Do not truncate.
         
+        CRITICAL SYNTAX RULE:
+        When injecting into `locals` maps, you MUST include proper attribute separators. Every key-value pair inside an object must be separated by a newline or comma. Every object in a map MUST be separated by a comma (`,`). Avoid `Error: Missing attribute separator`.
+        
         Output strictly HCL Code only. No markdown formatting outside the code block.
         """
     else:
         log_event(
             "INFO",
-            "✨ 🏗️ [Agent 2: TF Architect] Constructing prompt for brand new HCL definition (Create)...",
+            "✨ 🏗️ [Agent: TF Architect] Constructing prompt for brand new HCL definition (Create)...",
             trace_id,
         )
         prompt = f"""
@@ -729,13 +732,17 @@ def generate_tf_patch_or_create(
         1. Create ONLY the `google_bigquery_table` resource(s) requested.
         2. Use exact string matching for the schema path: `schema = file("${{path.module}}/{schema_path}")`.
         3. DO NOT invent variables like `var.dataset_id`. Use the literal string "{dataset_id}".
+        
+        CRITICAL SYNTAX RULE:
+        When creating `locals` maps (if applicable), you MUST include proper attribute separators. Every key-value pair inside an object must be separated by a newline or comma. Every object in a map MUST be separated by a comma (`,`). Avoid `Error: Missing attribute separator`.
+        
         4. Output strictly HCL Code only. No markdown formatting outside the code block.
         """
 
     try:
         log_event(
             "INFO",
-            "⏳ 🏗️ [Agent 2: TF Architect] Awaiting AI infrastructure generation...",
+            "⏳ 🏗️ [Agent: TF Architect] Awaiting AI infrastructure generation...",
             trace_id,
         )
         response = generate_content_with_retry(model_heavy, prompt, trace_id)
@@ -745,7 +752,7 @@ def generate_tf_patch_or_create(
 
         log_event(
             "INFO",
-            "✅ 🏗️ [Agent 2: TF Architect] AI successfully generated Terraform HCL block.",
+            "✅ 🏗️ [Agent: TF Architect] AI successfully generated Terraform HCL block.",
             trace_id,
         )
 
@@ -761,14 +768,12 @@ def generate_tf_patch_or_create(
             defer=True,
         )
 
-        log_event(
-            "INFO", "⏹️ 🏗️ [Agent 2: TF Architect] Finished TF generation.", trace_id
-        )
+        log_event("INFO", "⏹️ 🏗️ [Agent: TF Architect] Finished TF generation.", trace_id)
         return text.replace("```hcl", "").replace("```", "")
     except Exception as e:
         log_event(
             "ERROR",
-            f"❌ 🏗️ [Agent 2: TF Architect] Terraform HCL Generation Failed: {e}",
+            f"❌ 🏗️ [Agent: TF Architect] Terraform HCL Generation Failed: {e}",
             trace_id,
         )
         log_ai_action(
@@ -783,14 +788,14 @@ def generate_tf_patch_or_create(
         )
         log_event(
             "INFO",
-            "⏹️ 🏗️ [Agent 2: TF Architect] Finished TF generation (Failure).",
+            "⏹️ 🏗️ [Agent: TF Architect] Finished TF generation (Failure).",
             trace_id,
         )
         return ""
 
 
 # ==============================================================================
-# 🧠 AGENT 3: DATAFORM SCANNER
+# 🧠 AGENT: DATAFORM SCANNER
 # ==============================================================================
 def analyze_dataform_repo_state(
     repo, branch_sha: str, base_name: str, table_name: str, trace_id: str
@@ -798,7 +803,7 @@ def analyze_dataform_repo_state(
     """Goal: Use Semantic/Fuzzy matching to find existing domains, rules, and strictly extract valid datasets/schemas."""
     log_event(
         "INFO",
-        f"▶️ 🔍 [Agent 3: DF Scanner] Semantic scan for entity '{base_name}' in Dataform workspace...",
+        f"▶️ 🔍 [Agent: DF Scanner] Semantic scan for entity '{base_name}' in Dataform workspace...",
         trace_id,
     )
     state = {
@@ -836,7 +841,7 @@ def analyze_dataform_repo_state(
                     state["existing_files"][element.path] = content
                     log_event(
                         "INFO",
-                        f"📂 🔍 [Agent 3: DF Scanner] Semantic match found and verified for patching: {element.path}",
+                        f"📂 🔍 [Agent: DF Scanner] Semantic match found and verified for patching: {element.path}",
                         trace_id,
                     )
 
@@ -864,21 +869,21 @@ def analyze_dataform_repo_state(
     except Exception as e:
         log_event(
             "WARNING",
-            f"⚠️ 🔍 [Agent 3: DF Scanner] Dataform scan anomaly: {e}",
+            f"⚠️ 🔍 [Agent: DF Scanner] Dataform scan anomaly: {e}",
             trace_id,
         )
 
     state["existing_schemas"] = list(state["existing_schemas"])
     log_event(
         "INFO",
-        "⏹️ 🔍 [Agent 3: DF Scanner] Finished scanning Dataform workspace.",
+        "⏹️ 🔍 [Agent: DF Scanner] Finished scanning Dataform workspace.",
         trace_id,
     )
     return state
 
 
 # ==============================================================================
-# 🧠 AGENT 8: DATASET ROUTING ANALYST
+# 🧠 AGENT: DATASET ROUTING ANALYST
 # ==============================================================================
 def infer_pipeline_datasets_with_ai(
     table_name: str,
@@ -889,7 +894,7 @@ def infer_pipeline_datasets_with_ai(
     """Goal: Use AI to analyze existing datasets and securely map them to the pipeline layers without hallucinating."""
     log_event(
         "INFO",
-        f"▶️ 🗺️ [Agent 8: Dataset Analyst] Initiating AI dataset routing for '{table_name}'...",
+        f"▶️ 🗺️ [Agent: Dataset Analyst] Initiating AI dataset routing for '{table_name}'...",
         trace_id,
     )
 
@@ -902,10 +907,10 @@ def infer_pipeline_datasets_with_ai(
     if not model_lite:
         log_event(
             "WARNING",
-            "⚠️ 🗺️ [Agent 8: Dataset Analyst] AI offline. Using standard defaults.",
+            "⚠️ 🗺️ [Agent: Dataset Analyst] AI offline. Using standard defaults.",
             trace_id,
         )
-        log_event("INFO", "⏹️ 🗺️ [Agent 8: Dataset Analyst] Finished routing.", trace_id)
+        log_event("INFO", "⏹️ 🗺️ [Agent: Dataset Analyst] Finished routing.", trace_id)
         return default_map
 
     prompt = f"""
@@ -925,7 +930,7 @@ def infer_pipeline_datasets_with_ai(
     try:
         log_event(
             "INFO",
-            "⏳ 🗺️ [Agent 8: Dataset Analyst] Awaiting AI dataset routing analysis...",
+            "⏳ 🗺️ [Agent: Dataset Analyst] Awaiting AI dataset routing analysis...",
             trace_id,
         )
 
@@ -940,30 +945,30 @@ def infer_pipeline_datasets_with_ai(
         datasets_map = json.loads(text)
         log_event(
             "INFO",
-            f"✅ 🗺️ [Agent 8: Dataset Analyst] AI successfully mapped datasets: {json.dumps(datasets_map)}",
+            f"✅ 🗺️ [Agent: Dataset Analyst] AI successfully mapped datasets: {json.dumps(datasets_map)}",
             trace_id,
         )
         log_event(
-            "INFO", "⏹️ 🗺️ [Agent 8: Dataset Analyst] Finished dataset routing.", trace_id
+            "INFO", "⏹️ 🗺️ [Agent: Dataset Analyst] Finished dataset routing.", trace_id
         )
         return datasets_map
 
     except Exception as e:
         log_event(
             "ERROR",
-            f"❌ 🗺️ [Agent 8: Dataset Analyst] AI Mapping Failed: {e}. Falling back to safe defaults.",
+            f"❌ 🗺️ [Agent: Dataset Analyst] AI Mapping Failed: {e}. Falling back to safe defaults.",
             trace_id,
         )
         log_event(
             "INFO",
-            "⏹️ 🗺️ [Agent 8: Dataset Analyst] Finished dataset routing (Fallback applied).",
+            "⏹️ 🗺️ [Agent: Dataset Analyst] Finished dataset routing (Fallback applied).",
             trace_id,
         )
         return default_map
 
 
 # ==============================================================================
-# 🧠 AGENT 4: DATAFORM ARCHITECT (Enhanced Templates, Pathing & Formatting)
+# 🧠 AGENT: DATAFORM ARCHITECT (Enhanced Templates, Pathing & Formatting)
 # ==============================================================================
 def generate_ai_dataform_pipeline(
     table_name: str,
@@ -980,19 +985,19 @@ def generate_ai_dataform_pipeline(
     """Goal: Dynamically generate Dataform files, strictly enforcing datasets, tags, syntax, paths, templates, formatting, and temporal logic."""
     log_event(
         "INFO",
-        f"▶️ 🪄 [Agent 4: DF Architect] Analyzing requirements for '{table_name}'...",
+        f"▶️ 🪄 [Agent: DF Architect] Analyzing requirements for '{table_name}'...",
         trace_id,
     )
 
     if not model_heavy:
         log_event(
             "WARNING",
-            "⚠️ 🪄 [Agent 4: DF Architect] AI Service offline. Cannot generate Dataform code.",
+            "⚠️ 🪄 [Agent: DF Architect] AI Service offline. Cannot generate Dataform code.",
             trace_id,
         )
         log_event(
             "INFO",
-            "⏹️ 🪄 [Agent 4: DF Architect] Finished Dataform generation (Abort).",
+            "⏹️ 🪄 [Agent: DF Architect] Finished Dataform generation (Abort).",
             trace_id,
         )
         return {}
@@ -1016,7 +1021,7 @@ def generate_ai_dataform_pipeline(
         existing_paths = list(existing_files.keys())
         log_event(
             "INFO",
-            f"🩹 🪄 [Agent 4: DF Architect] Existing files detected. Locking allowed file paths to: {existing_paths}",
+            f"🩹 🪄 [Agent: DF Architect] Existing files detected. Locking allowed file paths to: {existing_paths}",
             trace_id,
         )
         pruned_existing_files = prune_whitespace(json.dumps(existing_files))
@@ -1029,7 +1034,7 @@ def generate_ai_dataform_pipeline(
     else:
         log_event(
             "INFO",
-            "✨ 🪄 [Agent 4: DF Architect] No files detected. Operating in CREATE mode.",
+            "✨ 🪄 [Agent: DF Architect] No files detected. Operating in CREATE mode.",
             trace_id,
         )
         instruction_block = f"""
@@ -1046,7 +1051,7 @@ def generate_ai_dataform_pipeline(
 
     log_event(
         "INFO",
-        "🛡️ 🪄 [Agent 4: DF Architect] Injecting strict Dataform Templates, Dynamic Sample Data, Contract YAML rules, and Formatting.",
+        "🛡️ 🪄 [Agent: DF Architect] Injecting strict Dataform Templates, Dynamic Sample Data, Contract YAML rules, and Formatting.",
         trace_id,
     )
     prompt = f"""
@@ -1110,7 +1115,7 @@ def generate_ai_dataform_pipeline(
     try:
         log_event(
             "INFO",
-            "⏳ 🪄 [Agent 4: DF Architect] Instructing Gemini to synthesize Dataform files with Tags, YAML Contracts, Formatting, and Dynamic Sample Data parsing...",
+            "⏳ 🪄 [Agent: DF Architect] Instructing Gemini to synthesize Dataform files with Tags, YAML Contracts, Formatting, and Dynamic Sample Data parsing...",
             trace_id,
         )
         response = generate_content_with_retry(model_heavy, prompt, trace_id)
@@ -1123,7 +1128,7 @@ def generate_ai_dataform_pipeline(
         pipeline_files = json.loads(text)
         log_event(
             "INFO",
-            f"✅ 🪄 [Agent 4: DF Architect] AI successfully generated {len(pipeline_files)} SQLX files conforming to exact syntax, YAML contracts, dynamic casting, and formatting bounds.",
+            f"✅ 🪄 [Agent: DF Architect] AI successfully generated {len(pipeline_files)} SQLX files conforming to exact syntax, YAML contracts, dynamic casting, and formatting bounds.",
             trace_id,
         )
 
@@ -1140,7 +1145,7 @@ def generate_ai_dataform_pipeline(
         )
         log_event(
             "INFO",
-            "⏹️ 🪄 [Agent 4: DF Architect] Finished Dataform generation.",
+            "⏹️ 🪄 [Agent: DF Architect] Finished Dataform generation.",
             trace_id,
         )
         return pipeline_files
@@ -1148,7 +1153,7 @@ def generate_ai_dataform_pipeline(
     except Exception as e:
         log_event(
             "ERROR",
-            f"❌ 🪄 [Agent 4: DF Architect] AI Code Generation Failed: {e}",
+            f"❌ 🪄 [Agent: DF Architect] AI Code Generation Failed: {e}",
             trace_id,
         )
         log_ai_action(
@@ -1163,14 +1168,14 @@ def generate_ai_dataform_pipeline(
         )
         log_event(
             "INFO",
-            "⏹️ 🪄 [Agent 4: DF Architect] Finished Dataform generation (Failure).",
+            "⏹️ 🪄 [Agent: DF Architect] Finished Dataform generation (Failure).",
             trace_id,
         )
         return {}
 
 
 # ==============================================================================
-# 🧠 AGENT 5: DATAFORM QA VERIFIER (Enhanced Syntax, Template & Formatting Validation)
+# 🧠 AGENT: DATAFORM QA VERIFIER (Enhanced Syntax, Template & Formatting Validation)
 # ==============================================================================
 def verify_dataform_pipeline(
     pipeline_files: Dict[str, str],
@@ -1185,14 +1190,14 @@ def verify_dataform_pipeline(
     """Goal: QA Lead verifies exact syntax match with templates, dynamic casting, temporal date updates, tags, and formatting."""
     log_event(
         "INFO",
-        f"▶️ 🕵️‍♀️ [Agent 5: DF QA] Initiating automated peer-review of generated SQLX code...",
+        f"▶️ 🕵️‍♀️ [Agent: DF QA] Initiating automated peer-review of generated SQLX code...",
         trace_id,
     )
 
     if not model_lite or not pipeline_files:
         log_event(
             "INFO",
-            "⏹️ 🕵️‍♀️ [Agent 5: DF QA] Bypassing QA (No model or no files).",
+            "⏹️ 🕵️‍♀️ [Agent: DF QA] Bypassing QA (No model or no files).",
             trace_id,
         )
         return pipeline_files
@@ -1239,7 +1244,7 @@ def verify_dataform_pipeline(
     try:
         log_event(
             "INFO",
-            "⏳ 🕵️‍♀️ [Agent 5: DF QA] Awaiting QA review, global temporal enforcement, dynamic casting, tagging, and formatting validation...",
+            "⏳ 🕵️‍♀️ [Agent: DF QA] Awaiting QA review, global temporal enforcement, dynamic casting, tagging, and formatting validation...",
             trace_id,
         )
         response = generate_content_with_retry(model_lite, prompt, trace_id)
@@ -1252,27 +1257,27 @@ def verify_dataform_pipeline(
         verified_files = json.loads(text)
         log_event(
             "INFO",
-            f"✅ 🕵️‍♀️ [Agent 5: DF QA] QA passed. Templates, Dynamic Casting, Formatting, Incremental Logic, and Tags strictly enforced.",
+            f"✅ 🕵️‍♀️ [Agent: DF QA] QA passed. Templates, Dynamic Casting, Formatting, Incremental Logic, and Tags strictly enforced.",
             trace_id,
         )
-        log_event("INFO", "⏹️ 🕵️‍♀️ [Agent 5: DF QA] Finished automated review.", trace_id)
+        log_event("INFO", "⏹️ 🕵️‍♀️ [Agent: DF QA] Finished automated review.", trace_id)
         return verified_files
     except Exception as e:
         log_event(
             "WARNING",
-            f"⚠️ 🕵️‍♀️ [Agent 5: DF QA] QA Verification Failed (Parsing error). Falling back to unverified code. {e}",
+            f"⚠️ 🕵️‍♀️ [Agent: DF QA] QA Verification Failed (Parsing error). Falling back to unverified code. {e}",
             trace_id,
         )
         log_event(
             "INFO",
-            "⏹️ 🕵️‍♀️ [Agent 5: DF QA] Finished automated review (Fallback applied).",
+            "⏹️ 🕵️‍♀️ [Agent: DF QA] Finished automated review (Fallback applied).",
             trace_id,
         )
         return pipeline_files
 
 
 # ==============================================================================
-# 🧠 AGENT 6: SCHEMA QA VERIFIER
+# 🧠 AGENT: SCHEMA QA VERIFIER
 # ==============================================================================
 def verify_schema_json(
     schema_list: List[Dict], table_name: str, new_cols: List[str], trace_id: str
@@ -1280,14 +1285,14 @@ def verify_schema_json(
     """Goal: Ensure JSON Schema strictly complies with enterprise standards before committing."""
     log_event(
         "INFO",
-        f"▶️ 🕵️‍♀️ [Agent 6: Schema QA] Initiating automated peer-review of BigQuery JSON Schema...",
+        f"▶️ 🕵️‍♀️ [Agent: Schema QA] Initiating automated peer-review of BigQuery JSON Schema...",
         trace_id,
     )
 
     if not model_lite or not schema_list:
         log_event(
             "INFO",
-            "⏹️ 🕵️‍♀️ [Agent 6: Schema QA] Bypassing QA (No model or schema).",
+            "⏹️ 🕵️‍♀️ [Agent: Schema QA] Bypassing QA (No model or schema).",
             trace_id,
         )
         return schema_list
@@ -1311,7 +1316,7 @@ def verify_schema_json(
 
     try:
         log_event(
-            "INFO", "⏳ 🕵️‍♀️ [Agent 6: Schema QA] Awaiting Schema QA review...", trace_id
+            "INFO", "⏳ 🕵️‍♀️ [Agent: Schema QA] Awaiting Schema QA review...", trace_id
         )
         response = generate_content_with_retry(model_lite, prompt, trace_id)
         text = response.text.strip()
@@ -1323,17 +1328,17 @@ def verify_schema_json(
         verified_schema = json.loads(text)
         log_event(
             "INFO",
-            f"✅ 🕵️‍♀️ [Agent 6: Schema QA] QA passed. Schema verified and Default Values validated.",
+            f"✅ 🕵️‍♀️ [Agent: Schema QA] QA passed. Schema verified and Default Values validated.",
             trace_id,
         )
         log_event(
-            "INFO", "⏹️ 🕵️‍♀️ [Agent 6: Schema QA] Finished automated review.", trace_id
+            "INFO", "⏹️ 🕵️‍♀️ [Agent: Schema QA] Finished automated review.", trace_id
         )
         return verified_schema
     except Exception as e:
         log_event(
             "WARNING",
-            f"⚠️ 🕵️‍♀️ [Agent 6: Schema QA] QA Verification Failed. Applying programmatic fallback for default values. {e}",
+            f"⚠️ 🕵️‍♀️ [Agent: Schema QA] QA Verification Failed. Applying programmatic fallback for default values. {e}",
             trace_id,
         )
         for col in schema_list:
@@ -1342,14 +1347,14 @@ def verify_schema_json(
 
         log_event(
             "INFO",
-            "⏹️ 🕵️‍♀️ [Agent 6: Schema QA] Finished automated review (Programmatic Fallback applied).",
+            "⏹️ 🕵️‍♀️ [Agent: Schema QA] Finished automated review (Programmatic Fallback applied).",
             trace_id,
         )
         return schema_list
 
 
 # ==============================================================================
-# 🧠 AGENT 7: TERRAFORM QA VERIFIER
+# 🧠 AGENT: TERRAFORM QA VERIFIER
 # ==============================================================================
 def verify_terraform_hcl(
     hcl_content: str, table_id: str, tf_state: Dict[str, Any], trace_id: str
@@ -1357,13 +1362,13 @@ def verify_terraform_hcl(
     """Goal: Ensure Terraform code syntax is perfect and history table creation uses schema reuse."""
     log_event(
         "INFO",
-        f"▶️ 🕵️‍♀️ [Agent 7: TF QA] Initiating automated peer-review of Terraform HCL...",
+        f"▶️ 🕵️‍♀️ [Agent: TF QA] Initiating automated peer-review of Terraform HCL...",
         trace_id,
     )
 
     if not model_lite or not hcl_content:
         log_event(
-            "INFO", "⏹️ 🕵️‍♀️ [Agent 7: TF QA] Bypassing QA (No model or HCL).", trace_id
+            "INFO", "⏹️ 🕵️‍♀️ [Agent: TF QA] Bypassing QA (No model or HCL).", trace_id
         )
         return hcl_content
 
@@ -1392,13 +1397,14 @@ def verify_terraform_hcl(
     1. Is the HCL syntax perfect? Look for missing brackets or quotation marks.
     2. Does the main table resource for '{table_id}' exist?
     3. ANTI-HALLUCINATION RULE: Do not invent new resources that were not requested.
+    4. Is there any 'Missing attribute separator' error? Verify that objects inside 'locals' maps are properly separated by commas (,), and attributes within objects have proper newlines.
     {hist_rule}
     
     Fix any errors found. Output STRICTLY the corrected Terraform HCL code. No markdown formatting outside the code block.
     """
 
     try:
-        log_event("INFO", "⏳ 🕵️‍♀️ [Agent 7: TF QA] Awaiting TF QA review...", trace_id)
+        log_event("INFO", "⏳ 🕵️‍♀️ [Agent: TF QA] Awaiting TF QA review...", trace_id)
         response = generate_content_with_retry(model_lite, prompt, trace_id)
         text = response.text.strip()
         if text.startswith("```"):
@@ -1406,20 +1412,20 @@ def verify_terraform_hcl(
 
         log_event(
             "INFO",
-            f"✅ 🕵️‍♀️ [Agent 7: TF QA] QA passed. Terraform HCL structure validated.",
+            f"✅ 🕵️‍♀️ [Agent: TF QA] QA passed. Terraform HCL structure validated.",
             trace_id,
         )
-        log_event("INFO", "⏹️ 🕵️‍♀️ [Agent 7: TF QA] Finished automated review.", trace_id)
+        log_event("INFO", "⏹️ 🕵️‍♀️ [Agent: TF QA] Finished automated review.", trace_id)
         return text.replace("```hcl", "").replace("```", "")
     except Exception as e:
         log_event(
             "WARNING",
-            f"⚠️ 🕵️‍♀️ [Agent 7: TF QA] QA Verification Failed. Falling back to unverified HCL. {e}",
+            f"⚠️ 🕵️‍♀️ [Agent: TF QA] QA Verification Failed. Falling back to unverified HCL. {e}",
             trace_id,
         )
         log_event(
             "INFO",
-            "⏹️ 🕵️‍♀️ [Agent 7: TF QA] Finished automated review (Fallback applied).",
+            "⏹️ 🕵️‍♀️ [Agent: TF QA] Finished automated review (Fallback applied).",
             trace_id,
         )
         return hcl_content
