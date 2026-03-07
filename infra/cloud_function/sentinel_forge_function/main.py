@@ -1902,7 +1902,6 @@ Sentinel-Forge has intercepted a pipeline anomaly and autonomously generated the
 | **BigQuery Schema** | {pr_status_schema} | `{target_json_path}` |
 | **History Schema Sync** | {"✅ Reused Main Schema" if is_raw_table else "⏭️ N/A"} | `{target_json_path if is_raw_table else "N/A"}` |
 | **Terraform HCL** | {pr_status_tf} | `{target_tf_path}` |
-| **Data Contracts (YAML)** | ✨ Processed | `{contract_full_path}` |
 | **Dataform SQLX** | {pr_status_df} | Semantic Domain Routing Applied |
 
 ### 🔍 Schema Modifications
