@@ -82,17 +82,17 @@ module "dataform" {
   secret_id                                = var.secret_id
 }
 
-# ==========================================
-# MODULE 7: Create Cloud Run
-# ==========================================
-module "cloud_run" {
-  source     = "./cloud_run"
+# # ==========================================
+# # MODULE 7: Create Cloud Run
+# # ==========================================
+# module "cloud_run" {
+#   source     = "./cloud_run"
 
-  # Pass variables from Root -> Module
-  region                                   = var.region
-  project_id                               = var.project_id
-  secret_id                                = var.secret_id
-  repo_name                                = var.repo_name
-  code_bucket_name                         = var.code_bucket_name
-  insights_audit                           = var.insights_audit
-}
+#   # Pass variables from Root -> Module
+#   region                                   = var.region
+#   project_id                               = var.project_id
+#   secret_id                                = var.secret_id
+#   repo_name                                = var.repo_name
+#   code_bucket_name                         = var.code_bucket_name
+#   insights_audit                           = var.insights_audit
+# }
