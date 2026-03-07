@@ -90,7 +90,7 @@ variable "composer_bucket_name" {
   description = "Name of the existing Composer bucket"
   type        = string
 }
-variable "insights_audit" {
-  description = "Name of the Insights Audit table"
-  type        = string
-}
+# variable "insights_audit" {
+#   description = "Name of the Insights Audit table"
+#   type        = string
+# }
