@@ -1,0 +1,25 @@
+config {
+  type: "table",
+  schema: "sentinel_staging",
+  assertions: {
+    non_null_columns: ["product_id", "product_name", "category", "base_price", "batch_date", "processed_dttm"],
+    unique_key: ["product_id"],
+    row_conditions: [
+      "REGEXP_CONTAINS(product_id, '^P_ID_[0-9]{3}$')",
+      "category IN ('Storage', 'Electronics', 'Furniture', 'Maintenance')",
+      "base_price BETWEEN 0.01 AND 50000.00"
+    ]
+  },
+  tags: ["sales", "product", "staging"]
+}
+
+SELECT
+    SAFE_CAST(product_id AS STRING) AS product_id,
+    SAFE_CAST(product_name AS STRING) AS product_name,
+    SAFE_CAST(category AS STRING) AS category,
+    SAFE_CAST(base_price AS NUMERIC) AS base_price,
+    CURRENT_DATE() AS batch_date,
+    SAFE_CAST(processed_dttm AS TIMESTAMP) AS processed_dttm
+  FROM
+    ${ref("product_raw")}
+QUALIFY ROW_NUMBER() OVER(PARTITION BY product_id ORDER BY SAFE_CAST(processed_dttm AS TIMESTAMP) DESC) = 1
