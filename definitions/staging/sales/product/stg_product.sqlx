@@ -1,0 +1,40 @@
+config {
+  type: "table",
+  schema: "sentinel_staging",
+  assertions: {
+    "product_id": {
+      "not_null": {},
+      "unique_key": ["product_id"],
+      "row_condition": "REGEXP_CONTAINS(product_id, '^P_ID_[0-9]{3}$')"
+    },
+    "product_name": {
+      "not_null": {}
+    },
+    "category": {
+      "row_condition": "category IN ('Storage', 'Electronics', 'Furniture', 'Maintenance')"
+    },
+    "base_price": {
+      "not_null": {},
+      "row_condition": "base_price >= 0.01 AND base_price <= 50000.00"
+    },
+    "batch_date": {
+      "not_null": {}
+    },
+    "processed_dttm": {
+      "not_null": {}
+    }
+  },
+  tags: ["sales", "product", "staging"]
+}
+
+SELECT
+  SAFE_CAST(product_id AS STRING) AS product_id,
+  SAFE_CAST(product_name AS STRING) AS product_name,
+  SAFE_CAST(category AS STRING) AS category,
+  SAFE_CAST(base_price AS NUMERIC) AS base_price,
+  CURRENT_DATE() AS batch_date,
+  SAFE_CAST(processed_dttm AS TIMESTAMP) AS processed_dttm
+FROM
+  ${ref("product_raw")}
+QUALIFY
+  ROW_NUMBER() OVER(PARTITION BY product_id ORDER BY SAFE_CAST(processed_dttm AS TIMESTAMP) DESC) = 1
