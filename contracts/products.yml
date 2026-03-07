@@ -1,0 +1,27 @@
+data_contract:
+  table_name: product_raw
+  domain: sales
+  description: Raw data for products, directly ingested from source system.
+  columns:
+    - name: product_id
+      type: STRING
+      description: Unique identifier for each product.
+      assertions:
+        non_null: true
+        unique: true
+    - name: product_name
+      type: STRING
+      description: Display name of the product.
+      assertions:
+        non_null: true
+    - name: category
+      type: STRING
+      description: Category to which the product belongs.
+      assertions:
+        non_null: true
+    - name: base_price
+      type: FLOAT64
+      description: The base price of the product.
+      assertions:
+        non_null: true
+        min_value: 0.0 # Price should not be negative
