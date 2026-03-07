@@ -24,55 +24,70 @@ The system is split into two primary microservices:
 2. **`sentinel-forge`**: The AI Agent swarm. Triggered by the Pub/Sub drift event, this multi-agent engine utilizes Vertex AI (Gemini 2.5 Flash & Flash-Lite) to reverse-engineer the required infrastructure and pipeline code, submitting a flawless PR to your GitHub repository.
 
 ```mermaid
+%%{init: {'theme': 'base', 'themeVariables': { 'edgeLabelBackground': '#FFFFFF', 'lineColor': '#B0BEC5', 'textColor': '#2C3E50' }}}%%
 graph TD
-    %% Global Link Styling (Vibrant Cyan for Dark Mode visibility)
-    linkStyle default stroke:#00D2D3,stroke-width:3px;
+    %% Global Link Styling (Removed color hex to prevent parser crash)
+    linkStyle default stroke:#B0BEC5,stroke-width:2px;
 
-    %% Node Definitions with Detailed Labels
+    %% Node Definitions
     A[🪣 GCS Landing Bucket<br>Raw CSV/JSON/Parquet]:::storage
     B(🛡️ Sentinel Ingestor<br>Cloud Function / Python):::compute
     C[(🏛️ BigQuery Raw Tables<br>Data Warehouse)]:::database
     D{📬 Pub/Sub Drift Topic<br>Event Mesh}:::pubsub
+    
+    E((🧠 Sentinel-Forge AI Swarm<br>Vertex AI Gemini 2.5)):::ai_brain
 
-    E((🧠 Sentinel-Forge AI Swarm<br>Vertex AI Gemini 2.5)):::ai
+    %% The Contract Agent
+    X[📜 Agent: Contract Engine<br>YAML Fetch/Generate]:::contract
 
     %% The Makers
-    F[🧩 Agent 1: Schema Designer<br>BigQuery JSON Schema]:::ai
-    G[🏗️ Agent 2: TF Architect<br>Terraform HCL Code]:::ai
-    H[🪄 Agent 4: DF Architect<br>Dataform SQLX Code]:::ai
+    F[🧩 Agent: Schema Designer<br>BigQuery JSON Schema]:::schema_ai
+    G[🏗️ Agent: TF Architect<br>Terraform HCL Code]:::tf_ai
+    H[🪄 Agent: DF Architect<br>Dataform SQLX Code]:::df_ai
 
     %% The Checkers
-    Q1[🕵️‍♀️ Agent 6: Schema QA<br>Enforce STRING & Defaults]:::ai
-    Q2[🕵️‍♀️ Agent 7: TF QA<br>Enforce DRY & Locals]:::ai
-    Q3[🕵️‍♀️ Agent 5: DF QA<br>Enforce Tags & Syntax]:::ai
+    Q1[🕵️‍♀️ Agent: Schema QA<br>Enforce STRING & Defaults]:::schema_ai
+    Q2[🕵️‍♀️ Agent: TF QA<br>Enforce DRY & Locals]:::tf_ai
+    Q3[🕵️‍♀️ Agent: DF QA<br>Enforce Tags & Syntax]:::df_ai
 
     I[🐙 GitHub API<br>Branch & Commit Injector]:::git
     J[🏆 Pull Request Created<br>Self-Healed Pipeline]:::git
 
-    %% Connections
-    A -->|Upload Event| B
-    B -->|Schema Valid & Loaded| C
-    B -->|Schema Drift / Missing Table| D
-    D -->|Trigger Payload + Domain| E
+    %% Connections with Rich Action Labels
+    A -->| 📤 Raw File Uploaded | B
+    B -->| ✅ Schema Match: Load Data | C
+    B -->| 🚨 Drift/Missing Detected | D
+    D -->| 📡 Dispatch Payload & Domain | E
+    
+    E -->| 🔍 Fetches/Generates YAML | X
+    X -->| 📜 Injects Strict Rules | E
 
-    E -->|Drafts Schema| F
-    E -->|Drafts Infra| G
-    E -->|Drafts Pipeline| H
+    E -->| 🏗️ Synthesizes Schema | F
+    E -->| 🏗️ Synthesizes Infra | G
+    E -->| 🏗️ Synthesizes Pipelines | H
 
-    F -->|Validates| Q1
-    G -->|Validates| Q2
-    H -->|Validates| Q3
+    F -->| ⚖️ Audits Types | Q1
+    G -->| ⚖️ Audits State | Q2
+    H -->| ⚖️ Audits Logic | Q3
 
-    Q1 & Q2 & Q3 -->|Injects Verified Code| I
-    I --> J
+    %% Committing to Git (Including the Contract)
+    Q1 & Q2 & Q3 -->| 📦 Stages Validated Code | I
+    X -->| 📦 Stages Contract YAML | I
+    I -->| 🚀 Opens Governance PR | J
 
-    %% Class Definitions (Rich light shades with high-contrast dark borders & text)
-    classDef storage fill:#D6EAF8,stroke:#2980B9,stroke-width:2px,color:#154360,rx:8px,ry:8px;
-    classDef compute fill:#E8DAEF,stroke:#8E44AD,stroke-width:2px,color:#4A235A,rx:8px,ry:8px;
-    classDef database fill:#D1F2EB,stroke:#16A085,stroke-width:2px,color:#0B5345,rx:8px,ry:8px;
-    classDef pubsub fill:#FDEBD0,stroke:#D68910,stroke-width:2px,color:#7E5109,rx:8px,ry:8px;
-    classDef ai fill:#FDEDEC,stroke:#C0392B,stroke-width:2px,color:#641E16,rx:8px,ry:8px;
-    classDef git fill:#EAECEE,stroke:#2C3E50,stroke-width:2px,color:#17202A,rx:8px,ry:8px;
+    %% System Class Definitions (Light, Beautiful, Modern Colors)
+    classDef storage fill:#E3F2FD,stroke:#64B5F6,stroke-width:2px,color:#0D47A1,rx:8px,ry:8px;
+    classDef compute fill:#FFF8E1,stroke:#FBC02D,stroke-width:2px,color:#F57F17,rx:8px,ry:8px;
+    classDef database fill:#E0F2F1,stroke:#4DB6AC,stroke-width:2px,color:#004D40,rx:8px,ry:8px;
+    classDef pubsub fill:#FFF3E0,stroke:#FFB74D,stroke-width:2px,color:#E65100,rx:8px,ry:8px;
+    classDef git fill:#F5F5F5,stroke:#9E9E9E,stroke-width:2px,color:#212121,rx:8px,ry:8px;
+
+    %% Specialized Agent Swarm Colors
+    classDef ai_brain fill:#F3E5F5,stroke:#BA68C8,stroke-width:2px,color:#4A148C,rx:8px,ry:8px;
+    classDef contract fill:#FFF9C4,stroke:#FBC02D,stroke-width:2px,color:#795548,rx:8px,ry:8px;
+    classDef schema_ai fill:#E0F7FA,stroke:#4DD0E1,stroke-width:2px,color:#006064,rx:8px,ry:8px;
+    classDef tf_ai fill:#E8EAF6,stroke:#7986CB,stroke-width:2px,color:#283593,rx:8px,ry:8px;
+    classDef df_ai fill:#FCE4EC,stroke:#F06292,stroke-width:2px,color:#880E4F,rx:8px,ry:8px;
 ```
 
 ## 🧠 The Agent Swarm (`sentinel-forge`)
@@ -95,10 +110,19 @@ Sentinel-Forge employs a highly optimized **Maker/Checker Multi-Agent Architectu
   - Correct SQL syntax and align formatting.
   - Validate explicit casting logic.
   - Enforce a strict 3-part tag taxonomy (`[domain, entity, layer]`) on all Dataform configs.
+- **📜 The Contract Engine [Heavy/Lite]:** Before drafting code, this agent resolves data governance. 
+  - It fetches existing YAML Data Contracts from GCS (`sentinel-function-code/data_contracts/...`). 
+  - If one is missing, it dynamically generates a rigorous YAML contract based on the incoming sample data, dictating exact typing and assertions for the downstream pipelines.
 
 ---
 
 ## ✨ Enterprise Features
+
+### 📜 Contract-Driven Pipeline Synthesis
+
+- Sentinel-Forge inherently understands **Data Contracts**. 
+- It does not blind-cast data. It automatically fetches the associated `.yml` contract from GCS. 
+- The Dataform Architect uses this contract as the absolute source of truth to explicitly map native BigQuery types (`INT64`, `FLOAT64`, `TIMESTAMP`) and inject explicit Data Quality assertions into the generated `.sqlx` pipeline files.
 
 ### 🛡️ Anti-Hallucination & Governance
 
