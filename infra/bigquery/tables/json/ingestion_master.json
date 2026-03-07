@@ -24,6 +24,12 @@
     "description": "The tables domain (e.g., 'Sales')"
   },
   {
+    "name": "data_contracts",
+    "mode": "NULLABLE",
+    "type": "STRING",
+    "description": "The tables data contract (e.g., 'Sales.yaml')"
+  },
+  {
     "name": "file_format",
     "mode": "NULLABLE",
     "type": "STRING",
@@ -46,18 +52,6 @@
     "mode": "NULLABLE",
     "type": "INTEGER",
     "description": "Number of rows to skip (Default: 1)"
-  },
-  {
-    "name": "landing_bucket",
-    "mode": "NULLABLE",
-    "type": "STRING",
-    "description": "Specific source bucket to monitor (Optional)"
-  },
-  {
-    "name": "archive_bucket",
-    "mode": "NULLABLE",
-    "type": "STRING",
-    "description": "Specific destination archive bucket (Optional)"
   },
   {
     "name": "write_disposition",

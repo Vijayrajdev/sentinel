@@ -38,21 +38,27 @@ logging.basicConfig(level=logging.INFO)
 # CUSTOM EXCEPTIONS
 # ==============================================================================
 class SchemaDriftError(Exception):
-    # FEATURE ADDITION: Added domain to exception context to persist telemetry
-    def __init__(self, message, new_columns, sample_rows=None, domain=None):
+    # FEATURE ADDITION: Added domain and data_contracts to exception context to persist telemetry
+    def __init__(
+        self, message, new_columns, sample_rows=None, domain=None, data_contracts=None
+    ):
         super().__init__(message)
         self.new_columns = new_columns
         self.sample_rows = sample_rows
         self.domain = domain
+        self.data_contracts = data_contracts
 
 
 class TableNotFoundError(Exception):
-    # FEATURE ADDITION: Added domain to exception context to persist telemetry
-    def __init__(self, message, columns=None, sample_rows=None, domain=None):
+    # FEATURE ADDITION: Added domain and data_contracts to exception context to persist telemetry
+    def __init__(
+        self, message, columns=None, sample_rows=None, domain=None, data_contracts=None
+    ):
         super().__init__(message)
         self.columns = columns
         self.sample_rows = sample_rows
         self.domain = domain
+        self.data_contracts = data_contracts
 
 
 # ==============================================================================
@@ -168,9 +174,16 @@ def get_file_metadata(
         raise Exception(f"Failed to read metadata from {file_name}: {str(e)}")
 
 
-# FEATURE ADDITION: Passed the Domain attribute straight through to the AI Agent
+# FEATURE ADDITION: Passed the Domain and Data Contracts attributes straight through to the AI Agent
 def trigger_ai_agent(
-    bucket, file_name, table_ref, new_columns, sample_data, domain, trace_id
+    bucket,
+    file_name,
+    table_ref,
+    new_columns,
+    sample_data,
+    domain,
+    data_contracts,
+    trace_id,
 ):
     """Summons the AI Agent via Pub/Sub."""
     log_event(
@@ -196,6 +209,7 @@ def trigger_ai_agent(
         "file_name": file_name,
         "table_ref": table_ref,
         "domain": domain,  # FEATURE ADDITION: Crucial for accurate tags downstream
+        "data_contracts": data_contracts,  # FEATURE ADDITION: Added Data Contracts YAML reference for AI
         "new_column_headers": new_columns,
         "sample_data_rows": sample_data,
         "timestamp": datetime.datetime.now().isoformat(),
@@ -216,7 +230,11 @@ def trigger_ai_agent(
 
 
 def validate_schema(
-    final_table_ref: str, file_headers: List[str], domain: str, trace_id: str
+    final_table_ref: str,
+    file_headers: List[str],
+    domain: str,
+    data_contracts: str,
+    trace_id: str,
 ):
     """Validates incoming file headers against BigQuery destination."""
     log_event(
@@ -239,9 +257,11 @@ def validate_schema(
             f"👻 [Not Found] Destination table {final_table_ref} is completely missing.",
             trace_id,
         )
-        # FEATURE ADDITION: Pass domain through exception object
+        # FEATURE ADDITION: Pass domain and data_contracts through exception object
         raise TableNotFoundError(
-            f"Target table '{final_table_ref}' does not exist.", domain=domain
+            f"Target table '{final_table_ref}' does not exist.",
+            domain=domain,
+            data_contracts=data_contracts,
         )
 
     log_event(
@@ -259,11 +279,12 @@ def validate_schema(
             f"🌪️ [Drift] Structural mutation identified. Rogue columns: {unknown_cols}",
             trace_id,
         )
-        # FEATURE ADDITION: Pass domain through exception object
+        # FEATURE ADDITION: Pass domain and data_contracts through exception object
         raise SchemaDriftError(
             f"Schema Drift Detected. New columns: {unknown_cols}",
             new_columns=unknown_cols,
             domain=domain,
+            data_contracts=data_contracts,
         )
 
     log_event(
@@ -302,8 +323,18 @@ def load_raw_strings(
     delimiter = rule.get("delimiter") or ","
     quote_char = rule.get("quote_char") or '"'
 
-    # FEATURE ADDITION: Safely grab the domain for downstream routing
+    # FEATURE ADDITION: Safely grab the domain and properly sanitize data_contracts
     target_domain = rule.get("domain", "unknown_domain")
+
+    raw_contracts = rule.get("data_contracts")
+    if (
+        pd.isna(raw_contracts)
+        or not str(raw_contracts).strip()
+        or str(raw_contracts).strip().lower() == "nan"
+    ):
+        target_data_contracts = None
+    else:
+        target_data_contracts = str(raw_contracts).strip()
 
     raw_skip = rule.get("skip_header_rows")
     skip_header_rows = (
@@ -314,7 +345,9 @@ def load_raw_strings(
     headers, sample_rows = get_file_metadata(bucket, file_name, rule, trace_id)
 
     try:
-        validate_schema(final_table_ref, headers, target_domain, trace_id)
+        validate_schema(
+            final_table_ref, headers, target_domain, target_data_contracts, trace_id
+        )
     except SchemaDriftError as e:
         log_event(
             "WARNING",
@@ -324,17 +357,23 @@ def load_raw_strings(
         filtered_samples = [
             {k: row.get(k) for k in e.new_columns} for row in sample_rows
         ]
-        # FEATURE ADDITION: Push domain into error class
-        raise SchemaDriftError(str(e), e.new_columns, filtered_samples, e.domain)
+        # FEATURE ADDITION: Push domain and data_contracts into error class
+        raise SchemaDriftError(
+            str(e), e.new_columns, filtered_samples, e.domain, e.data_contracts
+        )
     except TableNotFoundError as e:
         log_event(
             "WARNING",
             "🕳️ [Missing Catch] Target void. Packaging creation telemetry...",
             trace_id,
         )
-        # FEATURE ADDITION: Push domain into error class
+        # FEATURE ADDITION: Push domain and data_contracts into error class
         raise TableNotFoundError(
-            str(e), columns=headers, sample_rows=sample_rows, domain=e.domain
+            str(e),
+            columns=headers,
+            sample_rows=sample_rows,
+            domain=e.domain,
+            data_contracts=e.data_contracts,
         )
 
     staging_table_id = f"{PROJECT_ID}.{rule['target_dataset']}.staging_{rule['target_table']}_{uuid.uuid4().hex[:8]}"
@@ -571,7 +610,7 @@ def archive_file(
         raise
 
 
-# FEATURE ADDITION: Updated schema to explicitly accept `domain` argument
+# FEATURE ADDITION: Updated schema to explicitly accept `domain` and `data_contracts` arguments
 def audit_log(
     trace_id,
     ingestion_id,
@@ -582,6 +621,7 @@ def audit_log(
     metrics=None,
     target_table=None,
     domain=None,
+    data_contracts=None,
     error_msg=None,
 ):
     """Writes standardized audit trace into BigQuery."""
@@ -601,6 +641,7 @@ def audit_log(
         "status": status,
         "target_table": target_table,
         "domain": domain,  # FEATURE ADDITION: Crucial for AI mapping
+        "data_contracts": data_contracts,  # FEATURE ADDITION: Crucial for AI mapping
         "error_message": error_msg[:2000] if error_msg else None,
         "start_time": (
             start_time.isoformat()
@@ -644,6 +685,7 @@ def handle_failure(
     target_folder="exempted",
     archive_bucket=None,
     domain=None,  # FEATURE ADDITION: Pushed domain through to Audit Logger
+    data_contracts=None,  # FEATURE ADDITION: Pushed data_contracts through to Audit Logger
 ):
     """Fallback handler for clean archiving of broken files."""
     log_event(
@@ -671,6 +713,7 @@ def handle_failure(
             status,
             start_time,
             domain=domain,
+            data_contracts=data_contracts,
             error_msg=error_msg,
         )
 
@@ -716,6 +759,7 @@ def process_file(cloud_event):
     final_table_ref = "UNKNOWN"
     rule_archive_bucket = None
     target_domain = None
+    target_data_contracts = None
 
     try:
         log_event("INFO", "🗺️ [Step 1] Requesting navigation vectors...", trace_id)
@@ -735,6 +779,17 @@ def process_file(cloud_event):
 
         rule_archive_bucket = rule.get("archive_bucket")
         target_domain = rule.get("domain", "unknown_domain")
+
+        raw_contracts = rule.get("data_contracts")
+        if (
+            pd.isna(raw_contracts)
+            or not str(raw_contracts).strip()
+            or str(raw_contracts).strip().lower() == "nan"
+        ):
+            target_data_contracts = None
+        else:
+            target_data_contracts = str(raw_contracts).strip()
+
         final_table_ref = (
             f"{PROJECT_ID}.{rule['target_dataset']}.{rule['target_table']}"
         )
@@ -762,6 +817,7 @@ def process_file(cloud_event):
             metrics,
             final_table_ref,
             domain=target_domain,
+            data_contracts=target_data_contracts,
         )
 
         log_event(
@@ -782,6 +838,7 @@ def process_file(cloud_event):
             e.new_columns,
             e.sample_rows,
             e.domain,  # FEATURE ADDITION: Pass domain payload downstream to AI
+            e.data_contracts,  # FEATURE ADDITION: Pass data contracts payload downstream to AI
             trace_id,
         )
         handle_failure(
@@ -795,6 +852,7 @@ def process_file(cloud_event):
             "schema_pending",
             rule_archive_bucket,
             domain=e.domain,
+            data_contracts=e.data_contracts,
         )
 
     except TableNotFoundError as e:
@@ -807,6 +865,7 @@ def process_file(cloud_event):
             e.columns,
             e.sample_rows,
             e.domain,
+            e.data_contracts,
             trace_id,
         )
         handle_failure(
@@ -820,6 +879,7 @@ def process_file(cloud_event):
             "schema_pending",
             rule_archive_bucket,
             domain=e.domain,
+            data_contracts=e.data_contracts,
         )
 
     except Exception as e:
@@ -838,4 +898,5 @@ def process_file(cloud_event):
             "exempted",
             rule_archive_bucket,
             domain=target_domain,
+            data_contracts=target_data_contracts,
         )
