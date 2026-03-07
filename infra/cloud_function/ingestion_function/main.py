@@ -533,9 +533,10 @@ def get_routing_rule(
     try:
         results = bq.query(query).result()
         for row in results:
-            rule_bucket = row.get("landing_bucket")
-            if rule_bucket and pd.notna(rule_bucket) and rule_bucket != bucket_name:
-                continue
+            # FEATURE UPDATE: landing_bucket removed from master table. Routing relies solely on file_pattern.
+            # rule_bucket = row.get("landing_bucket")
+            # if rule_bucket and pd.notna(rule_bucket) and rule_bucket != bucket_name:
+            #     continue
 
             if re.search(row["file_pattern"], file_name):
                 log_event(
@@ -777,7 +778,10 @@ def process_file(cloud_event):
             )
             return
 
-        rule_archive_bucket = rule.get("archive_bucket")
+        # FEATURE UPDATE: archive_bucket removed from master table. Using global ARCHIVE_BUCKET env var.
+        # rule_archive_bucket = rule.get("archive_bucket")
+        rule_archive_bucket = ARCHIVE_BUCKET
+
         target_domain = rule.get("domain", "unknown_domain")
 
         raw_contracts = rule.get("data_contracts")
