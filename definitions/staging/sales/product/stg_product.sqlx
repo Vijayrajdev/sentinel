@@ -1,0 +1,35 @@
+config {
+  type: "table",
+  schema: "sentinel_staging",
+  assertions: {
+    non_null: [
+      "product_id",
+      "product_name",
+      "category",
+      "base_price"
+    ],
+    unique: [
+      "product_id"
+    ],
+    rowConditions: [
+      "base_price >= 0.0"
+    ]
+  },
+  tags: [
+    "sales",
+    "product",
+    "staging"
+  ]
+}
+
+SELECT
+  SAFE_CAST(product_id AS STRING) AS product_id,
+  SAFE_CAST(product_name AS STRING) AS product_name,
+  SAFE_CAST(category AS STRING) AS category,
+  SAFE_CAST(base_price AS FLOAT64) AS base_price,
+  CURRENT_DATE() AS batch_date,
+  SAFE_CAST(processed_dttm AS TIMESTAMP) AS processed_dttm
+FROM
+  ${ref("product_raw")}
+QUALIFY
+  ROW_NUMBER() OVER(PARTITION BY product_id ORDER BY SAFE_CAST(processed_dttm AS TIMESTAMP) DESC) = 1
