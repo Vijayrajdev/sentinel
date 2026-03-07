@@ -1,0 +1,25 @@
+table_name: product_raw
+domain: sales
+columns:
+  - name: product_id
+    type: STRING
+    description: Unique identifier for the product.
+    assertions:
+      non_null: true
+      unique: true
+  - name: product_name
+    type: STRING
+    description: Display name of the product.
+    assertions:
+      non_null: true
+  - name: category
+    type: STRING
+    description: Category the product belongs to.
+    assertions:
+      non_null: true
+  - name: base_price
+    type: FLOAT64
+    description: The base price of the product.
+    assertions:
+      non_null: true
+      min_value: 0.0 # Base price should not be negative.
