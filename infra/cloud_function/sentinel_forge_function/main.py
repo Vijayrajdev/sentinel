@@ -271,12 +271,12 @@ def fetch_or_generate_data_contract(
         try:
             log_event(
                 "INFO",
-                f"🌐 📜 [Data Contract Engine] Attempting to fetch gs://sentinel-function-code/{domain}/{data_contracts}",
+                f"🌐 📜 [Data Contract Engine] Attempting to fetch gs://sentinel-function-code/data_contracts/{domain}/{data_contracts}",
                 trace_id,
             )
             storage_cli = get_storage_client()
             bucket = storage_cli.bucket("sentinel-function-code")
-            blob = bucket.blob(f"{domain}/{data_contracts}")
+            blob = bucket.blob(f"data_contracts/{domain}/{data_contracts}")
 
             if blob.exists():
                 contract_content = blob.download_as_text()
