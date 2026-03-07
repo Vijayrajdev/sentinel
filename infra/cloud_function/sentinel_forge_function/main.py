@@ -262,8 +262,9 @@ def fetch_or_generate_data_contract(
         trace_id,
     )
 
+    # FEATURE ADDITION: Format fallback explicitly to `_contracts.yaml` as requested
     contract_filename = (
-        data_contracts if data_contracts else f"{table_name}_contract.yml"
+        data_contracts if data_contracts else f"{table_name}_contracts.yaml"
     )
     contract_content = None
 
@@ -1591,6 +1592,13 @@ def apply_infrastructure_update(
         trace_id=trace_id,
     )
 
+    # FEATURE ADDITION: Compute the strict path for the data contract
+    contract_full_path = (
+        f"definitions/contracts/{target_domain}/{table}/{contract_filename}"
+        if contract_filename
+        else "N/A"
+    )
+
     # ----------------------------------------------------------------------
     # STEP 5: SCHEMA JSON LOGIC (Generation & QA)
     # ----------------------------------------------------------------------
@@ -1761,10 +1769,13 @@ def apply_infrastructure_update(
             )
 
             # FEATURE ADDITION: Attach the Data Contract YAML to the commit payload
-            if contract_filename and contract_content:
-                verified_df_pipeline[f"contracts/{contract_filename}"] = (
-                    contract_content
+            if contract_filename and contract_content and contract_full_path != "N/A":
+                log_event(
+                    "INFO",
+                    f"📂 📜 [Data Contract Engine] Staging contract file for commit at exact path: {contract_full_path}",
+                    trace_id,
                 )
+                verified_df_pipeline[contract_full_path] = contract_content
 
             df_files_changed, df_commit_log = inject_dataform_into_repo(
                 repo, branch_name, table, verified_df_pipeline, trace_id
@@ -1891,7 +1902,7 @@ Sentinel-Forge has intercepted a pipeline anomaly and autonomously generated the
 | **BigQuery Schema** | {pr_status_schema} | `{target_json_path}` |
 | **History Schema Sync** | {"✅ Reused Main Schema" if is_raw_table else "⏭️ N/A"} | `{target_json_path if is_raw_table else "N/A"}` |
 | **Terraform HCL** | {pr_status_tf} | `{target_tf_path}` |
-| **Data Contracts (YAML)** | ✨ Processed | `contracts/{contract_filename}` |
+| **Data Contracts (YAML)** | ✨ Processed | `{contract_full_path}` |
 | **Dataform SQLX** | {pr_status_df} | Semantic Domain Routing Applied |
 
 ### 🔍 Schema Modifications
