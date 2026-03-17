@@ -2,7 +2,7 @@
 
 ![Python](https://img.shields.io/badge/Python-3.10+-blue.svg)
 ![GCP](https://img.shields.io/badge/Google_Cloud-Functions_|_BigQuery_|_PubSub-4285F4.svg)
-![VertexAI](https://img.shields.io/badge/Vertex_AI-Gemini_2.5_Flash-orange.svg)
+![VertexAI](https://img.shields.io/badge/Vertex_AI-Gemini_2.5_Flash_Lite_|_Gemini_2.5_Flash-orange.svg)
 ![Dataform](https://img.shields.io/badge/Dataform-Core_v3.x-blueviolet.svg)
 ![Terraform](https://img.shields.io/badge/Terraform-HCL-purple.svg)
 
