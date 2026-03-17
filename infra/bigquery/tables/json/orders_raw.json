@@ -3,50 +3,70 @@
     "name": "order_id",
     "type": "STRING",
     "mode": "NULLABLE",
-    "description": "Unique ID for this specific order"
+    "description": "Unique ID for this specific order",
+    "defaultValueExpression": "NULL"
   },
   {
     "name": "customer_name",
     "type": "STRING",
     "mode": "NULLABLE",
-    "description": "Name of the customer"
+    "description": "Name of the customer",
+    "defaultValueExpression": "NULL"
   },
   {
     "name": "amount",
     "type": "STRING",
     "mode": "NULLABLE",
-    "description": "order amount"
+    "description": "order amount",
+    "defaultValueExpression": "NULL"
   },
   {
     "name": "status",
     "type": "STRING",
     "mode": "NULLABLE",
-    "description": "Status of the order"
+    "description": "Status of the order",
+    "defaultValueExpression": "NULL"
   },
   {
     "name": "order_date",
     "type": "STRING",
     "mode": "NULLABLE",
-    "description": "When the order made"
+    "description": "When the order made",
+    "defaultValueExpression": "NULL"
   },
   {
-    "name": "batch_date",
-    "type": "DATE",
-    "mode": "REQUIRED",
-    "defaultValueExpression": "DATE '9999-12-31'",
-    "description": "Record's batch date: Default '9999-12-31'"
+    "name": "product_id",
+    "type": "STRING",
+    "mode": "NULLABLE",
+    "description": "Identifier for the product ordered.",
+    "defaultValueExpression": "NULL"
   },
   {
-    "name": "processed_dttm",
-    "type": "TIMESTAMP",
-    "mode": "REQUIRED",
-    "defaultValueExpression": "CURRENT_TIMESTAMP()",
-    "description": "When the record inserted"
+    "name": "email",
+    "type": "STRING",
+    "mode": "NULLABLE",
+    "description": "Email address of the customer.",
+    "defaultValueExpression": "NULL"
   },
   {
     "name": "warehouse_id",
     "type": "STRING",
     "mode": "NULLABLE",
-    "description": "Unique identifier for the warehouse associated with the order."
+    "description": "Unique identifier for the warehouse associated with the order.",
+    "defaultValueExpression": "NULL"
+  },
+  {
+    "name": "batch_date",
+    "type": "DATE",
+    "mode": "REQUIRED",
+    "description": "Record's batch date: Default '9999-12-31'",
+    "defaultValueExpression": "DATE '9999-12-31'"
+  },
+  {
+    "name": "processed_dttm",
+    "type": "TIMESTAMP",
+    "mode": "REQUIRED",
+    "description": "When the record inserted",
+    "defaultValueExpression": "CURRENT_TIMESTAMP()"
   }
 ]
