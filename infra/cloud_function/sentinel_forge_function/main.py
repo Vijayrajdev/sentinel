@@ -981,7 +981,7 @@ def generate_ai_dataform_pipeline(
     sample_data: List[Dict],
     datasets: Dict[str, str],
     target_domain: str,
-    contract_yaml: str,  # FEATURE ADDITION: Inject data contract YAML
+    contract_yaml: str,
     trace_id: str,
 ) -> Dict[str, str]:
     """Goal: Dynamically generate Dataform files, strictly enforcing datasets, tags, syntax, paths, templates, formatting, and temporal logic."""
@@ -1092,7 +1092,8 @@ def generate_ai_dataform_pipeline(
          -- (Analyze Data Contract YAML to apply exact casting. e.g., SAFE_CAST(col AS INT64))
          <apply_dynamic_casting_here>,
          CURRENT_DATE() AS batch_date,
-         SAFE_CAST(processed_dttm AS TIMESTAMP) AS processed_dttm
+         SAFE_CAST(processed_dttm AS TIMESTAMP) AS processed_dttm,
+         CURRENT_TIMESTAMP() AS updated_dttm
        FROM ${{ref("{table_name}")}} 
        QUALIFY ROW_NUMBER() OVER(PARTITION BY <actual_pk_col> ORDER BY SAFE_CAST(processed_dttm AS TIMESTAMP) DESC) = 1
        
@@ -1112,13 +1113,17 @@ def generate_ai_dataform_pipeline(
          tags: ["{actual_domain}", "{base_name}", "marts"],
          assertions: {{ ...extract from yaml using STRICT Dataform v3.x syntax... }}
        }}
-       SELECT *, processed_dttm AS updated_at, CURRENT_DATE() AS batch_date FROM ${{ref("stg_{base_name}")}}
-       ${{when(incremental(), `WHERE processed_dttm > (SELECT MAX(updated_at) FROM ${{self()}})` )}}
+       SELECT 
+         * EXCEPT(batch_date, updated_dttm),
+         CURRENT_DATE() AS batch_date,
+         CURRENT_TIMESTAMP() AS updated_dttm
+       FROM ${{ref("stg_{base_name}")}}
+       ${{when(incremental(), `WHERE processed_dttm > (SELECT COALESCE(MAX(processed_dttm), TIMESTAMP("1970-01-01")) FROM ${{self()}})` )}}
 
     GENERAL REQUIREMENTS:
     1. STRICT DATASETS: Use exactly the schemas passed in the templates.
     2. DATA QUALITY: Assertions are mandatory in staging and marts.
-    3. CRITICAL BATCH DATE: Always map `CURRENT_DATE() AS batch_date` in staging, marts, and operations SELECT statements.
+    3. TEMPORAL ACCURACY & INCREMENTAL LOADS (CRITICAL): You MUST include both `processed_dttm` (when it arrived in raw) and `updated_dttm` (last modified pipeline time, set to CURRENT_TIMESTAMP()) in staging and marts. BigQuery forbids referencing SELECT aliases in WHERE clauses, so your incremental block MUST filter on `processed_dttm` and safely handle null states using `COALESCE(MAX(processed_dttm), TIMESTAMP("1970-01-01"))`.
     4. DATAFORM SYNTAX: Do NOT place any comments (`--`, `//`) inside the `config {{ ... }}` JSON blocks.
     5. DYNAMIC CASTING: Use the data types specified in the YAML to cast columns natively in BigQuery.
     6. STRICT TAGGING TAXONOMY: Every file's `config` block MUST contain a `tags: []` array, EXCEPT for declaration files. 
@@ -1251,10 +1256,10 @@ def verify_dataform_pipeline(
     1. ANTI-HALLUCINATION (FILE PATHS): Forcefully revert hallucinated keys back to the 'EXPECTED EXISTING PATHS' if present. 
     2. SCHEMA VALIDATION: Are all required columns explicitly selected?
     3. DECLARATION SYNTAX: Ensure the source file uses `type: "declaration"` with explicit `database`, `schema`, and `name` attributes ONLY. Strictly NO `tags` array allowed in declarations.
-    4. BATCH DATE ENFORCEMENT (GLOBAL): Across ALL files (staging, marts, operations), ensure the `batch_date` column is explicitly updated using `CURRENT_DATE() AS batch_date`. 
+    4. BATCH DATE & TIMESTAMPS (GLOBAL): Across ALL files (staging, marts), ensure `batch_date` is `CURRENT_DATE() AS batch_date`, and explicitly include `CURRENT_TIMESTAMP() AS updated_dttm`. 
     5. ARCHIVE OPERATIONS: Ensure `archive_` explicitly uses `INSERT INTO \`{PROJECT_ID}.{datasets['raw']}.<table_name>_hist\`` followed by `TRUNCATE TABLE ${{ref("<table_name>")}};`. Ensure NO `post_operations` block exists.
     6. STAGING DYNAMIC CASTING & DEDUP: Does the staging file dynamically apply the correct `SAFE_CAST()`, `SAFE.PARSE_DATE()`, etc.? Does it include `QUALIFY ROW_NUMBER() OVER(...) = 1`?
-    7. MARTS INCREMENTAL: Does the marts file use `type: "incremental"`, include a `bigquery: {{ partitionBy, clusterBy }}` block, and use the exact `${{when(incremental(), ...)}}` logic?
+    7. MARTS INCREMENTAL & COALESCE FIX: Does the marts file use `type: "incremental"`, include a `bigquery: {{ partitionBy, clusterBy }}` block, and use the exact `${{when(incremental(), `WHERE processed_dttm > (SELECT COALESCE(MAX(processed_dttm), TIMESTAMP("1970-01-01")) FROM ${{self()}})` )}}` logic? NEVER filter on SELECT aliases.
     8. TAG TAXONOMY: Ensure `config` blocks of EVERY file (EXCEPT declarations) contains a `tags: ["{actual_domain}", "{base_name}", "<layer>"]` array.
     9. CONFIG BLOCK SYNTAX: Remove any comments (`--`, `//`, `/* */`) inside the `config {{ ... }}` blocks.
     10. PROPER FORMATTING: Ensure all SQLX code is cleanly formatted. Standardize SQL indentation (2 spaces).
