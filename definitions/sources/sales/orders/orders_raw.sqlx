@@ -1,7 +1,7 @@
 config {
-  type: "declaration",
-  database: "sentinel-486707",
-  schema: "sentinel_raw",
-  name: "orders_raw",
-  description: "Raw ingestion source for orders."
+ type: "declaration",
+ database: "sentinel-486707",
+ schema: "sentinel_raw",
+ name: "orders_raw",
+ description: "Raw ingestion source for orders."
 }
