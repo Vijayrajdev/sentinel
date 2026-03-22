@@ -24,7 +24,6 @@ from google.cloud import (
 PROJECT_ID = os.environ.get("GCP_PROJECT")
 REGION = os.environ.get("GCP_REGION", "us-central1")
 REPO_NAME = os.environ.get("REPO_NAME")
-GITHUB_TOKEN = os.environ.get("GITHUB_TOKEN")
 GITHUB_APP_ID = os.environ.get("GITHUB_APP_ID")
 GITHUB_INSTALLATION_ID = os.environ.get("GITHUB_INSTALLATION_ID")
 GITHUB_PVT_KEY = os.environ.get("GITHUB_PVT_KEY")
@@ -1519,7 +1518,7 @@ def inject_dataform_into_repo(
 # ==============================================================================
 def apply_infrastructure_update(
     repo_name: str,
-    token: str,
+    key: str,
     table_ref: str,
     new_cols: List[str],
     trace_id: str,
@@ -1558,7 +1557,7 @@ def apply_infrastructure_update(
         install_id_int = int(GITHUB_INSTALLATION_ID)
 
         # 2. Sanitize Secret Manager newlines for PyJWT
-        clean_pvt_key = GITHUB_PVT_KEY.replace("\\n", "\n")
+        clean_pvt_key = key.replace("\\n", "\n")
 
         # 3. Authenticate
         auth = Auth.AppAuth(app_id=app_id_int, private_key=clean_pvt_key)
@@ -2139,10 +2138,10 @@ def ai_agent_main(cloud_event):
             trace_id,
         )
 
-        if not GITHUB_TOKEN or not REPO_NAME:
+        if not GITHUB_PVT_KEY or not REPO_NAME:
             log_event(
                 "CRITICAL",
-                "☠️ 🔌 [Gateway] CRITICAL: Missing GITHUB_TOKEN or REPO_NAME.",
+                "☠️ 🔌 [Gateway] CRITICAL: Missing GITHUB_PVT_KEY or REPO_NAME.",
                 trace_id,
             )
 
@@ -2151,7 +2150,9 @@ def ai_agent_main(cloud_event):
                 action="CRASH",
                 resource="System Initialization",
                 status="FAILED",
-                details={"error": "Missing GITHUB_TOKEN or REPO_NAME configurations."},
+                details={
+                    "error": "Missing GITHUB_PVT_KEY or REPO_NAME configurations."
+                },
                 link=None,
                 resource_group="System Operations",
                 resource_type="Critical Failure",
@@ -2187,7 +2188,7 @@ def ai_agent_main(cloud_event):
         )
         result = apply_infrastructure_update(
             repo_name=REPO_NAME,
-            token=GITHUB_TOKEN,
+            key=GITHUB_PVT_KEY,
             table_ref=table_ref,
             new_cols=new_cols,
             trace_id=trace_id,
