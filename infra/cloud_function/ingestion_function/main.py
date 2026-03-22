@@ -38,19 +38,25 @@ logging.basicConfig(level=logging.INFO)
 # CUSTOM EXCEPTIONS
 # ==============================================================================
 class SchemaDriftError(Exception):
-    # FEATURE ADDITION: Added domain and data_contracts to exception context to persist telemetry
+    # UPDATED: Added deleted_columns to constructor context
     def __init__(
-        self, message, new_columns, sample_rows=None, domain=None, data_contracts=None
+        self,
+        message,
+        new_columns,
+        deleted_columns=None,
+        sample_rows=None,
+        domain=None,
+        data_contracts=None,
     ):
         super().__init__(message)
         self.new_columns = new_columns
+        self.deleted_columns = deleted_columns or []
         self.sample_rows = sample_rows
         self.domain = domain
         self.data_contracts = data_contracts
 
 
 class TableNotFoundError(Exception):
-    # FEATURE ADDITION: Added domain and data_contracts to exception context to persist telemetry
     def __init__(
         self, message, columns=None, sample_rows=None, domain=None, data_contracts=None
     ):
@@ -174,12 +180,12 @@ def get_file_metadata(
         raise Exception(f"Failed to read metadata from {file_name}: {str(e)}")
 
 
-# FEATURE ADDITION: Passed the Domain and Data Contracts attributes straight through to the AI Agent
 def trigger_ai_agent(
     bucket,
     file_name,
     table_ref,
     new_columns,
+    deleted_columns,  # UPDATED: Added deleted_columns to trigger signature
     sample_data,
     domain,
     data_contracts,
@@ -208,11 +214,12 @@ def trigger_ai_agent(
         "bucket": bucket,
         "file_name": file_name,
         "table_ref": table_ref,
-        "domain": domain,  # FEATURE ADDITION: Crucial for accurate tags downstream
-        "data_contracts": data_contracts,  # FEATURE ADDITION: Added Data Contracts YAML reference for AI
+        "domain": domain,
+        "data_contracts": data_contracts,
         "new_column_headers": new_columns,
+        "deleted_column_headers": deleted_columns,  # ADDED: Telemetry for column deletions
         "sample_data_rows": sample_data,
-        "timestamp": datetime.datetime.now().isoformat(),
+        "timestamp": datetime.datetime.now(datetime.timezone.utc).isoformat(),
     }
 
     try:
@@ -236,7 +243,7 @@ def validate_schema(
     data_contracts: str,
     trace_id: str,
 ):
-    """Validates incoming file headers against BigQuery destination."""
+    """Validates incoming file headers against BigQuery destination for both additions and removals."""
     log_event(
         "INFO",
         f"🔬 [Validate] Commencing strict schema validation for {final_table_ref}...",
@@ -257,7 +264,6 @@ def validate_schema(
             f"👻 [Not Found] Destination table {final_table_ref} is completely missing.",
             trace_id,
         )
-        # FEATURE ADDITION: Pass domain and data_contracts through exception object
         raise TableNotFoundError(
             f"Target table '{final_table_ref}' does not exist.",
             domain=domain,
@@ -266,23 +272,33 @@ def validate_schema(
 
     log_event(
         "INFO",
-        "⚖️ [Compare] Executing diff between file headers and warehouse columns...",
+        "⚖️ [Compare] Executing bi-directional diff between file headers and warehouse columns...",
         trace_id,
     )
-    bq_columns = {schema_field.name for schema_field in table.schema}
-    file_columns = set(file_headers)
-    unknown_cols = list(file_columns - bq_columns)
 
-    if unknown_cols:
+    # Filter out audit columns that aren't in source files but are in BQ
+    bq_columns = {
+        schema_field.name
+        for schema_field in table.schema
+        if schema_field.name not in ["batch_date", "processed_dttm"]
+    }
+    file_columns = set(file_headers)
+
+    unknown_cols = list(file_columns - bq_columns)
+    missing_cols = list(
+        bq_columns - file_columns
+    )  # ADDED: Detection logic for removed columns
+
+    if unknown_cols or missing_cols:
         log_event(
             "WARNING",
-            f"🌪️ [Drift] Structural mutation identified. Rogue columns: {unknown_cols}",
+            f"🌪️ [Drift] Structural mutation identified. Rogue: {unknown_cols}, Missing: {missing_cols}",
             trace_id,
         )
-        # FEATURE ADDITION: Pass domain and data_contracts through exception object
         raise SchemaDriftError(
-            f"Schema Drift Detected. New columns: {unknown_cols}",
+            f"Schema Drift Detected. Mutation confirmed.",
             new_columns=unknown_cols,
+            deleted_columns=missing_cols,  # ADDED: Passing deleted list to exception
             domain=domain,
             data_contracts=data_contracts,
         )
@@ -323,7 +339,6 @@ def load_raw_strings(
     delimiter = rule.get("delimiter") or ","
     quote_char = rule.get("quote_char") or '"'
 
-    # FEATURE ADDITION: Safely grab the domain and properly sanitize data_contracts
     target_domain = rule.get("domain", "unknown_domain")
 
     raw_contracts = rule.get("data_contracts")
@@ -357,9 +372,14 @@ def load_raw_strings(
         filtered_samples = [
             {k: row.get(k) for k in e.new_columns} for row in sample_rows
         ]
-        # FEATURE ADDITION: Push domain and data_contracts into error class
+        # UPDATED: Passing both added and deleted lists back up
         raise SchemaDriftError(
-            str(e), e.new_columns, filtered_samples, e.domain, e.data_contracts
+            str(e),
+            e.new_columns,
+            e.deleted_columns,
+            filtered_samples,
+            e.domain,
+            e.data_contracts,
         )
     except TableNotFoundError as e:
         log_event(
@@ -367,7 +387,6 @@ def load_raw_strings(
             "🕳️ [Missing Catch] Target void. Packaging creation telemetry...",
             trace_id,
         )
-        # FEATURE ADDITION: Push domain and data_contracts into error class
         raise TableNotFoundError(
             str(e),
             columns=headers,
@@ -533,11 +552,6 @@ def get_routing_rule(
     try:
         results = bq.query(query).result()
         for row in results:
-            # FEATURE UPDATE: landing_bucket removed from master table. Routing relies solely on file_pattern.
-            # rule_bucket = row.get("landing_bucket")
-            # if rule_bucket and pd.notna(rule_bucket) and rule_bucket != bucket_name:
-            #     continue
-
             if re.search(row["file_pattern"], file_name):
                 log_event(
                     "INFO",
@@ -611,7 +625,6 @@ def archive_file(
         raise
 
 
-# FEATURE ADDITION: Updated schema to explicitly accept `domain` and `data_contracts` arguments
 def audit_log(
     trace_id,
     ingestion_id,
@@ -641,8 +654,8 @@ def audit_log(
         "file_uri": file_uri,
         "status": status,
         "target_table": target_table,
-        "domain": domain,  # FEATURE ADDITION: Crucial for AI mapping
-        "data_contracts": data_contracts,  # FEATURE ADDITION: Crucial for AI mapping
+        "domain": domain,
+        "data_contracts": data_contracts,
         "error_message": error_msg[:2000] if error_msg else None,
         "start_time": (
             start_time.isoformat()
@@ -685,8 +698,8 @@ def handle_failure(
     start_time,
     target_folder="exempted",
     archive_bucket=None,
-    domain=None,  # FEATURE ADDITION: Pushed domain through to Audit Logger
-    data_contracts=None,  # FEATURE ADDITION: Pushed data_contracts through to Audit Logger
+    domain=None,
+    data_contracts=None,
 ):
     """Fallback handler for clean archiving of broken files."""
     log_event(
@@ -778,10 +791,7 @@ def process_file(cloud_event):
             )
             return
 
-        # FEATURE UPDATE: archive_bucket removed from master table. Using global ARCHIVE_BUCKET env var.
-        # rule_archive_bucket = rule.get("archive_bucket")
         rule_archive_bucket = ARCHIVE_BUCKET
-
         target_domain = rule.get("domain", "unknown_domain")
 
         raw_contracts = rule.get("data_contracts")
@@ -831,18 +841,22 @@ def process_file(cloud_event):
         )
 
     except SchemaDriftError as e:
-        error_msg = f"Drift Detected: {e.new_columns}"
+        error_msg = (
+            f"Drift Detected: Added={e.new_columns}, Deleted={e.deleted_columns}"
+        )
         log_event(
             "WARNING", f"🌀 [Catch Drift] Protocol interrupted: {error_msg}", trace_id
         )
+        # UPDATED: Ingestor now triggers Agent with BOTH additions and deletions
         trigger_ai_agent(
             bucket_name,
             file_name,
             final_table_ref,
             e.new_columns,
+            e.deleted_columns,  # Telemetry for column drop logic
             e.sample_rows,
-            e.domain,  # FEATURE ADDITION: Pass domain payload downstream to AI
-            e.data_contracts,  # FEATURE ADDITION: Pass data contracts payload downstream to AI
+            e.domain,
+            e.data_contracts,
             trace_id,
         )
         handle_failure(
@@ -862,11 +876,13 @@ def process_file(cloud_event):
     except TableNotFoundError as e:
         error_msg = f"Table Missing: {str(e)}"
         log_event("WARNING", f"🕳️ [Catch Missing] Target absent: {error_msg}", trace_id)
+        # UPDATED: Sending empty deleted list for table missing scenario
         trigger_ai_agent(
             bucket_name,
             file_name,
             final_table_ref,
             e.columns,
+            [],
             e.sample_rows,
             e.domain,
             e.data_contracts,
