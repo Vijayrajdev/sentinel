@@ -1,25 +1,23 @@
 config {
-  type: "incremental",
-  schema: "sentinel_marts",
-  uniqueKey: ["order_id"],
-  bigquery: {
-    partitionBy: "order_date",
-    clusterBy: ["order_id"]
-  },
-  tags: ["sales", "orders", "marts"],
-  description: "Incremental fact/dimension mart layer for orders driving downstream analytics."
+ type: "incremental",
+ schema: "sentinel_marts",
+ uniqueKey: ["order_id"],
+ bigquery: {
+ partitionBy: "order_date",
+ clusterBy: ["order_id"]
+ },
+ tags: ["sales", "orders", "marts"],
+ description: "Incremental fact/dimension mart layer for orders driving downstream analytics."
 }
 
 SELECT 
-    order_id,
-    customer_name,
-    amount,
-    status,
-    order_date,
-    warehouse_id,
-    batch_date,
-    processed_dttm,
-    CURRENT_TIMESTAMP() AS updated_dttm
+  order_id,
+  customer_id,
+  status,
+  order_date,
+  batch_date,
+  processed_dttm,
+  CURRENT_TIMESTAMP() AS updated_dttm
 FROM
-    ${ref("stg_orders")}
+  ${ref("stg_orders")}
 ${when(incremental(), `WHERE processed_dttm > (SELECT COALESCE(MAX(processed_dttm), TIMESTAMP("1970-01-01")) FROM ${self()})` )}
