@@ -1,0 +1,38 @@
+config {
+  type: "incremental",
+  schema: "sentinel_staging",
+  tags: ["sales", "orders", "staging", "quarantine"],
+  description: "Dead Letter Queue (DLQ) capturing data contract violations for orders staging."
+}
+
+SELECT 
+    order_id,
+    customer_name,
+    amount,
+    status,
+    order_date,
+    warehouse_id,
+    batch_date,
+    processed_dttm,
+    CASE 
+        WHEN order_id IS NULL THEN 'VIOLATION: order_id is NULL'
+        WHEN customer_name IS NULL THEN 'VIOLATION: customer_name is NULL'
+        WHEN amount IS NULL THEN 'VIOLATION: amount is NULL'
+        WHEN warehouse_id IS NULL THEN 'VIOLATION: warehouse_id is NULL'
+        WHEN order_date IS NULL THEN 'VIOLATION: order_date is NULL'
+        WHEN status IS NULL THEN 'VIOLATION: status is NULL'
+        WHEN status NOT IN ('COMPLETED', 'PENDING', 'SHIPPED', 'DELIVERED', 'CANCELLED', 'RETURNED') THEN 'VIOLATION: status has invalid value'
+        ELSE 'VIOLATION: UNKNOWN'
+    END AS failure_reason,
+    CURRENT_TIMESTAMP() AS updated_dttm
+FROM
+    ${ref("orders_raw")}
+WHERE NOT (
+        order_id IS NOT NULL
+    AND customer_name IS NOT NULL
+    AND amount IS NOT NULL
+    AND warehouse_id IS NOT NULL
+    AND order_date IS NOT NULL
+    AND status IS NOT NULL
+    AND status IN ('COMPLETED', 'PENDING', 'SHIPPED', 'DELIVERED', 'CANCELLED', 'RETURNED')
+)
