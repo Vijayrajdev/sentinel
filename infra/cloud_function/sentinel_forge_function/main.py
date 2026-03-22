@@ -1128,7 +1128,8 @@ def generate_ai_dataform_pipeline(
        RIGHT: assertions: {{ nonNull: ["product_id"], rowConditions: ["product_id > 0"], uniqueKey: ["product_id"] }}
        You MUST map the YAML rules to these three exact arrays (`nonNull`, `uniqueKey`, `rowConditions`).
     9. PRIMARY KEY & METADATA EXTRACTION: Parse the YAML contract to identify the logical primary key and clustering keys. Replace the generic placeholders (like `<actual_pk_col>` and `<actual_clustering_col>`) with the exact column names from the YAML. If no primary key is explicitly defined, logically infer the best one from the columns.
-    10. Output STRICTLY a JSON object where keys are full file paths and values are exact SQLX string content. No markdown.
+    10. REGEX/STRING ESCAPING (CRITICAL): When writing SQL functions inside 'rowConditions' (like REGEXP_CONTAINS), you MUST use single quotes (') for the inner string literals to avoid breaking the outer double-quoted string. Example CORRECT: "REGEXP_CONTAINS(order_id, r'^ORD-[0-9]{{5,10}}$')" Example WRONG: "REGEXP_CONTAINS(order_id, r"^ORD-[0-9]{{5,10}}$")"
+    11. Output STRICTLY a JSON object where keys are full file paths and values are exact SQLX string content. No markdown.
     """
 
     try:
@@ -1266,6 +1267,7 @@ def verify_dataform_pipeline(
        The ONLY valid keys inside assertions are 'nonNull', 'uniqueKey', and 'rowConditions'.
     13. FORBIDDEN PROPERTY: Any property inside 'config {{}}' that is not part of the official Dataform API must be deleted immediately.
     14. PLACEHOLDER ERADICATION: If you see literal strings like '<actual_pk_col>', '<pk>', 'date_col', or '<actual_clustering_col>', you MUST replace them with the actual physical columns from the table definitions. Do NOT allow generic placeholder strings to be committed as code.
+    15. REGEX QUOTE ESCAPING FIX (CRITICAL): If 'rowConditions' contains a regex or string literal wrapped in double quotes (e.g., r"^...$"), you MUST change the inner quotes to single quotes (e.g., r'^...$'). Double quotes inside the double-quoted string will cause a fatal compilation error.
     
     Output STRICTLY a JSON object where keys are the corrected full file paths and values are the corrected SQLX string content. Output JSON ONLY.
     """
