@@ -1,0 +1,23 @@
+config {
+  type: "table",
+  schema: "sentinel_marts",
+  tags: ["sales", "orders", "marts", "quarantine"]
+}
+
+-- This table captures records identified as 'bad' in the staging layer.
+-- No new mart-level data quality rules are defined in the contract for this entity,
+-- so it directly pulls the quarantined records from staging.
+SELECT
+  order_id,
+  customer_name,
+  amount,
+  status,
+  order_date,
+  warehouse_id,
+  batch_date,
+  processed_dttm,
+  failure_reason,
+  quarantined_at,
+  CURRENT_TIMESTAMP() AS mart_quarantined_at
+FROM
+  ${ref("stg_orders_bad_recs")}
