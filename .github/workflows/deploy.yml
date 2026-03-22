@@ -70,15 +70,6 @@ jobs:
         run: dataform compile
         # Validates syntax, dependencies, and circular references safely
 
-      # - name: Test Dataform
-      #   run: dataform test
-      # Executes your custom assertion unit tests
-
-      # AUTOMATED EXECUTION: Only runs when a PR is merged into master
-      - name: Run Dataform (Deploy to BigQuery)
-        if: github.ref == 'refs/heads/master' && github.event_name == 'push'
-        run: dataform run
-
       # SECURITY BEST PRACTICE: Wipe the config file
       - name: Cleanup Credentials
         if: always()

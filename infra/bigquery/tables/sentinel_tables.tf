@@ -13,48 +13,17 @@ locals {
       partition_type = null
       partition_field = null
     }
-    "insight_audit_log" = {
-      partition_type = "DAY"
-      partition_field = "timestamp"
-    }
   }
   tables_raw = {
     "orders_raw" = {
       partition_type = null
       partition_field = null
     }
-    "nyc_taxi_trips_raw" = {
-      partition_type = null
-      partition_field = null
-    }
-    "customer_raw" = {
-      partition_type = "DAY"
-      partition_field = "batch_date"
-    },
-    "product_raw" = {
-      partition_type = "DAY"
-      partition_field = "batch_date"
-    }
   }
   tables_raw_hist = {
     "orders_raw" = {
       partition_type = null
       partition_field = null
-      expiration_ms = 2592000000
-    }
-    "nyc_taxi_trips_raw" = {
-      partition_type = null
-      partition_field = null
-      expiration_ms = 2592000000
-    }
-    "customer_raw" = {
-      partition_type = "DAY"
-      partition_field = "batch_date"
-      expiration_ms = 2592000000
-    },
-    "product_raw" = {
-      partition_type = "DAY"
-      partition_field = "batch_date"
       expiration_ms = 2592000000
     }
   }
