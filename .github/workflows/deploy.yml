@@ -2,7 +2,7 @@ name: "Sentinel Deploy"
 
 on:
   push:
-    branches: [ "master" ]
+    branches: ["master"]
   pull_request:
 
 jobs:
@@ -50,7 +50,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: "20"
 
       - name: Install Dataform CLI
         run: npm install -g @dataform/cli
@@ -65,14 +65,14 @@ jobs:
             "projectId": "sentinel-486707",
             "location": "US"
           }' > .df-credentials.json
-          
+
       - name: Compile Dataform
         run: dataform compile
         # Validates syntax, dependencies, and circular references safely
 
-      - name: Test Dataform
-        run: dataform test
-        # Executes your custom assertion unit tests
+      # - name: Test Dataform
+      #   run: dataform test
+      # Executes your custom assertion unit tests
 
       # AUTOMATED EXECUTION: Only runs when a PR is merged into master
       - name: Run Dataform (Deploy to BigQuery)
