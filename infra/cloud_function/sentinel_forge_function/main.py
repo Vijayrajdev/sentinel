@@ -25,8 +25,8 @@ PROJECT_ID = os.environ.get("GCP_PROJECT")
 REGION = os.environ.get("GCP_REGION", "us-central1")
 REPO_NAME = os.environ.get("REPO_NAME")
 GITHUB_TOKEN = os.environ.get("GITHUB_TOKEN")
-GITHUB_APP_ID =  os.environ.get("GITHUB_APP_ID")
-GITHUB_INSTALLATION_ID =  os.environ.get("GITHUB_INSTALLATION_ID")
+GITHUB_APP_ID = os.environ.get("GITHUB_APP_ID")
+GITHUB_INSTALLATION_ID = os.environ.get("GITHUB_INSTALLATION_ID")
 GITHUB_PVT_KEY = os.environ.get("GITHUB_PVT_KEY")
 AI_AUDIT_TABLE = os.environ.get("AI_AUDIT_TABLE", "sentinel_audit.ai_ops_log")
 
@@ -1548,14 +1548,23 @@ def apply_infrastructure_update(
         f"🐙 🚀 [Orchestrator] Establishing secure handshake with GitHub Repository...",
         trace_id,
     )
+
+    # ----------------------------------------------------------------------
+    # FEATURE ADDITION: Bulletproof GitHub App Authentication
+    # ----------------------------------------------------------------------
     try:
-        auth = Auth.AppAuth(
-            app_id=GITHUB_APP_ID,
-            private_key=GITHUB_PVT_KEY,
-        ).get_installation_auth(
-            installation_id=GITHUB_INSTALLATION_ID,
-        )
-        g = Github(auth=auth)
+        # 1. Force integer casting for PyGithub
+        app_id_int = int(GITHUB_APP_ID)
+        install_id_int = int(GITHUB_INSTALLATION_ID)
+
+        # 2. Sanitize Secret Manager newlines for PyJWT
+        clean_pvt_key = GITHUB_PVT_KEY.replace("\\n", "\n")
+
+        # 3. Authenticate
+        auth = Auth.AppAuth(app_id=app_id_int, private_key=clean_pvt_key)
+        installation_auth = auth.get_installation_auth(installation_id=install_id_int)
+        g = Github(auth=installation_auth)
+
         repo = g.get_repo(repo_name)
         default_branch = repo.get_branch(repo.default_branch)
         log_event(
@@ -1563,9 +1572,12 @@ def apply_infrastructure_update(
             "✅ 🚀 [Orchestrator] Successfully authenticated as Sentinel-Forge Bot.",
             trace_id,
         )
+
     except Exception as e:
         log_event(
-            "ERROR", f"❌ 🚀 [Orchestrator] GitHub App Auth Failed: {e}", trace_id
+            "ERROR",
+            f"❌ 🚀 [Orchestrator] GitHub App Auth Failed. Type: {type(e).__name__} | Details: {str(e)}",
+            trace_id,
         )
         raise e
 
