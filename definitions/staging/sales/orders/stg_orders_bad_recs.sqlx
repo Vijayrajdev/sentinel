@@ -1,0 +1,41 @@
+config {
+  type: "incremental",
+  schema: "sentinel_staging",
+  tags: ["sales", "orders", "staging", "quarantine"]
+}
+
+SELECT
+  SAFE_CAST(order_id AS STRING) AS order_id,
+  SAFE_CAST(customer_name AS STRING) AS customer_name,
+  SAFE_CAST(amount AS NUMERIC) AS amount,
+  SAFE_CAST(status AS STRING) AS status,
+  SAFE_CAST(order_date AS TIMESTAMP) AS order_date,
+  SAFE_CAST(warehouse_id AS STRING) AS warehouse_id,
+  COALESCE(SAFE_CAST(batch_date AS DATE), DATE '9999-12-31') AS batch_date,
+  COALESCE(SAFE_CAST(processed_dttm AS TIMESTAMP), CURRENT_TIMESTAMP()) AS processed_dttm,
+  CASE
+    WHEN order_id IS NULL THEN 'VIOLATION: order_id is NULL'
+    WHEN NOT REGEXP_CONTAINS(order_id, r'^ORD-[0-9]{5,10}$') THEN 'VIOLATION: order_id regex mismatch'
+    WHEN customer_name IS NULL THEN 'VIOLATION: customer_name is NULL'
+    WHEN amount IS NULL THEN 'VIOLATION: amount is NULL'
+    WHEN SAFE_CAST(amount AS NUMERIC) IS NULL THEN 'VIOLATION: amount is not a valid NUMERIC'
+    WHEN NOT (SAFE_CAST(amount AS NUMERIC) BETWEEN 0 AND 1000000) THEN 'VIOLATION: amount out of range (0-1000000)'
+    WHEN status NOT IN ('PENDING', 'SHIPPED', 'DELIVERED', 'CANCELLED', 'RETURNED') THEN 'VIOLATION: status not an accepted value'
+    WHEN batch_date IS NULL THEN 'VIOLATION: batch_date is NULL'
+    WHEN processed_dttm IS NULL THEN 'VIOLATION: processed_dttm is NULL'
+    ELSE 'VIOLATION: UNKNOWN'
+  END AS failure_reason,
+  CURRENT_TIMESTAMP() AS quarantined_at
+FROM
+  ${ref("orders_raw")}
+WHERE NOT (
+  order_id IS NOT NULL
+  AND REGEXP_CONTAINS(order_id, r'^ORD-[0-9]{5,10}$')
+  AND customer_name IS NOT NULL
+  AND amount IS NOT NULL
+  AND SAFE_CAST(amount AS NUMERIC) IS NOT NULL
+  AND SAFE_CAST(amount AS NUMERIC) BETWEEN 0 AND 1000000
+  AND status IN ('PENDING', 'SHIPPED', 'DELIVERED', 'CANCELLED', 'RETURNED')
+  AND batch_date IS NOT NULL
+  AND processed_dttm IS NOT NULL
+)
