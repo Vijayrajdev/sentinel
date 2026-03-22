@@ -33,3 +33,40 @@ jobs:
         if: github.ref == 'refs/heads/master' && github.event_name == 'push'
         run: terraform apply -auto-approve
         working-directory: ./infra
+
+  dataform:
+    name: "Dataform Compile & Validate"
+    runs-on: ubuntu-latest
+    # Optional: If your Dataform project lives in a specific subfolder (e.g., ./dataform), uncomment below:
+    # defaults:
+    #   run:
+    #     working-directory: ./dataform
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # Auth is required if Dataform needs to hit BigQuery to resolve default locations or run assertions
+      - name: Auth to GCP
+        uses: google-github-actions/auth@v2
+        with:
+          credentials_json: ${{ secrets.GCP_SA_KEY }}
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20' # Dataform runs on Node.js
+
+      - name: Install Dataform CLI
+        run: npm install -g @dataform/cli
+
+      - name: Install Project Dependencies
+        run: npm install
+        # This installs the @dataform/core package defined in your package.json
+
+      - name: Compile Dataform
+        run: dataform compile
+        # This acts as a "dry run" that strictly validates syntax, tags, and dependencies without modifying data.
+        
+      # Optional: Actually run unit tests defined in your Dataform workspace
+      - name: Test Dataform
+        run: dataform test
