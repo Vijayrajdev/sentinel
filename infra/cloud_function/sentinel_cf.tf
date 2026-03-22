@@ -139,13 +139,6 @@ resource "google_cloudfunctions2_function" "sentinel_forge" {
 
     # Secret: Github Personal Access Token
     secret_environment_variables {
-      key        = "GITHUB_TOKEN" 
-      project_id = var.project_id
-      secret     = var.secret_id
-      version    = "latest"
-    }
-
-    secret_environment_variables {
       key        = "GITHUB_PVT_KEY" 
       project_id = var.project_id
       secret     = var.secret_id_bot

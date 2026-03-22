@@ -177,7 +177,6 @@ You must provision the telemetry and routing tables in your `sentinel_audit` dat
 | `GCP_PROJECT`             | Your Google Cloud Project ID                        | `my-data-project`             |
 | `GCP_REGION`              | Vertex AI Execution Region                          | `us-central1`                 |
 | `REPO_NAME`               | Target GitHub Repository                            | `org/data-platform`           |
-| `GITHUB_TOKEN`            | PAT with repo write access                          | `ghp_xxxxxxxx`                |
 | `GITHUB_APP_ID`           | GitHub App ID for Bot Authentication                | `123456`                      |
 | `GITHUB_INSTALLATION_ID`  | GitHub App Installation ID                          | `98765432`                    | 
 | `GITHUB_PRIVATE_KEY`      | GitHub App `.pem` key (Mounted via Secret Manager)  | `-----BEGIN RSA PRIVATE...`   |
