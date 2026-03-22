@@ -1,0 +1,83 @@
+version: 1.0.0
+id: urn:dataform:staging:sales:stg_orders
+name: stg_orders
+description: "Enterprise Staging Layer for Warehouse Orders. Handles raw-to-typed conversion and PII identification."
+status: active
+owner: data_engineering_team
+
+# Data Platform Metadata
+service: bigquery
+dataset: staging
+project: sentinel-486707
+
+schema:
+  - column: order_id
+    type: STRING
+    description: "Unique surrogate key for each order."
+    primary_key: true
+    business_unit: "Logistics"
+    constraints:
+      not_null: true
+      unique: true
+    tests:
+      - type: regex
+        pattern: "^ORD-[0-9]{5,10}$"
+
+  - column: customer_name
+    type: STRING
+    description: "Full name of the customer."
+    classification: PII # Enterprise metadata for security masking
+    constraints:
+      not_null: true
+
+  - column: amount
+    type: NUMERIC
+    description: "Order value cast from raw string. Precision: 18,2."
+    constraints:
+      not_null: true
+    tests:
+      - type: range
+        min: 0
+        max: 1000000
+
+  - column: status
+    type: STRING
+    description: "Order lifecycle status."
+    tests:
+      - type: accepted_values
+        values: ["PENDING", "SHIPPED", "DELIVERED", "CANCELLED", "RETURNED"]
+
+  - column: order_date
+    type: TIMESTAMP
+    description: "The moment the order was placed in the source system."
+
+  - column: batch_date
+    type: DATE
+    description: "Processing batch date for idempotency."
+    default: "9999-12-31"
+    constraints:
+      not_null: true
+
+  - column: processed_dttm
+    type: TIMESTAMP
+    description: "Audit timestamp of when the record entered the BigQuery warehouse."
+    default: "CURRENT_TIMESTAMP()"
+    constraints:
+      not_null: true
+
+  - column: warehouse_id
+    type: STRING
+    description: "Link to the physical warehouse dimension."
+    references:
+      dataset: dimensions
+      table: dim_warehouses
+      column: warehouse_id
+
+# Service Level Objectives (SLOs)
+service_level_agreement:
+  freshness:
+    period: 24h
+    description: "Data must be refreshed at least once every 24 hours."
+  completeness:
+    percentage: 99.9
+    description: "Less than 0.1% of records should be missing from source."
