@@ -94,3 +94,21 @@ variable "composer_bucket_name" {
 #   description = "Name of the Insights Audit table"
 #   type        = string
 # }
+
+variable "secret_id_bot" {
+  description = "Sentinel-forge-bot github token secret id"
+  type        = string
+  sensitive   = true
+}
+
+variable "app_id" {
+  description = "Sentinel-forge-bot github app id"
+  type        = string
+  sensitive   = true
+}
+
+variable "installation_id" {
+  description = "Sentinel-forge-bot github installation id"
+  type        = string
+  sensitive   = true
+}

@@ -144,15 +144,24 @@ resource "google_cloudfunctions2_function" "sentinel_forge" {
       secret     = var.secret_id
       version    = "latest"
     }
+
+    secret_environment_variables {
+      key        = "GITHUB_PVT_KEY" 
+      project_id = var.project_id
+      secret     = var.secret_id_bot
+      version    = "latest"
+    }
     
     # Environment Variables accessed by os.environ.get() in Python
     environment_variables = {
-      GCP_PROJECT        = var.project_id
-      GCP_REGION         = var.region
-      REPO_NAME          = var.repo_name
-      AI_AUDIT_TABLE     = "sentinel_audit.ai_ops_log"
-      SCHEMA_BASE_PATH   = var.schema_base_path
-      TF_BASE_PATH       = var.tf_base_path
+      GCP_PROJECT            = var.project_id
+      GCP_REGION             = var.region
+      REPO_NAME              = var.repo_name
+      AI_AUDIT_TABLE         = "sentinel_audit.ai_ops_log"
+      SCHEMA_BASE_PATH       = var.schema_base_path
+      TF_BASE_PATH           = var.tf_base_path
+      GITHUB_APP_ID          = var.app_id
+      GITHUB_INSTALLATION_ID = var.installation_id
     }
 
     # The Service Account that gives the function permission to use BigQuery/Storage

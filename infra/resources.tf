@@ -48,6 +48,9 @@ module "cloud_function" {
   tf_base_path                      = var.tf_base_path
   schema_base_path                  = var.schema_base_path
   secret_id                         = var.secret_id
+  secret_id_bot                     = var.secret_id_bot
+  app_id                            = var.app_id
+  installation_id                   = var.installation_id
 }
 
 # ==========================================
@@ -68,6 +71,7 @@ module "secret" {
 
   # Pass variables from Root -> Module
   secret_id                         = var.secret_id
+  secret_id_bot                     = var.secret_id_bot
 }
 
 # ==========================================
