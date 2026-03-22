@@ -12,7 +12,7 @@ from typing import List, Dict, Any, Optional, Tuple
 import functions_framework
 import vertexai
 from vertexai.generative_models import GenerativeModel
-from github import Github, GithubException
+from github import Github, GithubException, Auth
 from google.cloud import bigquery
 from google.cloud import (
     storage,
@@ -25,6 +25,9 @@ PROJECT_ID = os.environ.get("GCP_PROJECT")
 REGION = os.environ.get("GCP_REGION", "us-central1")
 REPO_NAME = os.environ.get("REPO_NAME")
 GITHUB_TOKEN = os.environ.get("GITHUB_TOKEN")
+GITHUB_APP_ID =  os.environ.get("GITHUB_APP_ID")
+GITHUB_INSTALLATION_ID =  os.environ.get("GITHUB_INSTALLATION_ID")
+GITHUB_PVT_KEY = os.environ.get("GITHUB_PVT_KEY")
 AI_AUDIT_TABLE = os.environ.get("AI_AUDIT_TABLE", "sentinel_audit.ai_ops_log")
 
 # 📂 PATH CONFIGURATION (Must end with /)
@@ -1545,9 +1548,26 @@ def apply_infrastructure_update(
         f"🐙 🚀 [Orchestrator] Establishing secure handshake with GitHub Repository...",
         trace_id,
     )
-    g = Github(token)
-    repo = g.get_repo(repo_name)
-    default_branch = repo.get_branch(repo.default_branch)
+    try:
+        auth = Auth.AppAuth(
+            app_id=GITHUB_APP_ID,
+            private_key=GITHUB_PVT_KEY,
+        ).get_installation_auth(
+            installation_id=GITHUB_INSTALLATION_ID,
+        )
+        g = Github(auth=auth)
+        repo = g.get_repo(repo_name)
+        default_branch = repo.get_branch(repo.default_branch)
+        log_event(
+            "INFO",
+            "✅ 🚀 [Orchestrator] Successfully authenticated as Sentinel-Forge Bot.",
+            trace_id,
+        )
+    except Exception as e:
+        log_event(
+            "ERROR", f"❌ 🚀 [Orchestrator] GitHub App Auth Failed: {e}", trace_id
+        )
+        raise e
 
     # 1. ANALYZE TERRAFORM & DATAFORM STATE
     log_event(
