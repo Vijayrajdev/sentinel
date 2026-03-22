@@ -1569,7 +1569,7 @@ def apply_infrastructure_update(
         default_branch = repo.get_branch(repo.default_branch)
         log_event(
             "INFO",
-            "✅ 🚀 [Orchestrator] Successfully authenticated as Sentinel-Forge Bot.",
+            "✅ 🚀 [Orchestrator] Successfully authenticated as Sentinel-Forge[Bot].",
             trace_id,
         )
 
