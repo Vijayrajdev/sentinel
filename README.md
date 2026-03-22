@@ -194,5 +194,4 @@ You must provision the telemetry and routing tables in your `sentinel_audit` dat
 2. Watch `sentinel-ingestor` detect the drift, safely quarantine the file, and ping Pub/Sub.
 3. Open GitHub and watch as `sentinel-forge` creates a new branch, writes the Terraform, patches the JSON schema, authors dynamic Dataform `.sqlx` code, and opens a ready-to-merge Pull Request.
 
-**Welcome to 2026.**
 _Built with ❤️ for the Sentinel Data Platform._
