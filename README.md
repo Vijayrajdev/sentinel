@@ -137,6 +137,12 @@ Multi-agent systems fire a massive burst of LLM requests in seconds, easily hitt
 - **Traffic Smoothing:** Base 3-second pacing between LLM executions.
 - **Exponential Backoff with Jitter:** A custom resilience wrapper that detects 429 quota hits, applying randomized exponential backoff (5s, 10s, 20s...) and retrying up to 5 times to ensure the pipeline always heals successfully without crashing.
 
+### 🔐 Enterprise-Grade GitOps Security (GitHub App Auth)
+Sentinel-Forge eschews brittle Personal Access Tokens (PATs) in favor of native **GitHub App Authentication**. 
+- **Verified Identity:** Commits and Pull Requests are officially signed and authored by the `sentinel-forge[bot]`.
+- **Zero-Trust Tokens:** Utilizes short-lived, dynamically generated 1-hour installation tokens rather than permanent access keys.
+- **Secret Manager Integration:** RSA Private keys (`.pem`) are securely mounted directly from Google Secret Manager at runtime, completely eliminating hardcoded credential leak risks.
+
 ### 🧬 Dynamic Telemetry & Domain Threading
 
 The `sentinel-ingestor` reads routing rules from a dynamic metadata table (`ingestion_master`). It extracts the business `domain` and threads this metadata directly through the Pub/Sub event mesh. The Forge agents use this `domain` to natively organize Dataform folders and tag taxonomies without human intervention.
@@ -166,17 +172,20 @@ You must provision the telemetry and routing tables in your `sentinel_audit` dat
 
 ### 3. Environment Variables (`sentinel-forge`)
 
-| Variable           | Description                           | Example                       |
-| :----------------- | :------------------------------------ | :---------------------------- |
-| `GCP_PROJECT`      | Your Google Cloud Project ID          | `my-data-project`             |
-| `GCP_REGION`       | Vertex AI Execution Region            | `us-central1`                 |
-| `REPO_NAME`        | Target GitHub Repository              | `org/data-platform`           |
-| `GITHUB_TOKEN`     | PAT with repo write access            | `ghp_xxxxxxxx`                |
-| `SCHEMA_BASE_PATH` | Path in repo for BQ JSON schemas      | `infra/bigquery/tables/json/` |
-| `TF_BASE_PATH`     | Path in repo for TF configs           | `infra/bigquery/tables/`      |
-| `AI_MODEL_HEAVY`   | Vertex AI model for complex synthesis | `gemini-2.5-flash`            |
-| `AI_MODEL_LITE`    | Vertex AI model for routing and QA    | `gemini-2.5-flash-lite`       |
-
+| Variable                  | Description                                         | Example                       |
+| :------------------------ | :-------------------------------------------------- | :---------------------------- |
+| `GCP_PROJECT`             | Your Google Cloud Project ID                        | `my-data-project`             |
+| `GCP_REGION`              | Vertex AI Execution Region                          | `us-central1`                 |
+| `REPO_NAME`               | Target GitHub Repository                            | `org/data-platform`           |
+| `GITHUB_TOKEN`            | PAT with repo write access                          | `ghp_xxxxxxxx`                |
+| `GITHUB_APP_ID`           | GitHub App ID for Bot Authentication                | `123456`                      |
+| `GITHUB_INSTALLATION_ID`  | GitHub App Installation ID                          | `98765432`                    | 
+| `GITHUB_PRIVATE_KEY`      | GitHub App `.pem` key (Mounted via Secret Manager)  | `-----BEGIN RSA PRIVATE...`   |
+| `SCHEMA_BASE_PATH`        | Path in repo for BQ JSON schemas                    | `infra/bigquery/tables/json/` |
+| `TF_BASE_PATH`            | Path in repo for TF configs                         | `infra/bigquery/tables/`      |
+| `AI_MODEL_HEAVY`          | Vertex AI model for complex synthesis               | `gemini-2.5-flash`            |
+| `AI_MODEL_LITE`           | Vertex AI model for routing and QA                  | `gemini-2.5-flash-lite`       |
+   
 ---
 
 ## 🤝 How to trigger the magic
