@@ -3,10 +3,20 @@ config {
   schema: "sentinel_marts",
   uniqueKey: ["order_id"],
   bigquery: {
-    partitionBy: "order_date",
+    partitionBy: "batch_date",
     clusterBy: ["status", "warehouse_id"]
   },
-  tags: ["daily", "sales"]
+  tags: ["sales", "orders", "marts"],
+  assertions: {
+    uniqueKey: ["order_id"],
+    nonNull: ["order_id", "customer_name", "amount", "batch_date", "processed_dttm", "product_id", "email", "warehouse_id", "order_date"],
+    rowConditions: [
+      "amount BETWEEN 0 AND 1000000",
+      "status IN ('PENDING', 'SHIPPED', 'DELIVERED', 'CANCELLED', 'RETURNED')",
+      "REGEXP_CONTAINS(order_id, r'^ORD-[0-9]{5,10}$')",
+      "order_date <= CURRENT_TIMESTAMP()"
+    ]
+  }
 }
 
 SELECT
@@ -15,10 +25,13 @@ SELECT
   amount,
   status,
   order_date,
+  product_id,
+  email,
   warehouse_id,
+  batch_date,
   processed_dttm AS updated_at
 FROM
   ${ref("stg_orders")}
 
 -- This block ensures idempotency by only fetching new records
-${when(incremental(), `WHERE processed_dttm > (SELECT MAX(updated_at) FROM ${self()})` )}
+${when(incremental(), `WHERE batch_date > (SELECT MAX(batch_date) FROM ${self()})` )}
