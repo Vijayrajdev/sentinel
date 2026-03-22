@@ -64,8 +64,7 @@ sentinel/
 **Language breakdown:** Python 68.2% · HCL 15.8% · HTML 15.9% · Dockerfile 0.1%
 
 > **Note:** The two AI microservices (`sentinel-ingestor` and `sentinel-forge`) are deployed as
-> Google Cloud Functions and are not stored in this repository. This repo is the **target data platform**
-> that those services write to via Pull Requests.
+> Google Cloud Functions and are stored in this repository.
 >
 > **All infrastructure and pipeline deployments happen exclusively through GitHub Actions workflows.**
 > Nothing is created or modified via the GCP Console.
