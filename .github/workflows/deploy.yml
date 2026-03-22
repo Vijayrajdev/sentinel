@@ -41,6 +41,12 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      # This step authenticates the runner environment behind the scenes
+      - name: Auth to GCP
+        uses: google-github-actions/auth@v2
+        with:
+          credentials_json: ${{ secrets.GCP_SA_KEY }}
+
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
@@ -52,17 +58,28 @@ jobs:
       - name: Install Project Dependencies
         run: npm install
 
-      # FEATURE ADDITION: Create the specific credentials file Dataform expects
+      # THE FIX: Provide the exact config object Dataform expects for ADC auth
       - name: Generate Dataform Credentials
-        run: echo '${{ secrets.GCP_SA_KEY }}' > .df-credentials.json
-
+        run: |
+          echo '{
+            "projectId": "sentinel-486707",
+            "location": "US"
+          }' > .df-credentials.json
+          
       - name: Compile Dataform
         run: dataform compile
+        # Validates syntax, dependencies, and circular references safely
 
       - name: Test Dataform
         run: dataform test
+        # Executes your custom assertion unit tests
 
-      # SECURITY BEST PRACTICE: Delete the key immediately after execution
+      # AUTOMATED EXECUTION: Only runs when a PR is merged into master
+      - name: Run Dataform (Deploy to BigQuery)
+        if: github.ref == 'refs/heads/master' && github.event_name == 'push'
+        run: dataform run
+
+      # SECURITY BEST PRACTICE: Wipe the config file
       - name: Cleanup Credentials
-        if: always() # Ensures this runs even if the compile step fails
+        if: always()
         run: rm -f .df-credentials.json
