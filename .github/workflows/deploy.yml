@@ -63,7 +63,7 @@ jobs:
         run: |
           echo '{
             "projectId": "sentinel-486707",
-            "location": "US"
+            "location": "us-central1"
           }' > .df-credentials.json
 
       - name: Compile Dataform
