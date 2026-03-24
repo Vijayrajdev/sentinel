@@ -292,13 +292,13 @@ def resolve_and_sync_data_contract(
             else:
                 log_event(
                     "WARNING",
-                    f"⚠️ 📜 [Data Contract Engine] Specified contract '{data_contracts}' not found in GCS.",
+                    f"⚠️ 📜 [Data Contract Engine] Specified contract '{data_contracts}' not found in GCS. Engaging AI Generator.",
                     trace_id,
                 )
         except Exception as e:
             log_event(
                 "WARNING",
-                f"⚠️ 📜 [Data Contract Engine] GCS fetch encountered an error: {e}.",
+                f"⚠️ 📜 [Data Contract Engine] GCS fetch encountered an error: {e}. Engaging AI Generator.",
                 trace_id,
             )
 
@@ -583,7 +583,7 @@ def generate_dynamic_schema(
 
 
 # ==============================================================================
-# 🧠 AGENT: TERRAFORM ARCHITECT
+# 🧠 AGENT: TERRAFORM ARCHITECT (UPDATED WITH PARTITIONING & DELETION PROTECTION)
 # ==============================================================================
 def analyze_tf_repo_state(
     repo, branch_sha: str, table_id: str, trace_id: str
@@ -721,7 +721,7 @@ def generate_tf_patch_or_create(
     tf_state: Dict[str, Any],
     trace_id: str,
 ) -> str:
-    """Goal: Write HCL code. Enforces adaptive injection based on locals maps vs distinct resources."""
+    """Goal: Write HCL code enforcing Partitioning, Clustering, and Deletion Protection settings."""
     log_event(
         "INFO",
         f"▶️ 🏗️ [Agent: TF Architect] Initiating Terraform HCL synthesis for '{table_id}'...",
@@ -783,7 +783,6 @@ def generate_tf_patch_or_create(
         Table ID: "{table_id}"
         Resource Name: "{table_id.replace('.', '_')}"
         Schema File: "{schema_path}"
-        Partitioning: DAY (field: batch_date)
         Dataset ID: "{dataset_id}"
         
         {hist_instruction}
@@ -799,8 +798,10 @@ def generate_tf_patch_or_create(
            - IF the file uses a `locals` block with mapped objects and `for_each`, you MUST ONLY add the new table's configuration object into the appropriate dictionary. DO NOT append a new `resource` block.
            - IF the file uses individual `resource "google_bigquery_table"` blocks, ONLY append the new `resource` block(s) at the end of the file.
         3. Use exact string matching for the schema path: `schema = file("${{path.module}}/{schema_path}")` or follow the dynamic schema reference if using `locals`.
-        4. DO NOT invent variables like `var.project_id` or `var.dataset` unless they already exist. 
-        5. Return the **FULL UPDATED FILE CONTENT**, including the original code and your new appended/injected blocks. Do not truncate.
+        4. CRITICAL PARTITIONING: EVERY table MUST contain a `time_partitioning` block configured for type="DAY" and field="batch_date".
+        5. CRITICAL CLUSTERING: EVERY table MUST contain a `clustering` block containing valid logical dimensions.
+        6. CRITICAL TEARDOWN: EVERY table MUST explicitly declare `deletion_protection = false`. This guarantees physical deletion when the file is removed from the repo.
+        7. Return the **FULL UPDATED FILE CONTENT**, including the original code and your new appended/injected blocks. Do not truncate.
         
         CRITICAL SYNTAX RULE:
         When injecting into `locals` maps, you MUST include proper attribute separators. Every key-value pair inside an object must be separated by a newline or comma. Every object in a map MUST be separated by a comma (`,`). Avoid `Error: Missing attribute separator`.
@@ -820,7 +821,6 @@ def generate_tf_patch_or_create(
         Resource Name: "{table_id.replace('.', '_')}"
         Dataset ID: "{dataset_id}"
         Schema File: "{schema_path}"
-        Partitioning: DAY (field: batch_date)
         
         {hist_instruction}
         
@@ -828,11 +828,14 @@ def generate_tf_patch_or_create(
         1. Create ONLY the `google_bigquery_table` resource(s) requested.
         2. Use exact string matching for the schema path: `schema = file("${{path.module}}/{schema_path}")`.
         3. DO NOT invent variables like `var.dataset_id`. Use the literal string "{dataset_id}".
+        4. CRITICAL PARTITIONING: EVERY table MUST contain a `time_partitioning` block configured for type="DAY" and field="batch_date".
+        5. CRITICAL CLUSTERING: EVERY table MUST contain a `clustering` block.
+        6. CRITICAL TEARDOWN: EVERY table MUST explicitly declare `deletion_protection = false`. This guarantees physical deletion if the file is later removed.
         
         CRITICAL SYNTAX RULE:
         When creating `locals` maps (if applicable), you MUST include proper attribute separators. Every key-value pair inside an object must be separated by a newline or comma. Every object in a map MUST be separated by a comma (`,`). Avoid `Error: Missing attribute separator`.
         
-        4. Output strictly HCL Code only. No markdown formatting outside the code block.
+        Output strictly HCL Code only. No markdown formatting outside the code block.
         """
 
     try:
@@ -850,7 +853,7 @@ def generate_tf_patch_or_create(
 
         log_event(
             "INFO",
-            "✅ 🏗️ [Agent: TF Architect] AI successfully generated Terraform HCL block.",
+            "✅ 🏗️ [Agent: TF Architect] AI successfully generated Terraform HCL block with Partitioning & Deletion Protection.",
             trace_id,
         )
 
@@ -1066,7 +1069,7 @@ def infer_pipeline_datasets_with_ai(
 
 
 # ==============================================================================
-# 🧠 AGENT: DATAFORM ARCHITECT (Enhanced Templates, Pathing & Formatting)
+# 🧠 AGENT: DATAFORM ARCHITECT (UPDATED FOR PARTITIONS/CLUSTERS IN ALL TABLES)
 # ==============================================================================
 def generate_ai_dataform_pipeline(
     table_name: str,
@@ -1081,7 +1084,7 @@ def generate_ai_dataform_pipeline(
     contract_yaml: str,
     trace_id: str,
 ) -> Dict[str, str]:
-    """Goal: Dynamically generate Dataform files, strictly enforcing DLQ, explicit mapping, and file descriptions."""
+    """Goal: Dynamically generate Dataform files, strictly enforcing DLQ, explicit mapping, and partitioned table configs."""
     log_event(
         "INFO",
         f"▶️ 🪄 [Agent: DF Architect] Analyzing requirements for '{table_name}'...",
@@ -1142,7 +1145,7 @@ def generate_ai_dataform_pipeline(
         - Added Columns: {added_cols} (Must explicitly map these)
         - Removed Columns: {removed_cols} (Must explicitly remove these from SELECT statements)
         
-        CRITICAL ANTI-HALLUCINATION RULE: You MUST use the EXACT file paths provided. The allowed keys are strictly: {allowed_paths}. DO NOT invent new file paths.
+        CRITICAL ANTI-HALLUCINATION RULE: You MUST use the EXACT file paths provided in the EXISTING FILES dictionary as the keys in your output JSON. The allowed keys are strictly: {allowed_paths}. DO NOT invent new file paths.
         CRITICAL CONTRACT RULE: You MUST apply data types, SAFE_CASTing, and quality rules STRICTLY as defined in the provided DATA CONTRACT YAML.
         """
     else:
@@ -1190,13 +1193,13 @@ def generate_ai_dataform_pipeline(
     
     {instruction_block}
     
-    DATAFORM TEMPLATES TO STRICTLY FOLLOW (Use these exact structures - NOTE THE DESCRIPTIONS):
+    DATAFORM TEMPLATES TO STRICTLY FOLLOW (Use these exact structures - NOTE THE DESCRIPTIONS AND BIGQUERY CONFIGS):
     
     1. Source Declaration (`definitions/sources/{actual_domain}/{base_name}/{table_name}.sqlx`):
        config {{ type: "declaration", database: "{PROJECT_ID}", schema: "{datasets['raw']}", name: "{table_name}", description: "Raw ingestion source for {base_name}." }}
 
     2. Main Staging Table (`definitions/staging/{actual_domain}/{base_name}/stg_{base_name}.sqlx`):
-       config {{ type: "table", schema: "{datasets['stg']}", tags: ["{actual_domain}", "{base_name}", "staging"], description: "Cleansed, deduplicated, and strictly typed staging layer for {base_name}." }}
+       config {{ type: "table", schema: "{datasets['stg']}", tags: ["{actual_domain}", "{base_name}", "staging"], description: "Cleansed, deduplicated, and strictly typed staging layer for {base_name}.", bigquery: {{ partitionBy: "batch_date", clusterBy: ["<actual_pk_col_from_YAML>"] }} }}
        -- NO ASSERTIONS BLOCK. We filter explicitly using the YAML rules.
        SELECT 
          <list_every_core_column_explicitly_applying_dynamic_casting_based_on_YAML_types>,
@@ -1208,7 +1211,7 @@ def generate_ai_dataform_pipeline(
        QUALIFY ROW_NUMBER() OVER(PARTITION BY <actual_pk_col_from_YAML> ORDER BY SAFE_CAST(processed_dttm AS TIMESTAMP) DESC) = 1
 
     3. Quarantine Staging Table (`definitions/staging/{actual_domain}/{base_name}/stg_{base_name}_bad_recs.sqlx`):
-       config {{ type: "incremental", schema: "{datasets['stg']}", tags: ["{actual_domain}", "{base_name}", "staging", "quarantine"], description: "Dead Letter Queue (DLQ) capturing data contract violations for {base_name} staging." }}
+       config {{ type: "incremental", schema: "{datasets['stg']}", tags: ["{actual_domain}", "{base_name}", "staging", "quarantine"], description: "Dead Letter Queue (DLQ) capturing data contract violations for {base_name} staging.", bigquery: {{ partitionBy: "batch_date", clusterBy: ["<actual_pk_col_from_YAML>"] }} }}
        SELECT 
          <list_every_core_column_explicitly_applying_dynamic_casting_based_on_YAML_types>,
          CASE 
@@ -1216,7 +1219,9 @@ def generate_ai_dataform_pipeline(
             WHEN NOT (<condition_2_from_YAML>) THEN 'VIOLATION: rule 2'
             ELSE 'VIOLATION: UNKNOWN'
          END AS failure_reason,
-         CURRENT_TIMESTAMP() AS quarantined_at
+         CURRENT_DATE() AS batch_date,
+         CURRENT_TIMESTAMP() AS processed_dttm,
+         CURRENT_TIMESTAMP() AS updated_dttm
        FROM ${{ref("{table_name}")}} 
        WHERE NOT (<insert_contract_YAML_rules_here_as_AND_conditions>)
 
@@ -1239,17 +1244,29 @@ def generate_ai_dataform_pipeline(
        FROM ${{ref("stg_{base_name}")}}
        ${{when(incremental(), `WHERE processed_dttm > (SELECT COALESCE(MAX(processed_dttm), TIMESTAMP("1970-01-01")) FROM ${{self()}})` )}}
 
-    6. Quarantine Marts Table (`definitions/marts/{actual_domain}/{base_name}/fct_{base_name}_bad_recs.sqlx`):
-       -- (Follow the exact same pattern as the Staging Quarantine table, but source from the Staging table if additional mart-level rules exist, or omit if all rules were caught in staging).
+    6. Quarantine Marts Table (definitions/marts/{actual_domain}/{base_name}/fct_{base_name}_bad_recs.sqlx):
+       ---
+       CRITICAL SCHEMA ADHERENCE: This table MUST have the exact same schema as the main Marts table.
+       - SOURCE: Select from the Staging table (${{ref("stg_{base_name}")}}).
+       - NO INVENTIONS: Do NOT create or append non-existing columns like 'quarantined_at'. Only include core columns, failure_reason, batch_date, processed_dttm, updated_dttm.
+       - CONFIG: Set partitionBy to "batch_date" and clusterBy appropriately in the config block.
+       - LOGIC: This table captures rows that were technically 'processed' but failed mart-level business validations (if any). Use an inverted WHERE NOT clause.
+       ---
 
     GENERAL REQUIREMENTS:
-    1. STRICT DATA CONTRACT ENFORCEMENT: The provided DATA CONTRACT YAML is your master reference. Extract Data Types, PKs, Clustering, and Data Quality Rules (Regex, Range, Accepted Values) exclusively from it.
-    2. EXPLICIT DESCRIPTIONS: EVERY `config {{ }}` block MUST contain a `description` field as shown in the templates.
-    3. EXPLICIT COLUMN MAPPING (NO SELECT *): You MUST explicitly write out every single column name in the SELECT statements for Staging and Marts. DO NOT use `SELECT *` or `SELECT * EXCEPT(...)`.
-    4. QUARANTINE ROUTING (NO FATAL ASSERTIONS): NEVER use the `assertions: {{}}` block inside the `config`. Instead, translate the YAML Data Contract rules into SQL `WHERE` clauses for the main tables. Catch the failed rows using an inverted `WHERE NOT (...)` filter in `_bad_recs.sqlx`.
-    5. TEMPORAL ACCURACY: Include both `processed_dttm` and `updated_dttm` (CURRENT_TIMESTAMP()) in staging and marts.
-    6. REGEX/STRING ESCAPING (CRITICAL): When writing SQL functions (like REGEXP_CONTAINS), you MUST use single quotes (') for the inner string literals to avoid breaking outer strings if generated. Example CORRECT: "REGEXP_CONTAINS(order_id, r'^ORD-[0-9]{{5,10}}$')"
-    7. Output STRICTLY a JSON object where keys are full file paths and values are exact SQLX string content. No markdown formatting.
+    1. STRICT DATA CONTRACT ENFORCEMENT: The provided DATA CONTRACT YAML is your master reference. You MUST parse it to extract:
+       - The exact datatype for EVERY column (apply `SAFE_CAST(col AS <YAML_TYPE>)` in Staging).
+       - The exact Primary Key for `uniqueKey` and `QUALIFY ROW_NUMBER()`.
+       - The exact Data Quality rules (assertions/constraints) to inject into the `WHERE` clauses.
+    2. EXPLICIT COLUMN MAPPING (NO SELECT *): You MUST explicitly write out every single column name in the SELECT statements for Staging and Marts. DO NOT use `SELECT *` or `SELECT * EXCEPT(...)`.
+    3. STRICT DATASETS & PARTITIONING: Use exactly the schemas passed in the templates. Every table (Staging, Marts, DLQ) MUST have `bigquery: {{ partitionBy: "batch_date" ... }}`.
+    4. QUARANTINE ROUTING (NO FATAL ASSERTIONS): NEVER use the `assertions: {{}}` block inside the `config`. It causes fatal pipeline crashes. Instead, translate the YAML Data Contract rules into SQL `WHERE` clauses for the main tables. 
+    5. BAD RECORDS FILES: Catch the failed rows using an inverted `WHERE NOT (...)` filter, and explicitly append a `CASE WHEN` statement to populate the `failure_reason` STRING column.
+    6. TEMPORAL ACCURACY: Include both `processed_dttm` and `updated_dttm` (CURRENT_TIMESTAMP()) in staging and marts.
+    7. EXPLICIT DESCRIPTIONS: EVERY `config {{ }}` block MUST contain a `description` field as shown in the templates.
+    8. PERFECT STYLING & FORMATTING: Ensure the generated SQLX code is cleanly formatted with perfectly aligned `SELECT` block columns (2 spaces indentation).
+    9. REGEX/STRING ESCAPING (CRITICAL): When writing SQL functions (like REGEXP_CONTAINS), you MUST use single quotes (') for the inner string literals to avoid breaking outer strings if generated. Example CORRECT: "REGEXP_CONTAINS(order_id, r'^ORD-[0-9]{{5,10}}$')"
+    10. Output STRICTLY a JSON object where keys are full file paths and values are exact SQLX string content. No markdown formatting.
     """
 
     try:
@@ -1269,7 +1286,7 @@ def generate_ai_dataform_pipeline(
         pipeline_files = json.loads(text)
         log_event(
             "INFO",
-            f"✅ 🪄 [Agent: DF Architect] AI successfully generated {len(pipeline_files)} SQLX files with explicit config descriptions.",
+            f"✅ 🪄 [Agent: DF Architect] AI successfully generated {len(pipeline_files)} SQLX files conforming to exact YAML constraints, explicit mapping, DLQ routing, and formatting bounds.",
             trace_id,
         )
 
@@ -1329,7 +1346,7 @@ def verify_dataform_pipeline(
     target_domain: str,
     trace_id: str,
 ) -> Dict[str, str]:
-    """Goal: QA Lead verifies exact syntax match with DLQ templates, explicit mappings, and config descriptions."""
+    """Goal: QA Lead verifies exact syntax match with DLQ templates, explicit mappings, descriptions, and partitioning."""
     log_event(
         "INFO",
         f"▶️ 🕵️‍♀️ [Agent: DF QA] Initiating automated peer-review of generated SQLX code...",
@@ -1377,14 +1394,15 @@ def verify_dataform_pipeline(
     1. EXPLICIT COLUMN MAPPING (CRITICAL): If you see `SELECT *` or `SELECT * EXCEPT` anywhere in the generated code (Staging or Marts), you MUST expand it. Replace it with a comma-separated list of the 'REQUIRED CORE COLUMNS'. No asterisks allowed. Also ensure removed columns ({removed_cols}) are NOT in the SELECT block.
     2. ANTI-HALLUCINATION (FILE PATHS): Forcefully revert hallucinated keys back to the 'EXPECTED EXISTING PATHS' if present. 
     3. QUARANTINE ROUTING ENFORCEMENT (CRITICAL): Ensure the `assertions: {{}}` block is completely REMOVED from all `config` blocks. Fatal assertions are forbidden. Data Quality MUST be handled in the `WHERE` clauses using the YAML rules.
-    4. BAD RECORDS VERIFICATION: Ensure the `_bad_recs` files explicitly contain a `failure_reason` column derived via a `CASE WHEN` statement.
-    5. BATCH DATE & TIMESTAMPS (GLOBAL): Across ALL files (staging, marts, including bad_recs), ensure `batch_date` is `CURRENT_DATE() AS batch_date`, and explicitly include `CURRENT_TIMESTAMP() AS updated_dttm`. 
-    6. ARCHIVE OPERATIONS: Ensure `archive_` explicitly uses `INSERT INTO \`{PROJECT_ID}.{datasets['raw']}.<table_name>_hist\`` followed by `TRUNCATE TABLE ${{ref("<table_name>")}};`. Ensure NO `post_operations` block exists.
-    7. MARTS INCREMENTAL: Does the marts file use `type: "incremental"`, include a `bigquery: {{ partitionBy, clusterBy }}` block, and use the exact `${{when(incremental(), `WHERE processed_dttm > (SELECT COALESCE(MAX(processed_dttm), TIMESTAMP("1970-01-01")) FROM ${{self()}})` )}}` logic? NEVER filter on SELECT aliases.
-    8. TAG TAXONOMY: Ensure `config` blocks of EVERY file (EXCEPT declarations) contains a `tags: ["{actual_domain}", "{base_name}", "<layer>"]` array.
-    9. CONFIG BLOCK SYNTAX: Remove any comments (`--`, `//`, `/* */`) inside the `config {{ ... }}` blocks.
-    10. REGEX QUOTE ESCAPING FIX (CRITICAL): If conditions contain a regex or string literal wrapped in double quotes (e.g., r"^...$"), you MUST change the inner quotes to single quotes (e.g., r'^...$'). Double quotes inside the double-quoted string will cause a fatal compilation error.
-    11. EXPLICIT DESCRIPTIONS (CRITICAL): EVERY `config {{ }}` block MUST contain a valid, meaningful `description` property explaining the file's purpose. Ensure no properties other than ('description', 'tags', 'schema', 'type', 'uniqueKey', 'bigquery', 'dependencies', 'database', 'name') exist in the config block.
+    4. BAD RECORDS VERIFICATION: Ensure the `_bad_recs` files explicitly contain a `failure_reason` column derived via a `CASE WHEN` statement mapping out the failed rules, and ensure NO hallucinated columns like `quarantined_at` exist.
+    5. DECLARATION SYNTAX: Ensure the source file uses `type: "declaration"` with explicit `database`, `schema`, and `name` attributes ONLY. Strictly NO `tags` array allowed in declarations.
+    6. BATCH DATE & TIMESTAMPS (GLOBAL): Across ALL files (staging, marts, including bad_recs), ensure `batch_date` is `CURRENT_DATE() AS batch_date`, and explicitly include `CURRENT_TIMESTAMP() AS updated_dttm`. 
+    7. ARCHIVE OPERATIONS: Ensure `archive_` explicitly uses `INSERT INTO \`{PROJECT_ID}.{datasets['raw']}.<table_name>_hist\`` followed by `TRUNCATE TABLE ${{ref("<table_name>")}};`. Ensure NO `post_operations` block exists.
+    8. MARTS & STAGING INCREMENTAL/PARTITIONING: Does the file include a `bigquery: {{ partitionBy: "batch_date", clusterBy: [...] }}` block? ALL tables and incremental files MUST have this. NEVER filter on SELECT aliases in incremental WHERE clauses.
+    9. TAG TAXONOMY: Ensure `config` blocks of EVERY file (EXCEPT declarations) contains a `tags: ["{actual_domain}", "{base_name}", "<layer>"]` array.
+    10. CONFIG BLOCK SYNTAX: Remove any comments (`--`, `//`, `/* */`) inside the `config {{ ... }}` blocks.
+    11. REGEX QUOTE ESCAPING FIX (CRITICAL): If conditions contain a regex or string literal wrapped in double quotes (e.g., r"^...$"), you MUST change the inner quotes to single quotes (e.g., r'^...$'). Double quotes inside the double-quoted string will cause a fatal compilation error.
+    12. EXPLICIT DESCRIPTIONS (CRITICAL): EVERY `config {{ }}` block MUST contain a valid, meaningful `description` property explaining the file's purpose. Ensure no properties other than ('description', 'tags', 'schema', 'type', 'uniqueKey', 'bigquery', 'dependencies', 'database', 'name') exist in the config block.
     
     Output STRICTLY a JSON object where keys are the corrected full file paths and values are the corrected SQLX string content. Output JSON ONLY. Do not include markdown formatting.
     """
@@ -1405,7 +1423,7 @@ def verify_dataform_pipeline(
         verified_files = json.loads(text)
         log_event(
             "INFO",
-            f"✅ 🕵️‍♀️ [Agent: DF QA] QA passed. Quarantine Routing, Explicit Column Mapping, and Descriptions perfectly enforced.",
+            f"✅ 🕵️‍♀️ [Agent: DF QA] QA passed. Quarantine Routing, Explicit Column Mapping, Partitioning, and Descriptions perfectly enforced.",
             trace_id,
         )
         log_event("INFO", "⏹️ 🕵️‍♀️ [Agent: DF QA] Finished automated review.", trace_id)
@@ -1507,7 +1525,7 @@ def verify_schema_json(
 def verify_terraform_hcl(
     hcl_content: str, table_id: str, tf_state: Dict[str, Any], trace_id: str
 ) -> str:
-    """Goal: Ensure Terraform code syntax is perfect and history table creation uses schema reuse."""
+    """Goal: Ensure Terraform code syntax is perfect, uses deletion protection, and history table creation uses schema reuse."""
     log_event(
         "INFO",
         f"▶️ 🕵️‍♀️ [Agent: TF QA] Initiating automated peer-review of Terraform HCL...",
@@ -1548,6 +1566,9 @@ def verify_terraform_hcl(
     2. Does the main table resource for '{table_id}' exist?
     3. ANTI-HALLUCINATION RULE: Do not invent new resources that were not requested.
     4. Is there any 'Missing attribute separator' error? Verify that objects inside 'locals' maps are properly separated by commas (,), and attributes within objects have proper newlines.
+    5. CRITICAL PARTITIONING: Are ALL `google_bigquery_table` resources partitioned by 'batch_date' (time_partitioning)?
+    6. CRITICAL CLUSTERING: Are ALL resources clustered (clustering)?
+    7. CRITICAL DELETION PROTECTION: Do ALL resources explicitly declare `deletion_protection = false` to enable teardown?
     {hist_rule}
     
     Fix any errors found. Output STRICTLY the corrected Terraform HCL code. No markdown formatting outside the code block.
@@ -1564,7 +1585,7 @@ def verify_terraform_hcl(
 
         log_event(
             "INFO",
-            f"✅ 🕵️‍♀️ [Agent: TF QA] QA passed. Terraform HCL structure validated.",
+            f"✅ 🕵️‍♀️ [Agent: TF QA] QA passed. Terraform HCL structure, partitioning, and deletion rules validated.",
             trace_id,
         )
         log_event("INFO", "⏹️ 🕵️‍♀️ [Agent: TF QA] Finished automated review.", trace_id)
@@ -1650,6 +1671,68 @@ def inject_dataform_into_repo(
 
 
 # ==============================================================================
+# 🧹 NEW FEATURE: RESOURCE DECOMMISSION ENGINE
+# ==============================================================================
+def decommission_pipeline(
+    repo, branch_name: str, table_name: str, trace_id: str
+) -> Tuple[int, str]:
+    """Physically removes TF, JSON, SQLX, and YAML files from Git to trigger complete teardown."""
+    log_event(
+        "INFO",
+        f"🧹 [Cleanup] Initiating full resource decommission for {table_name}...",
+        trace_id,
+    )
+    files_deleted = 0
+    detailed_commit_log = ""
+    base_name = table_name.replace("_raw", "")
+
+    try:
+        tree = repo.get_git_tree(branch_name, recursive=True)
+        # Target files based on strict naming conventions to prevent over-deletion
+        targets = [
+            f"json/{table_name}.json",
+            f"{table_name}_contracts.yaml",
+            f"{table_name}.sqlx",
+            f"stg_{base_name}.sqlx",
+            f"stg_{base_name}_bad_recs.sqlx",
+            f"fct_{base_name}.sqlx",
+            f"fct_{base_name}_bad_recs.sqlx",
+            f"archive_{table_name}.sqlx",
+            f"{table_name}.tf",
+        ]
+
+        for element in tree.tree:
+            if any(element.path.endswith(t) for t in targets):
+                try:
+                    c = repo.get_contents(element.path, ref=branch_name)
+                    commit_msg = (
+                        f"chore(dataops): decommission orphaned asset {element.path}"
+                    )
+                    repo.delete_file(
+                        element.path, commit_msg, c.sha, branch=branch_name
+                    )
+                    log_event("INFO", f"🗑️ [Cleanup] Deleted: {element.path}", trace_id)
+                    detailed_commit_log += f"- 🗑️ **Deleted:** `{element.path}`\n"
+                    files_deleted += 1
+                except GithubException:
+                    pass
+
+        log_event(
+            "INFO",
+            f"⏹️ [Cleanup] Decommission complete. {files_deleted} files removed.",
+            trace_id,
+        )
+        return files_deleted, detailed_commit_log
+    except Exception as e:
+        log_event(
+            "ERROR",
+            f"❌ [Cleanup Fail] Decommission process encountered error: {e}",
+            trace_id,
+        )
+        return files_deleted, detailed_commit_log
+
+
+# ==============================================================================
 # 🚀 ORCHESTRATION LAYER (The "Manager")
 # ==============================================================================
 def apply_infrastructure_update(
@@ -1664,6 +1747,7 @@ def apply_infrastructure_update(
     target_data_contracts: Optional[str] = None,
     added_columns: List[str] = None,
     removed_columns: List[str] = None,
+    is_deletion: bool = False,  # FEATURE ADDITION: Deletion flag
 ) -> Dict[str, Any]:
 
     log_event(
@@ -1707,6 +1791,52 @@ def apply_infrastructure_update(
             trace_id,
         )
         raise e
+
+    # 3. CREATE BRANCH
+    branch_name = f"ai/ops-{table}-{uuid.uuid4().hex[:6]}"
+    repo.create_git_ref(ref=f"refs/heads/{branch_name}", sha=default_branch.commit.sha)
+    log_event("INFO", f"🌱 🚀 [Orchestrator] Branch `{branch_name}` created.", trace_id)
+
+    # ----------------------------------------------------------------------
+    # FEATURE ADDITION: DELETION HANDLING
+    # ----------------------------------------------------------------------
+    if is_deletion:
+        log_event(
+            "INFO",
+            f"🗑️ 🚀 [Orchestrator] Deletion flag active. Initiating physical pipeline teardown...",
+            trace_id,
+        )
+        files_deleted, del_log = decommission_pipeline(
+            repo, branch_name, table, trace_id
+        )
+
+        if files_deleted > 0:
+            pr_body = f"### 🤖 Sentinel-Forge Automated Decommission\n**Trace ID:** `{trace_id}`\n\nAutomated pipeline removal executed. The following resources have been deleted from Git, which will trigger physical `terraform destroy` and Dataform teardown.\n\n{del_log}"
+            pr = repo.create_pull(
+                title=f"chore(dataops): decommission pipeline for {table}",
+                body=pr_body,
+                head=branch_name,
+                base=repo.default_branch,
+            )
+            flush_deferred_logs(pr.html_url, trace_id)
+            return {
+                "status": "SUCCESS",
+                "url": pr.html_url,
+                "overall_action": "DELETED",
+                "details": {"files_deleted": files_deleted},
+            }
+        else:
+            log_event(
+                "WARNING",
+                "🛑 🚀 [Orchestrator] No files found to delete. Aborting PR.",
+                trace_id,
+            )
+            return {
+                "status": "SKIPPED",
+                "url": None,
+                "overall_action": "SKIPPED",
+                "details": {},
+            }
 
     # 1. ANALYZE TERRAFORM & DATAFORM STATE
     log_event(
@@ -1764,14 +1894,6 @@ def apply_infrastructure_update(
             f"{TF_BASE_PATH.strip().rstrip('/')}/{table}.tf",
             None,
         )
-
-    # 3. CREATE BRANCH
-    log_event(
-        "INFO", "🌿 🚀 [Orchestrator] Spinning up isolated Git branch...", trace_id
-    )
-    branch_name = f"ai/ops-{table}-{uuid.uuid4().hex[:6]}"
-    repo.create_git_ref(ref=f"refs/heads/{branch_name}", sha=default_branch.commit.sha)
-    log_event("INFO", f"🌱 🚀 [Orchestrator] Branch `{branch_name}` created.", trace_id)
 
     # ----------------------------------------------------------------------
     # STEP 4: DATA CONTRACT RESOLUTION (WITH DRIFT UPDATES)
@@ -2124,7 +2246,7 @@ All raw ingestion fields configured strictly as `STRING` type.
 2. **Contract Resolution (Drift Sync):** Fetched `data_contracts` YAML. Autonomously bumped version, updated schema array with additions/deletions, and appended Drift Changelog.
 3. **Architect:** Generated HCL. Embedded exact Dataform templates including YAML-directed explicit columns, DLQ quarantine routing, dynamic `SAFE_CAST`, file descriptions, and `incremental` logic into `.sqlx` blocks based on sample payload analysis. 
 4. **Schema QA:** Verified JSON structure. Executed Column Drop logic for deleted fields. Enforced absolute `STRING` typing on all new columns.
-5. **Terraform QA:** Enforced schema reuse (`DRY` principle) between main and `_hist` table resources.
+5. **Terraform QA:** Enforced schema reuse (`DRY` principle) between main and `_hist` table resources. Enforced `deletion_protection = false` to enable teardown.
 6. **Dataform QA:** Validated SQL syntax, enforced explicit column mapping (NO `SELECT *`), removed dropped columns from SELECT statements, enforced `CURRENT_DATE()` and `CURRENT_TIMESTAMP()` logic, enforced Quarantine DLQ routing, verified explicit configuration `description` blocks, and validated strict Tag Taxonomy.
 
 **Commit Log:**
@@ -2140,6 +2262,7 @@ All raw ingestion fields configured strictly as `STRING` type.
 - [x] **Operations Accuracy:** Operations securely bypass self-contexts and `post_operations`.
 - [x] **Temporal Accuracy:** `CURRENT_DATE() AS batch_date` and `CURRENT_TIMESTAMP() AS updated_dttm` strictly enforced globally across all layers.
 - [x] **Format Standardization:** Code cleanly indented and SQL keywords perfectly aligned.
+- [x] **Partitioning & Deletion:** Strict `batch_date` partitioning, dynamic clustering, and teardown enablement applied to all generated tables.
 
 ### ✅ Action Required
 Review the file changes and merge this Pull Request.
@@ -2270,6 +2393,11 @@ def ai_agent_main(cloud_event):
         sample_data = data.get("sample_data_rows", [])
         target_domain = data.get("domain", "unknown_domain")
 
+        # DELETION DETECTION
+        is_deletion = data.get("is_deletion", False)
+        if "delete" in error_context.lower() or "drop" in error_context.lower():
+            is_deletion = True
+
         # FEATURE ADDITION: Safely extract and sanitize Data Contracts
         raw_contracts = data.get("data_contracts")
         if (
@@ -2325,10 +2453,11 @@ def ai_agent_main(cloud_event):
             and not removed_columns
             and "dataform" not in error_context.lower()
             and not target_data_contracts
+            and not is_deletion
         ):
             log_event(
                 "WARNING",
-                "⚠️ 🔌 [Gateway] No columns derived, no Data Contracts provided, and not a Dataform error. Operation voided.",
+                "⚠️ 🔌 [Gateway] No columns derived, no Data Contracts provided, no deletion requested, and not a Dataform error. Operation voided.",
                 trace_id,
             )
             log_event("INFO", "⏹️ 🔌 [Gateway] Terminating gracefully.", trace_id)
@@ -2351,6 +2480,7 @@ def ai_agent_main(cloud_event):
             target_data_contracts=target_data_contracts,
             added_columns=added_columns,
             removed_columns=removed_columns,
+            is_deletion=is_deletion,
         )
 
         log_event(
