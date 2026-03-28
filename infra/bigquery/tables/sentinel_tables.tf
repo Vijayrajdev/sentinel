@@ -13,11 +13,20 @@ locals {
       partition_field = null
     }
   }
+
   tables_raw = {
-    
+    "orders_raw" = {
+      partition_type  = "DAY"
+      partition_field = "batch_date"
+    }
   }
+
   tables_raw_hist = {
-    
+    "orders_raw" = {
+      partition_type  = "DAY"
+      partition_field = "batch_date"
+      expiration_ms   = 2592000000
+    }
   }
 }
 
