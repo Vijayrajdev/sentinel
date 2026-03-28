@@ -1,0 +1,17 @@
+config {
+  type: "assertion",
+  tags: ["sales", "orders", "sla"],
+  description: "Validates freshness and completeness SLAs as defined in the Data Contract."
+}
+
+SELECT
+  'Freshness Breach: Data older than 24 hours' AS failure_reason
+FROM ${ref("fct_orders")}
+HAVING MAX(processed_dttm) < TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL 24 HOUR)
+
+UNION ALL
+
+SELECT
+  'Completeness Breach: Data quality failure rate above 2%' AS failure_reason
+FROM ${ref("stg_orders")}
+HAVING (COUNTIF(customer_name IS NULL) / NULLIF(COUNT(*), 0)) > 0.02
