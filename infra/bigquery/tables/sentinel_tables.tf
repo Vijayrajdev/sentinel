@@ -15,17 +15,10 @@ locals {
     }
   }
   tables_raw = {
-    "orders_raw" = {
-      partition_type = null
-      partition_field = null
-    }
+    
   }
   tables_raw_hist = {
-    "orders_raw" = {
-      partition_type = null
-      partition_field = null
-      expiration_ms = 2592000000
-    }
+    
   }
 }
 resource "google_bigquery_table" "sentinel_audit_tables" {
