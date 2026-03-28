@@ -4,20 +4,27 @@ locals {
       partition_type  = null
       partition_field = null
     }
-    "ingestion_log" = {
+    "ingestion_log"    = {
       partition_type  = null
       partition_field = null
     }
-    "ai_ops_log" = {
+    "ai_ops_log"       = {
       partition_type  = null
       partition_field = null
     }
   }
   tables_raw = {
-    
+    "orders_raw" = {
+      partition_type  = "DAY"
+      partition_field = "batch_date"
+    }
   }
   tables_raw_hist = {
-    
+    "orders_raw" = {
+      partition_type  = "DAY"
+      partition_field = "batch_date"
+      expiration_ms   = 2592000000
+    }
   }
 }
 
