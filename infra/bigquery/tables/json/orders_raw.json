@@ -1,0 +1,58 @@
+[
+  {
+    "name": "order_id",
+    "type": "STRING",
+    "mode": "NULLABLE",
+    "description": "Unique identifier for the order",
+    "defaultValueExpression": "NULL"
+  },
+  {
+    "name": "customer_name",
+    "type": "STRING",
+    "mode": "NULLABLE",
+    "description": "Name of the customer who placed the order",
+    "defaultValueExpression": "NULL"
+  },
+  {
+    "name": "amount",
+    "type": "STRING",
+    "mode": "NULLABLE",
+    "description": "Total monetary value of the order",
+    "defaultValueExpression": "NULL"
+  },
+  {
+    "name": "status",
+    "type": "STRING",
+    "mode": "NULLABLE",
+    "description": "Current processing status of the order",
+    "defaultValueExpression": "NULL"
+  },
+  {
+    "name": "order_date",
+    "type": "STRING",
+    "mode": "NULLABLE",
+    "description": "Calendar date when the order was placed",
+    "defaultValueExpression": "NULL"
+  },
+  {
+    "name": "warehouse_id",
+    "type": "STRING",
+    "mode": "NULLABLE",
+    "description": "Identifier for the warehouse handling the order",
+    "defaultValueExpression": "NULL"
+  },
+  {
+    "name": "batch_date",
+    "type": "DATE",
+    "mode": "NULLABLE",
+    "description": "Audit column to identify the record is newly inserted.",
+    "defaultValueExpression": "DATE '9999-12-31'"
+  },
+  {
+    "name": "processed_dttm",
+    "type": "TIMESTAMP",
+    "mode": "NULLABLE",
+    "description": "System timestamp indicating when the record was loaded",
+    "defaultValueExpression": "CURRENT_TIMESTAMP()"
+  }
+]
