@@ -507,6 +507,7 @@ def generate_dynamic_schema(
     3. Mode must be 'NULLABLE'.
     4. Descriptions are mandatory. Infer them from column names.
     5. EVERY single column MUST have a "defaultValueExpression" defined (e.g., use "NULL" for standard strings).
+    6. FORMATTING: Ensure the JSON string is properly formatted with 2 spaces of indentation.
     
     Output: JSON Array only.
     """
@@ -583,7 +584,7 @@ def generate_dynamic_schema(
 
 
 # ==============================================================================
-# 🧠 AGENT: TERRAFORM ARCHITECT (UPDATED WITH PARTITIONING & DELETION PROTECTION)
+# 🧠 AGENT: TERRAFORM ARCHITECT (UPDATED WITH PARTITIONING, FORMATTING & DELETION PROTECTION)
 # ==============================================================================
 def analyze_tf_repo_state(
     repo, branch_sha: str, table_id: str, trace_id: str
@@ -721,7 +722,7 @@ def generate_tf_patch_or_create(
     tf_state: Dict[str, Any],
     trace_id: str,
 ) -> str:
-    """Goal: Write HCL code enforcing Partitioning, Clustering, and Deletion Protection settings."""
+    """Goal: Write properly formatted HCL code enforcing Partitioning, Clustering, and Deletion Protection settings."""
     log_event(
         "INFO",
         f"▶️ 🏗️ [Agent: TF Architect] Initiating Terraform HCL synthesis for '{table_id}'...",
@@ -802,6 +803,7 @@ def generate_tf_patch_or_create(
         5. CRITICAL CLUSTERING: RAW and RAW_HIST tables MUST NOT contain a `clustering` block. Remove it if present.
         6. CRITICAL TEARDOWN: EVERY table MUST explicitly declare `deletion_protection = false`. This guarantees physical deletion when the file is removed from the repo.
         7. Return the **FULL UPDATED FILE CONTENT**, including the original code and your new appended/injected blocks. Do not truncate.
+        8. FORMATTING (CRITICAL): You MUST format the output exactly like `terraform fmt` does. Use 2 spaces for indentation. Vertically align all equals signs (`=`) in assignments within the same block.
         
         CRITICAL SYNTAX RULE:
         When injecting into `locals` maps, you MUST include proper attribute separators. Every key-value pair inside an object must be separated by a newline or comma. Every object in a map MUST be separated by a comma (`,`). Avoid `Error: Missing attribute separator`.
@@ -831,6 +833,7 @@ def generate_tf_patch_or_create(
         4. CRITICAL PARTITIONING: EVERY table MUST contain a `time_partitioning` block configured for type="DAY" and field="batch_date".
         5. CRITICAL CLUSTERING: RAW and RAW_HIST tables MUST NOT contain a `clustering` block. Remove it if present.
         6. CRITICAL TEARDOWN: EVERY table MUST explicitly declare `deletion_protection = false`. This guarantees physical deletion if the file is later removed.
+        7. FORMATTING (CRITICAL): You MUST format the output exactly like `terraform fmt` does. Use 2 spaces for indentation. Vertically align all equals signs (`=`) in assignments within the same block.
         
         CRITICAL SYNTAX RULE:
         When creating `locals` maps (if applicable), you MUST include proper attribute separators. Every key-value pair inside an object must be separated by a newline or comma. Every object in a map MUST be separated by a comma (`,`). Avoid `Error: Missing attribute separator`.
@@ -1192,16 +1195,30 @@ def generate_ai_dataform_pipeline(
     
     {instruction_block}
     
-    DATAFORM TEMPLATES TO STRICTLY FOLLOW (Use these exact structures - NOTE THE DESCRIPTIONS AND NATIVE ASSERTIONS):
+    DATAFORM TEMPLATES TO STRICTLY FOLLOW (Use these exact structures - NOTE THE DESCRIPTIONS, NATIVE ASSERTIONS, AND MULTI-LINE CONFIG FORMATTING):
     
     1. Source Declaration (`definitions/sources/{actual_domain}/{base_name}/{table_name}.sqlx`):
-       config {{ type: "declaration", database: "{PROJECT_ID}", schema: "{datasets['raw']}", name: "{table_name}", description: "Raw ingestion source for {base_name}." }}
+       config {{
+         type: "declaration",
+         database: "{PROJECT_ID}",
+         schema: "{datasets['raw']}",
+         name: "{table_name}",
+         description: "Raw ingestion source for {base_name}."
+       }}
 
     2. Main Staging Table (`definitions/staging/{actual_domain}/{base_name}/stg_{base_name}.sqlx`):
-       config {{ 
-         type: "table", schema: "{datasets['stg']}", tags: ["{actual_domain}", "{base_name}", "staging"], description: "Cleansed, deduplicated, and strictly typed staging layer for {base_name}.", 
-         bigquery: {{ partitionBy: "batch_date", clusterBy: ["<actual_pk_col_from_YAML>"] }},
-         assertions: {{ ...extract from yaml using STRICT Dataform v3.x syntax... }} 
+       config {{
+         type: "table",
+         schema: "{datasets['stg']}",
+         tags: ["{actual_domain}", "{base_name}", "staging"],
+         description: "Cleansed, deduplicated, and strictly typed staging layer for {base_name}.",
+         bigquery: {{
+           partitionBy: "batch_date",
+           clusterBy: ["<actual_pk_col_from_YAML>"]
+         }},
+         assertions: {{
+           ...extract from yaml using STRICT Dataform v3.x syntax...
+         }}
        }}
        SELECT 
          <list_every_core_column_explicitly_applying_dynamic_casting_based_on_YAML_types>,
@@ -1212,16 +1229,30 @@ def generate_ai_dataform_pipeline(
        QUALIFY ROW_NUMBER() OVER(PARTITION BY <actual_pk_col_from_YAML> ORDER BY SAFE_CAST(processed_dttm AS TIMESTAMP) DESC) = 1
 
     3. Operations/Archive (`definitions/operations/{actual_domain}/{base_name}/archive_{table_name}.sqlx`):
-       config {{ type: "operations", dependencies: ["fct_{base_name}"], tags: ["{actual_domain}", "{base_name}", "archive"], description: "Idempotent archival operations moving processed {base_name} records to history." }}
+       config {{
+         type: "operations",
+         dependencies: ["fct_{base_name}"],
+         tags: ["{actual_domain}", "{base_name}", "archive"],
+         description: "Idempotent archival operations moving processed {base_name} records to history."
+       }}
        INSERT INTO `{PROJECT_ID}.{datasets['raw']}.{table_name}_hist` (col1, batch_date, processed_dttm)
        SELECT col1, CURRENT_DATE() AS batch_date, processed_dttm FROM ${{ref("{table_name}")}};
        TRUNCATE TABLE ${{ref("{table_name}")}};
 
     4. Main Marts Incremental (`definitions/marts/{actual_domain}/{base_name}/fct_{base_name}.sqlx`):
-       config {{ 
-         type: "incremental", schema: "{datasets['marts']}", uniqueKey: ["<actual_pk_col_from_YAML>"], 
-         bigquery: {{ partitionBy: "batch_date", clusterBy: ["<actual_clustering_col_from_YAML>"] }}, tags: ["{actual_domain}", "{base_name}", "marts"], description: "Incremental fact/dimension mart layer for {base_name} driving downstream analytics.",
-         assertions: {{ ...extract from yaml using STRICT Dataform v3.x syntax... }}
+       config {{
+         type: "incremental",
+         schema: "{datasets['marts']}",
+         uniqueKey: ["<actual_pk_col_from_YAML>"],
+         tags: ["{actual_domain}", "{base_name}", "marts"],
+         description: "Incremental fact/dimension mart layer for {base_name} driving downstream analytics.",
+         bigquery: {{
+           partitionBy: "batch_date",
+           clusterBy: ["<actual_clustering_col_from_YAML>"]
+         }},
+         assertions: {{
+           ...extract from yaml using STRICT Dataform v3.x syntax...
+         }}
        }}
        SELECT 
          <list_every_core_column_explicitly_do_not_use_select_star>,
@@ -1238,9 +1269,9 @@ def generate_ai_dataform_pipeline(
     4. NATIVE ASSERTIONS (NO DLQ): You MUST use the `assertions: {{}}` block inside the `config` to handle Data Quality. Map the YAML constraints and tests to the exact Dataform arrays: `nonNull`, `uniqueKey`, and `rowConditions`. Do NOT generate _bad_recs files.
     5. TEMPORAL ACCURACY: Include both `processed_dttm` and `updated_dttm` (CURRENT_TIMESTAMP()) in staging and marts.
     6. STRICT TAGGING TAXONOMY: Every file's `config` block MUST contain a `tags: []` array, EXCEPT for declaration files. 
-    7. PERFECT STYLING & FORMATTING: Ensure the generated SQLX code is cleanly formatted with perfectly aligned `SELECT` block columns (2 spaces indentation).
-    8. REGEX/STRING ESCAPING (CRITICAL): When writing SQL functions inside `rowConditions` (like REGEXP_CONTAINS), you MUST use single quotes (') for the inner string literals to avoid breaking outer strings if generated. Example CORRECT: "REGEXP_CONTAINS(order_id, r'^ORD-[0-9]{{5,10}}$')"
-    9. ARCHIVE SOURCE STRICTNESS: The Operations/Archive SQLX MUST strictly SELECT from the RAW table (${{ref("{table_name}")}}) to insert into the history table. ABSOLUTELY DO NOT SELECT from the staging table (${{ref("stg_{base_name}")}}).
+    7. REGEX/STRING ESCAPING (CRITICAL): When writing SQL functions inside `rowConditions` (like REGEXP_CONTAINS), you MUST use single quotes (') for the inner string literals to avoid breaking outer strings if generated. Example CORRECT: "REGEXP_CONTAINS(order_id, r'^ORD-[0-9]{{5,10}}$')"
+    8. ARCHIVE SOURCE STRICTNESS: The Operations/Archive SQLX MUST strictly SELECT from the RAW table (${{ref("{table_name}")}}) to insert into the history table. ABSOLUTELY DO NOT SELECT from the staging table (${{ref("stg_{base_name}")}}).
+    9. FORMATTING (CRITICAL): Flawless SQL formatting is required. Use exactly 2 spaces for indentation. ALL `config {{ ... }}` blocks MUST be formatted perfectly as multi-line objects with each property on a new line (as shown in the templates). ALL SQL keywords (SELECT, FROM, WHERE, QUALIFY, CASE, WHEN, THEN, ELSE, END, etc.) MUST be UPPERCASE. Align columns cleanly in the SELECT statements.
     10. Output STRICTLY a JSON object where keys are full file paths and values are exact SQLX string content. No markdown formatting.
     """
 
@@ -1261,7 +1292,7 @@ def generate_ai_dataform_pipeline(
         pipeline_files = json.loads(text)
         log_event(
             "INFO",
-            f"✅ 🪄 [Agent: DF Architect] AI successfully generated {len(pipeline_files)} SQLX files with native assertions and explicit config descriptions.",
+            f"✅ 🪄 [Agent: DF Architect] AI successfully generated {len(pipeline_files)} SQLX files with native assertions, explicit config descriptions, and SQL linting formatting applied.",
             trace_id,
         )
 
@@ -1322,7 +1353,7 @@ def verify_dataform_pipeline(
     target_domain: str,
     trace_id: str,
 ) -> Dict[str, str]:
-    """Goal: QA Lead verifies exact syntax match with templates, explicit mappings, native assertions, descriptions, and partitioning."""
+    """Goal: QA Lead verifies exact syntax match with templates, explicit mappings, native assertions, descriptions, formatting, and partitioning."""
     log_event(
         "INFO",
         f"▶️ 🕵️‍♀️ [Agent: DF QA] Initiating automated peer-review of generated SQLX code...",
@@ -1381,6 +1412,7 @@ def verify_dataform_pipeline(
     10. CONFIG BLOCK SYNTAX: Remove any comments (`--`, `//`, `/* */`) inside the `config {{ ... }}` blocks.
     11. REGEX QUOTE ESCAPING FIX (CRITICAL): If conditions contain a regex or string literal wrapped in double quotes (e.g., r"^...$"), you MUST change the inner quotes to single quotes (e.g., r'^...$'). Double quotes inside the double-quoted string will cause a fatal compilation error.
     12. EXPLICIT DESCRIPTIONS (CRITICAL): EVERY `config {{ }}` block MUST contain a valid, meaningful `description` property explaining the file's purpose. Ensure no properties other than ('description', 'tags', 'schema', 'type', 'uniqueKey', 'bigquery', 'dependencies', 'database', 'name', 'assertions') exist in the config block.
+    13. FORMATTING (CRITICAL): Force perfect SQL indentation (2 spaces) and ALL CAPS SQL keywords. Ensure clean vertical alignment. Ensure ALL `config {{ ... }}` and `bigquery {{ ... }}` blocks are beautifully formatted as multi-line objects with each property on its own line to match standard Dataform style.
     
     Output STRICTLY a JSON object where keys are the corrected full file paths and values are the corrected SQLX string content. Output JSON ONLY. Do not include markdown formatting.
     """
@@ -1401,7 +1433,7 @@ def verify_dataform_pipeline(
         verified_files = json.loads(text)
         log_event(
             "INFO",
-            f"✅ 🕵️‍♀️ [Agent: DF QA] QA passed. Native Assertions, Explicit Column Mapping, Partitioning, and Descriptions perfectly enforced.",
+            f"✅ 🕵️‍♀️ [Agent: DF QA] QA passed. Native Assertions, Explicit Column Mapping, Partitioning, Formatting, and Descriptions perfectly enforced.",
             trace_id,
         )
         log_event("INFO", "⏹️ 🕵️‍♀️ [Agent: DF QA] Finished automated review.", trace_id)
@@ -1547,6 +1579,7 @@ def verify_terraform_hcl(
     5. CRITICAL PARTITIONING: Are ALL `google_bigquery_table` resources partitioned by 'batch_date' (time_partitioning)?
     6. CRITICAL CLUSTERING: Verify that RAW and RAW_HIST tables DO NOT have a `clustering` block. Remove any `clustering` block from `{table_id}` and `{table_id}_hist`.
     7. CRITICAL DELETION PROTECTION: Do ALL resources explicitly declare `deletion_protection = false` to enable teardown?
+    8. FORMATTING: Enforce strict 'terraform fmt' alignment and 2-space indentation. Vertically align equals signs.
     {hist_rule}
     
     Fix any errors found. Output STRICTLY the corrected Terraform HCL code. No markdown formatting outside the code block.
@@ -1563,7 +1596,7 @@ def verify_terraform_hcl(
 
         log_event(
             "INFO",
-            f"✅ 🕵️‍♀️ [Agent: TF QA] QA passed. Terraform HCL structure, partitioning, and deletion rules validated.",
+            f"✅ 🕵️‍♀️ [Agent: TF QA] QA passed. Terraform HCL structure, partitioning, formatting, and deletion rules validated.",
             trace_id,
         )
         log_event("INFO", "⏹️ 🕵️‍♀️ [Agent: TF QA] Finished automated review.", trace_id)
@@ -2254,7 +2287,7 @@ All raw ingestion fields are configured strictly as `STRING` type to prevent dow
 ### 🛡️ Governance Checklist
 - [x] **Adaptive Terraform:** HCL intelligently injected into existing `locals` maps (`for_each`) to avoid duplicate resource hallucination.
 - [x] **Data Contract Compliance:** Pipeline strict-typed according to Data Contract YAML rules.
-- [x] **Schema Integrity:** Absolute `STRING` typing and `defaultValueExpression` strictly enforced for raw layer.
+- [x] **Schema Integrity:** Absolute `STRING` typing and hardcoded `defaultValueExpression` strictly enforced for raw layer.
 - [x] **DRY Architecture:** History tables natively reuse raw landing schemas.
 - [x] **Tag Taxonomy:** `config` blocks securely tagged with `[domain, entity, layer]` (Exempting Declarations).
 - [x] **Staging Governance:** Dynamic YAML-directed casting to native BigQuery types (`type: "table"`) and Native Assertions executed securely.
