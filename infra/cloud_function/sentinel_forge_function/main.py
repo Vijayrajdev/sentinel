@@ -292,13 +292,13 @@ def resolve_and_sync_data_contract(
             else:
                 log_event(
                     "WARNING",
-                    f"⚠️ 📜 [Data Contract Engine] Specified contract '{data_contracts}' not found in GCS.",
+                    f"⚠️ 📜 [Data Contract Engine] Specified contract '{data_contracts}' not found in GCS. Engaging AI Generator.",
                     trace_id,
                 )
         except Exception as e:
             log_event(
                 "WARNING",
-                f"⚠️ 📜 [Data Contract Engine] GCS fetch encountered an error: {e}.",
+                f"⚠️ 📜 [Data Contract Engine] GCS fetch encountered an error: {e}. Engaging AI Generator.",
                 trace_id,
             )
 
@@ -583,7 +583,7 @@ def generate_dynamic_schema(
 
 
 # ==============================================================================
-# 🧠 AGENT: TERRAFORM ARCHITECT
+# 🧠 AGENT: TERRAFORM ARCHITECT (UPDATED WITH PARTITIONING & DELETION PROTECTION)
 # ==============================================================================
 def analyze_tf_repo_state(
     repo, branch_sha: str, table_id: str, trace_id: str
@@ -1069,7 +1069,7 @@ def infer_pipeline_datasets_with_ai(
 
 
 # ==============================================================================
-# 🧠 AGENT: DATAFORM ARCHITECT (REVERTED TO NATIVE ASSERTIONS)
+# 🧠 AGENT: DATAFORM ARCHITECT (REVERTED TO NATIVE ASSERTIONS & ARCHIVE SOURCE FIX)
 # ==============================================================================
 def generate_ai_dataform_pipeline(
     table_name: str,
@@ -1240,7 +1240,8 @@ def generate_ai_dataform_pipeline(
     6. STRICT TAGGING TAXONOMY: Every file's `config` block MUST contain a `tags: []` array, EXCEPT for declaration files. 
     7. PERFECT STYLING & FORMATTING: Ensure the generated SQLX code is cleanly formatted with perfectly aligned `SELECT` block columns (2 spaces indentation).
     8. REGEX/STRING ESCAPING (CRITICAL): When writing SQL functions inside `rowConditions` (like REGEXP_CONTAINS), you MUST use single quotes (') for the inner string literals to avoid breaking outer strings if generated. Example CORRECT: "REGEXP_CONTAINS(order_id, r'^ORD-[0-9]{{5,10}}$')"
-    9. Output STRICTLY a JSON object where keys are full file paths and values are exact SQLX string content. No markdown formatting.
+    9. ARCHIVE SOURCE STRICTNESS: The Operations/Archive SQLX MUST strictly SELECT from the RAW table (${{ref("{table_name}")}}) to insert into the history table. DO NOT SELECT from the staging table.
+    10. Output STRICTLY a JSON object where keys are full file paths and values are exact SQLX string content. No markdown formatting.
     """
 
     try:
@@ -1373,7 +1374,7 @@ def verify_dataform_pipeline(
     4. ASSERTION NESTING (TOP PRIORITY): Dataform does NOT allow column names as keys inside 'assertions'. If you see `assertions: {{ "col": {{ "not_null": true }} }}`, you MUST flatten it to `assertions: {{ nonNull: ["col"] }}`. Valid keys are ONLY 'nonNull', 'uniqueKey', and 'rowConditions'.
     5. DECLARATION SYNTAX: Ensure the source file uses `type: "declaration"` with explicit `database`, `schema`, and `name` attributes ONLY. Strictly NO `tags` array allowed in declarations.
     6. BATCH DATE & TIMESTAMPS (GLOBAL): Across ALL files (staging, marts), ensure `batch_date` is `CURRENT_DATE() AS batch_date`, and explicitly include `CURRENT_TIMESTAMP() AS updated_dttm`. 
-    7. ARCHIVE OPERATIONS: Ensure `archive_` explicitly uses `INSERT INTO \`{PROJECT_ID}.{datasets['raw']}.<table_name>_hist\`` followed by `TRUNCATE TABLE ${{ref("<table_name>")}};`. Ensure NO `post_operations` block exists.
+    7. ARCHIVE OPERATIONS: Ensure `archive_` explicitly uses `INSERT INTO \`{PROJECT_ID}.{datasets['raw']}.<table_name>_hist\`` followed by `TRUNCATE TABLE ${{ref("<table_name>")}};`. Ensure NO `post_operations` block exists. CRITICAL: Ensure it SELECTs from the raw table (${{ref("{"<table_name>"}")}}) and NOT the staging table.
     8. MARTS & STAGING INCREMENTAL/PARTITIONING: Does the file include a `bigquery: {{ partitionBy: "batch_date", clusterBy: [...] }}` block? ALL tables and incremental files MUST have this. NEVER filter on SELECT aliases in incremental WHERE clauses.
     9. TAG TAXONOMY: Ensure `config` blocks of EVERY file (EXCEPT declarations) contains a `tags: ["{actual_domain}", "{base_name}", "<layer>"]` array.
     10. CONFIG BLOCK SYNTAX: Remove any comments (`--`, `//`, `/* */`) inside the `config {{ ... }}` blocks.
@@ -1581,7 +1582,7 @@ def verify_terraform_hcl(
 
 
 # ==============================================================================
-# 📦 GIT INJECTOR (UPDATED FOR DYNAMIC COMMIT MESSAGES)
+# 📦 GIT INJECTOR (UPDATED FOR STRUCTURED COMMIT MESSAGES)
 # ==============================================================================
 def inject_dataform_into_repo(
     repo,
@@ -1592,7 +1593,9 @@ def inject_dataform_into_repo(
 ) -> Tuple[int, str]:
     """Goal: Commits the AI-generated files to the PR branch with precise contextual commit messages."""
     files_changed = 0
-    detailed_commit_log = ""
+    detailed_commit_log = (
+        "| Action | File Path | Commit Message |\n| :--- | :--- | :--- |\n"
+    )
     log_event(
         "INFO",
         "▶️ 📦 [Git Injector] Committing Dataform files to Git branch...",
@@ -1626,18 +1629,14 @@ def inject_dataform_into_repo(
                 f"♻️ 📦 [Git Injector] Updated existing file: {file_path}",
                 trace_id,
             )
-            detailed_commit_log += (
-                f"- ♻️ **Patched:** `{file_path}` | Msg: `{commit_msg}`\n"
-            )
+            detailed_commit_log += f"| ♻️ Patched | `{file_path}` | `{commit_msg}` |\n"
         except GithubException:
             commit_msg = get_commit_msg(file_path, "create")
             repo.create_file(file_path, commit_msg, content, branch=branch_name)
             log_event(
                 "INFO", f"✨ 📦 [Git Injector] Created new file: {file_path}", trace_id
             )
-            detailed_commit_log += (
-                f"- ✨ **Created:** `{file_path}` | Msg: `{commit_msg}`\n"
-            )
+            detailed_commit_log += f"| ✨ Created | `{file_path}` | `{commit_msg}` |\n"
         files_changed += 1
 
     log_event(
@@ -1659,7 +1658,7 @@ def decommission_pipeline(
         trace_id,
     )
     files_deleted = 0
-    detailed_commit_log = ""
+    detailed_commit_log = "| Action | File Path |\n| :--- | :--- |\n"
     base_name = table_name.replace("_raw", "")
 
     try:
@@ -1688,7 +1687,7 @@ def decommission_pipeline(
                         element.path, commit_msg, c.sha, branch=branch_name
                     )
                     log_event("INFO", f"🗑️ [Cleanup] Deleted: {element.path}", trace_id)
-                    detailed_commit_log += f"- 🗑️ **Deleted:** `{element.path}`\n"
+                    detailed_commit_log += f"| 🗑️ Deleted | `{element.path}` |\n"
                     files_deleted += 1
                 except GithubException:
                     pass
@@ -2244,6 +2243,7 @@ All raw ingestion fields configured strictly as `STRING` type.
 - [x] **Temporal Accuracy:** `CURRENT_DATE() AS batch_date` and `CURRENT_TIMESTAMP() AS updated_dttm` strictly enforced globally across all layers.
 - [x] **Format Standardization:** Code cleanly indented and SQL keywords perfectly aligned.
 - [x] **Partitioning & Deletion:** Strict `batch_date` partitioning, dynamic clustering, and teardown enablement applied to all generated tables.
+- [x] **Archive Strictness:** Archival operations strictly configured to select from Raw, preventing staging data contamination.
 
 ### ✅ Action Required
 Review the file changes and merge this Pull Request.
