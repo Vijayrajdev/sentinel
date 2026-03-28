@@ -1,0 +1,41 @@
+config {
+  type: "table",
+  schema: "sentinel_staging",
+  tags: ["sales", "orders", "staging"],
+  description: "Cleansed, deduplicated, and strictly typed staging layer for orders.",
+  bigquery: {
+    partitionBy: "batch_date",
+    clusterBy: ["order_id"]
+  },
+  assertions: {
+    nonNull: [
+      "order_id",
+      "customer_name",
+      "amount",
+      "status",
+      "order_date",
+      "warehouse_id",
+      "batch_date",
+      "processed_dttm"
+    ],
+    uniqueKey: ["order_id"],
+    rowConditions: [
+      'status IN ("COMPLETED", "PENDING", "SHIPPED", "DELIVERED", "CANCELLED", "RETURNED")'
+    ]
+  }
+}
+
+SELECT
+    order_id,
+    customer_name,
+    amount,
+    status,
+    order_date,
+    warehouse_id,
+    batch_date,
+    processed_dttm,
+    CURRENT_TIMESTAMP() AS updated_dttm
+  FROM
+    ${ref("orders_raw")}
+QUALIFY
+  ROW_NUMBER() OVER(PARTITION BY order_id ORDER BY processed_dttm DESC) = 1
