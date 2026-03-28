@@ -259,7 +259,7 @@ def resolve_and_sync_data_contract(
     removed_columns: List[str],
     trace_id: str,
 ) -> Tuple[str, str]:
-    """Fetches existing YAML contract and updates it for drift, or generates one dynamically using AI."""
+    """Fetches existing YAML contract and updates it for drift, infers partitions, or generates dynamically."""
     log_event(
         "INFO",
         f"▶️ 📜 [Data Contract Engine] Resolving contract definition for '{table_name}'...",
@@ -327,11 +327,12 @@ def resolve_and_sync_data_contract(
         Requirements:
         1. Add the new columns to the `schema` array with inferred types and basic constraints.
         2. Remove the deleted columns from the `schema` array.
-        3. Bump the `version` attribute (e.g., 1.0.0 -> 1.1.0).
-        4. Append a `changelog` section at the very bottom (if it doesn't exist, create it). Add a new entry documenting this drift:
+        3. CRITICAL: If `partition_by` or `clustering` configurations are missing from the YAML metadata, YOU MUST INFER them from the schema (e.g., batch_date for partitioning, ID for clustering) and explicitly add them to the root level.
+        4. Bump the `version` attribute (e.g., 1.0.0 -> 1.1.0).
+        5. Append a `changelog` section at the very bottom (if it doesn't exist, create it). Add a new entry documenting this drift:
            - date: "{current_date_str}"
              changes: "Automated schema drift resolution. Added: {added_columns}. Removed: {removed_columns}."
-        5. Output ONLY valid YAML. Do not use markdown formatting or code blocks.
+        6. Output ONLY valid YAML. Do not use markdown formatting or code blocks.
         """
         try:
             response = generate_content_with_retry(model_heavy, prompt, trace_id)
@@ -342,7 +343,7 @@ def resolve_and_sync_data_contract(
                 contract_content = contract_content[4:]
             log_event(
                 "INFO",
-                "✅ 📜 [Data Contract Engine] AI successfully updated YAML contract for schema drift.",
+                "✅ 📜 [Data Contract Engine] AI successfully updated YAML contract for schema drift and ensured Partitioning/Clustering presence.",
                 trace_id,
             )
         except Exception as e:
@@ -369,6 +370,8 @@ status: active
 service: bigquery
 dataset: staging
 project: {PROJECT_ID}
+partition_by: "batch_date"
+cluster_by: ["example_id"]
 
 schema:
   - column: example_id
@@ -381,6 +384,12 @@ schema:
     tests:
       - type: regex
         pattern: "^ID-[0-9]+$"
+        
+service_level_agreement:
+  freshness:
+    period: 24h
+  completeness:
+    percentage: 98.0
         
 changelog:
   - date: "{current_date_str}"
@@ -404,7 +413,8 @@ changelog:
         3. Intelligently define the target `type` (e.g., STRING, INT64, NUMERIC, FLOAT64, TIMESTAMP, DATE).
         4. Infer reasonable `tests` (regex, accepted_values, range) and `constraints` based on the sample data.
         5. Assign one logical `primary_key: true`.
-        6. Ensure the `changelog` is included at the bottom.
+        6. CRITICAL: Provide explicit `partition_by` and `cluster_by` attributes at the root.
+        7. Ensure the `service_level_agreement` block (freshness & completeness) and `changelog` are included at the bottom.
         """
         try:
             response = generate_content_with_retry(
@@ -426,7 +436,7 @@ changelog:
                 f"❌ 📜 [Data Contract Engine] AI generation failed: {e}. Fabricating minimal failsafe YAML.",
                 trace_id,
             )
-            contract_content = f"version: 1.0.0\nname: {table_name}\nschema:\n"
+            contract_content = f"version: 1.0.0\nname: {table_name}\npartition_by: batch_date\nschema:\n"
             fallback_keys = sample_data[0].keys() if sample_data else ["id"]
             for k in fallback_keys:
                 contract_content += f"  - column: {k}\n    type: STRING\n"
@@ -856,7 +866,7 @@ def generate_tf_patch_or_create(
 
         log_event(
             "INFO",
-            "✅ 🏗️ [Agent: TF Architect] AI successfully generated Terraform HCL block with Partitioning & Deletion Protection.",
+            "✅ 🏗️ [Agent: TF Architect] AI successfully generated Terraform HCL block with Partitioning, Formatting & Deletion Protection.",
             trace_id,
         )
 
@@ -1072,7 +1082,7 @@ def infer_pipeline_datasets_with_ai(
 
 
 # ==============================================================================
-# 🧠 AGENT: DATAFORM ARCHITECT (REVERTED TO NATIVE ASSERTIONS & ARCHIVE SOURCE FIX)
+# 🧠 AGENT: DATAFORM ARCHITECT (REVERTED TO NATIVE ASSERTIONS, SLA, & FORMAT FIX)
 # ==============================================================================
 def generate_ai_dataform_pipeline(
     table_name: str,
@@ -1087,7 +1097,7 @@ def generate_ai_dataform_pipeline(
     contract_yaml: str,
     trace_id: str,
 ) -> Dict[str, str]:
-    """Goal: Dynamically generate Dataform files, using strict Native Assertions, explicit mapping, and partitioned table configs."""
+    """Goal: Dynamically generate Dataform files, using strict Native Assertions, explicitly mapping columns, perfectly formatting, and generating SLA checks."""
     log_event(
         "INFO",
         f"▶️ 🪄 [Agent: DF Architect] Analyzing requirements for '{table_name}'...",
@@ -1144,12 +1154,12 @@ def generate_ai_dataform_pipeline(
         pruned_existing_files = prune_whitespace(json.dumps(existing_files))
         instruction_block = f"""
         Some or all pipeline files exist. EXISTING FILES: {pruned_existing_files}
-        Task: PATCH these existing files. 
+        Task: PATCH these existing files AND CREATE an SLA assertion file if missing. 
         CRITICAL SCHEMA DRIFT EVENT:
         - Added Columns: {added_cols} (Must explicitly map these)
         - Removed Columns: {removed_cols} (Must explicitly remove these from SELECT statements)
         
-        CRITICAL ANTI-HALLUCINATION RULE: You MUST use the EXACT file paths provided in the EXISTING FILES dictionary as the keys in your output JSON. DO NOT invent new file paths. DO NOT generate _bad_recs.sqlx files.
+        CRITICAL ANTI-HALLUCINATION RULE: You MUST use the EXACT file paths provided in the EXISTING FILES dictionary as the keys in your output JSON (plus the SLA assertion file). DO NOT invent new file paths. DO NOT generate _bad_recs.sqlx files.
         CRITICAL CONTRACT RULE: You MUST apply data types, SAFE_CASTing, and quality rules STRICTLY as defined in the provided DATA CONTRACT YAML.
         """
     else:
@@ -1166,6 +1176,7 @@ def generate_ai_dataform_pipeline(
         - definitions/staging/{actual_domain}/{base_name}/stg_{base_name}.sqlx
         - definitions/marts/{actual_domain}/{base_name}/fct_{base_name}.sqlx
         - definitions/operations/{actual_domain}/{base_name}/archive_{table_name}.sqlx
+        - definitions/assertions/{actual_domain}/{base_name}/sla_checks_{base_name}.sqlx
         
         CRITICAL CONTRACT RULE: All dynamic casting (SAFE_CAST), primary keys, clustering, and data quality Native Assertions MUST be extracted directly from the DATA CONTRACT YAML (looking inside the 'schema' array for 'type', 'constraints', and 'tests').
         STYLE GUIDE (Mimic formatting and alignment perfectly):
@@ -1176,7 +1187,7 @@ def generate_ai_dataform_pipeline(
 
     log_event(
         "INFO",
-        "🛡️ 🪄 [Agent: DF Architect] Injecting strict Dataform Templates, Explicit Column Mapping, Native Assertions, and Contract YAML Enforcement.",
+        "🛡️ 🪄 [Agent: DF Architect] Injecting strict Dataform Templates, Explicit Column Mapping, Native Assertions, SLA checks, and Contract YAML Enforcement.",
         trace_id,
     )
 
@@ -1262,11 +1273,23 @@ def generate_ai_dataform_pipeline(
        FROM ${{ref("stg_{base_name}")}}
        ${{when(incremental(), `WHERE processed_dttm > (SELECT COALESCE(MAX(processed_dttm), TIMESTAMP("1970-01-01")) FROM ${{self()}})` )}}
 
+    5. SLA Assertions (`definitions/assertions/{actual_domain}/{base_name}/sla_checks_{base_name}.sqlx`):
+       config {{
+         type: "assertion",
+         tags: ["{actual_domain}", "{base_name}", "sla"],
+         description: "Validates freshness and completeness SLAs as defined in the Data Contract."
+       }}
+       -- Implement SQL logic to fail if the freshness SLA or completeness SLA in the YAML is breached.
+       -- E.g., check MAX(processed_dttm) against CURRENT_TIMESTAMP()
+       SELECT 'SLA Breach' AS failure_reason
+       FROM ${{ref("fct_{base_name}")}}
+       WHERE <condition_representing_sla_violation>
+
     GENERAL REQUIREMENTS:
-    1. STRICT DATA CONTRACT ENFORCEMENT: The provided DATA CONTRACT YAML is your master reference. Extract Data Types, PKs, and Clustering directly from it.
+    1. STRICT DATA CONTRACT ENFORCEMENT: The provided DATA CONTRACT YAML is your master reference. Extract Data Types, PKs, SLAs, and Clustering directly from it.
     2. EXPLICIT DESCRIPTIONS: EVERY `config {{ }}` block MUST contain a `description` field as shown in the templates.
     3. EXPLICIT COLUMN MAPPING (NO SELECT *): You MUST explicitly write out every single column name in the SELECT statements for Staging and Marts. DO NOT use `SELECT *` or `SELECT * EXCEPT(...)`.
-    4. NATIVE ASSERTIONS (NO DLQ): You MUST use the `assertions: {{}}` block inside the `config` to handle Data Quality. Map the YAML constraints and tests to the exact Dataform arrays: `nonNull`, `uniqueKey`, and `rowConditions`. Do NOT generate _bad_recs files.
+    4. NATIVE ASSERTIONS (NO DLQ): You MUST use the `assertions: {{}}` block inside the `config` to handle Data Quality. Map the YAML constraints and tests to the exact Dataform arrays: `nonNull`, `uniqueKey`, and `rowConditions`. Do NOT generate _bad_recs files. Both stg and fct MUST have the EXACT SAME assertions block.
     5. TEMPORAL ACCURACY: Include both `processed_dttm` and `updated_dttm` (CURRENT_TIMESTAMP()) in staging and marts.
     6. STRICT TAGGING TAXONOMY: Every file's `config` block MUST contain a `tags: []` array, EXCEPT for declaration files. 
     7. REGEX/STRING ESCAPING (CRITICAL): When writing SQL functions inside `rowConditions` (like REGEXP_CONTAINS), you MUST use single quotes (') for the inner string literals to avoid breaking outer strings if generated. Example CORRECT: "REGEXP_CONTAINS(order_id, r'^ORD-[0-9]{{5,10}}$')"
@@ -1278,7 +1301,7 @@ def generate_ai_dataform_pipeline(
     try:
         log_event(
             "INFO",
-            "⏳ 🪄 [Agent: DF Architect] Instructing Gemini to synthesize Dataform files with Native Assertions, Explicit Column Mapping, YAML Contract Enforcement, and Strict Formatting...",
+            "⏳ 🪄 [Agent: DF Architect] Instructing Gemini to synthesize Dataform files with Native Assertions, Explicit Column Mapping, YAML Contract Enforcement, SLA checks, and Strict Formatting...",
             trace_id,
         )
         response = generate_content_with_retry(model_heavy, prompt, trace_id)
@@ -1292,7 +1315,7 @@ def generate_ai_dataform_pipeline(
         pipeline_files = json.loads(text)
         log_event(
             "INFO",
-            f"✅ 🪄 [Agent: DF Architect] AI successfully generated {len(pipeline_files)} SQLX files with native assertions, explicit config descriptions, and SQL linting formatting applied.",
+            f"✅ 🪄 [Agent: DF Architect] AI successfully generated {len(pipeline_files)} SQLX files with SLA checks, native assertions, and explicit config descriptions.",
             trace_id,
         )
 
@@ -1349,7 +1372,7 @@ def verify_dataform_pipeline(
     datasets: Dict[str, str],
     df_state: Dict[str, Any],
     base_name: str,
-    table_name: str,  # <--- FIXED PYLANCE ERROR
+    table_name: str,
     target_domain: str,
     trace_id: str,
 ) -> Dict[str, str]:
@@ -1381,13 +1404,17 @@ def verify_dataform_pipeline(
     )
 
     existing_paths = list(df_state.get("existing_files", {}).keys())
-    # Note: Keep bad_recs in allowed paths to avoid hallucination alerts if they are passed in to be patched/deleted,
-    # but the architect is no longer generating them from scratch.
-    allowed_paths = existing_paths + [
-        p.replace(".sqlx", "_bad_recs.sqlx")
-        for p in existing_paths
-        if "stg_" in p or "fct_" in p
-    ]
+    # Include SLA paths dynamically in allowed_paths to prevent rejection of new creations
+    sla_path = f"definitions/assertions/{actual_domain}/{base_name}/sla_checks_{base_name}.sqlx"
+    allowed_paths = (
+        existing_paths
+        + [
+            p.replace(".sqlx", "_bad_recs.sqlx")
+            for p in existing_paths
+            if "stg_" in p or "fct_" in p
+        ]
+        + [sla_path]
+    )
 
     prompt = f"""
     You are a Brutal Senior Data QA Lead. Review this Dataform pipeline generated by a junior engineer. Your only job is to REJECT and FIX invalid SQLX.
@@ -1402,7 +1429,7 @@ def verify_dataform_pipeline(
     Checklist & BRUTAL RULES:
     1. EXPLICIT COLUMN MAPPING (CRITICAL): If you see `SELECT *` or `SELECT * EXCEPT` anywhere in the generated code (Staging or Marts), you MUST expand it. Replace it with a comma-separated list of the 'REQUIRED CORE COLUMNS'. No asterisks allowed. Also ensure removed columns ({removed_cols}) are NOT in the SELECT block.
     2. ANTI-HALLUCINATION (FILE PATHS): Forcefully revert hallucinated keys back to the 'EXPECTED EXISTING PATHS' if present. 
-    3. NATIVE ASSERTIONS ENFORCEMENT (CRITICAL): Ensure data quality rules from the YAML are mapped into the `assertions: {{}}` block inside the `config` using strict Dataform v3.x syntax (`nonNull`, `uniqueKey`, `rowConditions`).
+    3. NATIVE ASSERTIONS ENFORCEMENT (CRITICAL): Ensure data quality rules from the YAML are mapped into the `assertions: {{}}` block inside the `config` using strict Dataform v3.x syntax (`nonNull`, `uniqueKey`, `rowConditions`). STG and FCT files MUST share the IDENTICAL assertions block.
     4. ASSERTION NESTING (TOP PRIORITY): Dataform does NOT allow column names as keys inside 'assertions'. If you see `assertions: {{ "col": {{ "not_null": true }} }}`, you MUST flatten it to `assertions: {{ nonNull: ["col"] }}`. Valid keys are ONLY 'nonNull', 'uniqueKey', and 'rowConditions'.
     5. DECLARATION SYNTAX: Ensure the source file uses `type: "declaration"` with explicit `database`, `schema`, and `name` attributes ONLY. Strictly NO `tags` array allowed in declarations.
     6. BATCH DATE & TIMESTAMPS (GLOBAL): Across ALL files (staging, marts), ensure `batch_date` is `CURRENT_DATE() AS batch_date`, and explicitly include `CURRENT_TIMESTAMP() AS updated_dttm`. 
@@ -1535,7 +1562,7 @@ def verify_schema_json(
 def verify_terraform_hcl(
     hcl_content: str, table_id: str, tf_state: Dict[str, Any], trace_id: str
 ) -> str:
-    """Goal: Ensure Terraform code syntax is perfect, uses deletion protection, and history table creation uses schema reuse."""
+    """Goal: Ensure Terraform code syntax is perfect, uses deletion protection, formatting, and history table creation uses schema reuse."""
     log_event(
         "INFO",
         f"▶️ 🕵️‍♀️ [Agent: TF QA] Initiating automated peer-review of Terraform HCL...",
@@ -1641,6 +1668,8 @@ def inject_dataform_into_repo(
         prefix = "fix(dataform)" if action == "update" else "feat(dataform)"
         if "contracts/" in path:
             return f"chore(contracts): {'update' if action == 'update' else 'init'} YAML data contract for {table_name}"
+        elif "sla_checks" in path:
+            return f"{prefix}: {'update' if action == 'update' else 'init'} SLA quality assertions for {table_name}"
         elif "_bad_recs" in path:
             return f"{prefix}: {'patch' if action == 'update' else 'init'} DLQ quarantine logic for {table_name}"
         elif "/sources/" in path:
@@ -1683,9 +1712,13 @@ def inject_dataform_into_repo(
 # 🧹 NEW FEATURE: RESOURCE DECOMMISSION ENGINE
 # ==============================================================================
 def decommission_pipeline(
-    repo, branch_name: str, table_name: str, trace_id: str
+    repo,
+    branch_name: str,
+    table_name: str,
+    trace_id: str,
+    datasets_map: Dict[str, str] = None,
 ) -> Tuple[int, str]:
-    """Physically removes TF, JSON, SQLX, and YAML files from Git to trigger complete teardown."""
+    """Physically removes TF, JSON, SQLX, and YAML files from Git to trigger complete teardown, and actively drops BigQuery tables."""
     log_event(
         "INFO",
         f"🧹 [Cleanup] Initiating full resource decommission for {table_name}...",
@@ -1695,6 +1728,34 @@ def decommission_pipeline(
     detailed_commit_log = "| Action | File Path |\n| :--- | :--- |\n"
     base_name = table_name.replace("_raw", "")
 
+    # STEP 1: Execute immediate physical drop of BigQuery tables
+    try:
+        client = get_bq_client()
+        if datasets_map:
+            stg_table_id = f"{PROJECT_ID}.{datasets_map.get('stg', 'sentinel_staging')}.stg_{base_name}"
+            marts_table_id = f"{PROJECT_ID}.{datasets_map.get('marts', 'sentinel_marts')}.fct_{base_name}"
+
+            log_event(
+                "INFO",
+                f"🧨 [Cleanup] Dropping BigQuery table: {stg_table_id}",
+                trace_id,
+            )
+            client.delete_table(stg_table_id, not_found_ok=True)
+
+            log_event(
+                "INFO",
+                f"🧨 [Cleanup] Dropping BigQuery table: {marts_table_id}",
+                trace_id,
+            )
+            client.delete_table(marts_table_id, not_found_ok=True)
+    except Exception as e:
+        log_event(
+            "WARNING",
+            f"⚠️ [Cleanup] Error dropping physical BigQuery tables: {e}",
+            trace_id,
+        )
+
+    # STEP 2: Delete Repo Files
     try:
         tree = repo.get_git_tree(branch_name, recursive=True)
         # Target files based on strict naming conventions to prevent over-deletion
@@ -1707,6 +1768,7 @@ def decommission_pipeline(
             f"fct_{base_name}.sqlx",
             f"fct_{base_name}_bad_recs.sqlx",  # Kept in case they exist from a previous run
             f"archive_{table_name}.sqlx",
+            f"sla_checks_{base_name}.sqlx",
             f"{table_name}.tf",
         ]
 
@@ -1811,6 +1873,29 @@ def apply_infrastructure_update(
     repo.create_git_ref(ref=f"refs/heads/{branch_name}", sha=default_branch.commit.sha)
     log_event("INFO", f"🌱 🚀 [Orchestrator] Branch `{branch_name}` created.", trace_id)
 
+    # 1. ANALYZE TERRAFORM & DATAFORM STATE
+    log_event(
+        "INFO",
+        "🗺️ 🚀 [Orchestrator] Executing TF & Dataform Repository State Analysis...",
+        trace_id,
+    )
+    tf_state = analyze_tf_repo_state(repo, default_branch.commit.sha, table, trace_id)
+    df_state = analyze_dataform_repo_state(
+        repo, default_branch.commit.sha, base_name, table, trace_id
+    )
+
+    existing_schemas_list = df_state.get("existing_schemas", [])
+    inferred_raw_schema = df_state.get("inferred_schema") or dataset
+
+    datasets_map = infer_pipeline_datasets_with_ai(
+        table, existing_schemas_list, inferred_raw_schema, trace_id
+    )
+    log_event(
+        "INFO",
+        f"🎯 🚀 [Orchestrator] AI Lock established on Datasets: {json.dumps(datasets_map)}",
+        trace_id,
+    )
+
     # ----------------------------------------------------------------------
     # FEATURE ADDITION: DELETION HANDLING
     # ----------------------------------------------------------------------
@@ -1821,7 +1906,7 @@ def apply_infrastructure_update(
             trace_id,
         )
         files_deleted, del_log = decommission_pipeline(
-            repo, branch_name, table, trace_id
+            repo, branch_name, table, trace_id, datasets_map
         )
 
         if files_deleted > 0:
@@ -1851,29 +1936,6 @@ def apply_infrastructure_update(
                 "overall_action": "SKIPPED",
                 "details": {},
             }
-
-    # 1. ANALYZE TERRAFORM & DATAFORM STATE
-    log_event(
-        "INFO",
-        "🗺️ 🚀 [Orchestrator] Executing TF & Dataform Repository State Analysis...",
-        trace_id,
-    )
-    tf_state = analyze_tf_repo_state(repo, default_branch.commit.sha, table, trace_id)
-    df_state = analyze_dataform_repo_state(
-        repo, default_branch.commit.sha, base_name, table, trace_id
-    )
-
-    existing_schemas_list = df_state.get("existing_schemas", [])
-    inferred_raw_schema = df_state.get("inferred_schema") or dataset
-
-    datasets_map = infer_pipeline_datasets_with_ai(
-        table, existing_schemas_list, inferred_raw_schema, trace_id
-    )
-    log_event(
-        "INFO",
-        f"🎯 🚀 [Orchestrator] AI Lock established on Datasets: {json.dumps(datasets_map)}",
-        trace_id,
-    )
 
     # 2. DETERMINE TF TARGETS
     log_event(
@@ -2275,11 +2337,11 @@ All raw ingestion fields are configured strictly as `STRING` type to prevent dow
 
 ### 🪄 Agent Activity Log
 1. **Scanner & Router:** Mapped target domain folders semantically. AI Dataset Routing successfully assigned correct schema endpoints.
-2. **Contract Resolution (Drift Sync):** Fetched `data_contracts` YAML. Autonomously bumped version, updated schema array with additions/deletions, and appended Drift Changelog.
-3. **Architect:** Generated HCL. Embedded exact Dataform templates including YAML-directed explicit columns, Native Assertions, dynamic `SAFE_CAST`, file descriptions, and `incremental` logic into `.sqlx` blocks based on sample payload analysis. 
+2. **Contract Resolution (Drift Sync):** Fetched `data_contracts` YAML. Autonomously bumped version, updated schema array with additions/deletions, inferred partition/cluster columns, and appended Drift Changelog.
+3. **Architect:** Generated HCL. Embedded exact Dataform templates including YAML-directed explicit columns, Native Assertions, dynamic `SAFE_CAST`, file descriptions, explicit SLA freshness/completeness validation asserts, and `incremental` logic into `.sqlx` blocks based on sample payload analysis. 
 4. **Schema QA:** Verified JSON structure. Executed Column Drop logic for deleted fields. Enforced absolute `STRING` typing on all new columns. Applied absolute Python override to freeze `batch_date` and `processed_dttm`.
 5. **Terraform QA:** Enforced schema reuse (`DRY` principle) between main and `_hist` table resources. Enforced `deletion_protection = false` to enable teardown. Validated RAW tables are unclustered.
-6. **Dataform QA:** Validated SQL syntax, enforced explicit column mapping (NO `SELECT *`), removed dropped columns from SELECT statements, enforced `CURRENT_DATE()` and `CURRENT_TIMESTAMP()` logic, enforced Native Assertions syntax flattening, verified explicit configuration `description` blocks, and validated strict Tag Taxonomy. Verified Archive strictly selects from raw source.
+6. **Dataform QA:** Validated SQL syntax, enforced explicit column mapping (NO `SELECT *`), removed dropped columns from SELECT statements, enforced `CURRENT_DATE()` and `CURRENT_TIMESTAMP()` logic, enforced Native Assertions syntax flattening, verified explicit configuration `description` blocks, and validated strict Tag Taxonomy. Verified Archive strictly selects from raw source. Verified exact formatting constraints.
 
 **Commit Log:**
 {df_commit_log}
@@ -2291,6 +2353,7 @@ All raw ingestion fields are configured strictly as `STRING` type to prevent dow
 - [x] **DRY Architecture:** History tables natively reuse raw landing schemas.
 - [x] **Tag Taxonomy:** `config` blocks securely tagged with `[domain, entity, layer]` (Exempting Declarations).
 - [x] **Staging Governance:** Dynamic YAML-directed casting to native BigQuery types (`type: "table"`) and Native Assertions executed securely.
+- [x] **SLA Validation:** Freshness and Completeness checks auto-generated as Dataform Assertions from YAML SLA definitions.
 - [x] **Operations Accuracy:** Operations securely bypass self-contexts and `post_operations`.
 - [x] **Temporal Accuracy:** `CURRENT_DATE() AS batch_date` and `CURRENT_TIMESTAMP() AS updated_dttm` strictly enforced globally across all layers.
 - [x] **Format Standardization:** Code cleanly indented and SQL keywords perfectly aligned.
