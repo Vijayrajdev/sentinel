@@ -34,8 +34,8 @@ SCHEMA_BASE_PATH = os.environ.get("SCHEMA_BASE_PATH", "infra/bigquery/tables/jso
 TF_BASE_PATH = os.environ.get("TF_BASE_PATH", "infra/bigquery/tables/")
 
 # COST OPTIMIZATION: Define separate models for Tiered Routing
-AI_MODEL_HEAVY_NAME = os.environ.get("AI_MODEL_HEAVY", "gemini-2.5-flash")
-AI_MODEL_LITE_NAME = os.environ.get("AI_MODEL_LITE", "gemini-2.5-flash-lite")
+AI_MODEL_HEAVY_NAME = os.environ.get("AI_MODEL_HEAVY", "gemini-3-flash-preview")
+AI_MODEL_LITE_NAME = os.environ.get("AI_MODEL_LITE", "gemini-3.1-flash-lite-preview")
 
 bq_client: Optional[bigquery.Client] = None
 storage_client: Optional[storage.Client] = (
@@ -799,7 +799,7 @@ def generate_tf_patch_or_create(
            - IF the file uses individual `resource "google_bigquery_table"` blocks, ONLY append the new `resource` block(s) at the end of the file.
         3. Use exact string matching for the schema path: `schema = file("${{path.module}}/{schema_path}")` or follow the dynamic schema reference if using `locals`.
         4. CRITICAL PARTITIONING: EVERY table MUST contain a `time_partitioning` block configured for type="DAY" and field="batch_date".
-        5. CRITICAL CLUSTERING: EVERY table MUST contain a `clustering` block containing valid logical dimensions.
+        5. CRITICAL CLUSTERING: RAW and RAW_HIST tables MUST NOT contain a `clustering` block. Remove it if present.
         6. CRITICAL TEARDOWN: EVERY table MUST explicitly declare `deletion_protection = false`. This guarantees physical deletion when the file is removed from the repo.
         7. Return the **FULL UPDATED FILE CONTENT**, including the original code and your new appended/injected blocks. Do not truncate.
         
@@ -829,7 +829,7 @@ def generate_tf_patch_or_create(
         2. Use exact string matching for the schema path: `schema = file("${{path.module}}/{schema_path}")`.
         3. DO NOT invent variables like `var.dataset_id`. Use the literal string "{dataset_id}".
         4. CRITICAL PARTITIONING: EVERY table MUST contain a `time_partitioning` block configured for type="DAY" and field="batch_date".
-        5. CRITICAL CLUSTERING: EVERY table MUST contain a `clustering` block.
+        5. CRITICAL CLUSTERING: RAW and RAW_HIST tables MUST NOT contain a `clustering` block. Remove it if present.
         6. CRITICAL TEARDOWN: EVERY table MUST explicitly declare `deletion_protection = false`. This guarantees physical deletion if the file is later removed.
         
         CRITICAL SYNTAX RULE:
@@ -1240,7 +1240,7 @@ def generate_ai_dataform_pipeline(
     6. STRICT TAGGING TAXONOMY: Every file's `config` block MUST contain a `tags: []` array, EXCEPT for declaration files. 
     7. PERFECT STYLING & FORMATTING: Ensure the generated SQLX code is cleanly formatted with perfectly aligned `SELECT` block columns (2 spaces indentation).
     8. REGEX/STRING ESCAPING (CRITICAL): When writing SQL functions inside `rowConditions` (like REGEXP_CONTAINS), you MUST use single quotes (') for the inner string literals to avoid breaking outer strings if generated. Example CORRECT: "REGEXP_CONTAINS(order_id, r'^ORD-[0-9]{{5,10}}$')"
-    9. ARCHIVE SOURCE STRICTNESS: The Operations/Archive SQLX MUST strictly SELECT from the RAW table (${{ref("{table_name}")}}) to insert into the history table. DO NOT SELECT from the staging table.
+    9. ARCHIVE SOURCE STRICTNESS: The Operations/Archive SQLX MUST strictly SELECT from the RAW table (${{ref("{table_name}")}}) to insert into the history table. ABSOLUTELY DO NOT SELECT from the staging table (${{ref("stg_{base_name}")}}).
     10. Output STRICTLY a JSON object where keys are full file paths and values are exact SQLX string content. No markdown formatting.
     """
 
@@ -1318,6 +1318,7 @@ def verify_dataform_pipeline(
     datasets: Dict[str, str],
     df_state: Dict[str, Any],
     base_name: str,
+    table_name: str,  # <--- ADDED: Fix for Pylance UndefinedVariable
     target_domain: str,
     trace_id: str,
 ) -> Dict[str, str]:
@@ -1374,7 +1375,7 @@ def verify_dataform_pipeline(
     4. ASSERTION NESTING (TOP PRIORITY): Dataform does NOT allow column names as keys inside 'assertions'. If you see `assertions: {{ "col": {{ "not_null": true }} }}`, you MUST flatten it to `assertions: {{ nonNull: ["col"] }}`. Valid keys are ONLY 'nonNull', 'uniqueKey', and 'rowConditions'.
     5. DECLARATION SYNTAX: Ensure the source file uses `type: "declaration"` with explicit `database`, `schema`, and `name` attributes ONLY. Strictly NO `tags` array allowed in declarations.
     6. BATCH DATE & TIMESTAMPS (GLOBAL): Across ALL files (staging, marts), ensure `batch_date` is `CURRENT_DATE() AS batch_date`, and explicitly include `CURRENT_TIMESTAMP() AS updated_dttm`. 
-    7. ARCHIVE OPERATIONS: Ensure `archive_` explicitly uses `INSERT INTO \`{PROJECT_ID}.{datasets['raw']}.<table_name>_hist\`` followed by `TRUNCATE TABLE ${{ref("<table_name>")}};`. Ensure NO `post_operations` block exists. CRITICAL: Ensure it SELECTs from the raw table (${{ref("{"<table_name>"}")}}) and NOT the staging table.
+    7. ARCHIVE OPERATIONS: Ensure `archive_` explicitly uses `INSERT INTO \`{PROJECT_ID}.{datasets['raw']}.{table_name}_hist\`` followed by `TRUNCATE TABLE ${{ref("{table_name}")}};`. Ensure NO `post_operations` block exists. CRITICAL: Ensure it SELECTs from the raw table (${{ref("{table_name}")}}) and absolutely NOT the staging table.
     8. MARTS & STAGING INCREMENTAL/PARTITIONING: Does the file include a `bigquery: {{ partitionBy: "batch_date", clusterBy: [...] }}` block? ALL tables and incremental files MUST have this. NEVER filter on SELECT aliases in incremental WHERE clauses.
     9. TAG TAXONOMY: Ensure `config` blocks of EVERY file (EXCEPT declarations) contains a `tags: ["{actual_domain}", "{base_name}", "<layer>"]` array.
     10. CONFIG BLOCK SYNTAX: Remove any comments (`--`, `//`, `/* */`) inside the `config {{ ... }}` blocks.
@@ -1544,7 +1545,7 @@ def verify_terraform_hcl(
     3. ANTI-HALLUCINATION RULE: Do not invent new resources that were not requested.
     4. Is there any 'Missing attribute separator' error? Verify that objects inside 'locals' maps are properly separated by commas (,), and attributes within objects have proper newlines.
     5. CRITICAL PARTITIONING: Are ALL `google_bigquery_table` resources partitioned by 'batch_date' (time_partitioning)?
-    6. CRITICAL CLUSTERING: Are ALL resources clustered (clustering)?
+    6. CRITICAL CLUSTERING: Verify that RAW and RAW_HIST tables DO NOT have a `clustering` block. Remove any `clustering` block from `{table_id}` and `{table_id}_hist`.
     7. CRITICAL DELETION PROTECTION: Do ALL resources explicitly declare `deletion_protection = false` to enable teardown?
     {hist_rule}
     
@@ -2067,15 +2068,16 @@ def apply_infrastructure_update(
         )
         if raw_df_pipeline:
             verified_df_pipeline = verify_dataform_pipeline(
-                raw_df_pipeline,
-                final_schema_list,
-                added_columns,
-                removed_columns,
-                datasets_map,
-                df_state,
-                base_name,
-                target_domain,
-                trace_id,
+                pipeline_files=raw_df_pipeline,
+                schema_list=final_schema_list,
+                added_cols=added_columns,
+                removed_cols=removed_columns,
+                datasets=datasets_map,
+                df_state=df_state,
+                base_name=base_name,
+                table_name=table,
+                target_domain=target_domain,
+                trace_id=trace_id,
             )
 
             # Attach the Data Contract YAML to the commit payload
@@ -2199,6 +2201,9 @@ def apply_infrastructure_update(
     title_prefix = "fix" if json_exists or df_files_changed > 0 else "feat"
     pr_title = f"{title_prefix}(dataops): Automated Pipeline & Native Assertions Healing for {table}"
 
+    added_str = f"`{', '.join(added_columns)}`" if added_columns else "*None*"
+    removed_str = f"`{', '.join(removed_columns)}`" if removed_columns else "*None*"
+
     pr_body = f"""
 # 🤖 Sentinel-Forge Automated Resolution
 **Trace ID:** `{trace_id}`
@@ -2214,11 +2219,13 @@ Sentinel-Forge has intercepted a pipeline anomaly and autonomously generated the
 | **Terraform HCL** | {pr_status_tf} | `{target_tf_path}` |
 | **Dataform SQLX** | {pr_status_df} | Semantic Domain Routing Applied |
 
-### 🔍 Schema Drift Detected
-- **Columns Added:** {len(added_columns)} ({added_columns})
-- **Columns Removed:** {len(removed_columns)} ({removed_columns})
+### 🔍 Schema Drift Analysis
+| Drift Vector | Count | Affected Columns |
+| :--- | :--- | :--- |
+| 🟢 **Additions** | **{len(added_columns)}** | {added_str} |
+| 🔴 **Deletions** | **{len(removed_columns)}** | {removed_str} |
 
-All raw ingestion fields configured strictly as `STRING` type.
+All raw ingestion fields are configured strictly as `STRING` type to prevent downstream type-cast failures.
 {col_table if added_columns else ""}
 
 ### 🪄 Agent Activity Log
@@ -2226,8 +2233,8 @@ All raw ingestion fields configured strictly as `STRING` type.
 2. **Contract Resolution (Drift Sync):** Fetched `data_contracts` YAML. Autonomously bumped version, updated schema array with additions/deletions, and appended Drift Changelog.
 3. **Architect:** Generated HCL. Embedded exact Dataform templates including YAML-directed explicit columns, Native Assertions, dynamic `SAFE_CAST`, file descriptions, and `incremental` logic into `.sqlx` blocks based on sample payload analysis. 
 4. **Schema QA:** Verified JSON structure. Executed Column Drop logic for deleted fields. Enforced absolute `STRING` typing on all new columns.
-5. **Terraform QA:** Enforced schema reuse (`DRY` principle) between main and `_hist` table resources. Enforced `deletion_protection = false` to enable teardown.
-6. **Dataform QA:** Validated SQL syntax, enforced explicit column mapping (NO `SELECT *`), removed dropped columns from SELECT statements, enforced `CURRENT_DATE()` and `CURRENT_TIMESTAMP()` logic, enforced Native Assertions syntax flattening, verified explicit configuration `description` blocks, and validated strict Tag Taxonomy.
+5. **Terraform QA:** Enforced schema reuse (`DRY` principle) between main and `_hist` table resources. Enforced `deletion_protection = false` to enable teardown. Validated RAW tables are unclustered.
+6. **Dataform QA:** Validated SQL syntax, enforced explicit column mapping (NO `SELECT *`), removed dropped columns from SELECT statements, enforced `CURRENT_DATE()` and `CURRENT_TIMESTAMP()` logic, enforced Native Assertions syntax flattening, verified explicit configuration `description` blocks, and validated strict Tag Taxonomy. Verified Archive strictly selects from raw source.
 
 **Commit Log:**
 {df_commit_log}
