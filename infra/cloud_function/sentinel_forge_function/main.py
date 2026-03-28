@@ -292,13 +292,13 @@ def resolve_and_sync_data_contract(
             else:
                 log_event(
                     "WARNING",
-                    f"⚠️ 📜 [Data Contract Engine] Specified contract '{data_contracts}' not found in GCS. Engaging AI Generator.",
+                    f"⚠️ 📜 [Data Contract Engine] Specified contract '{data_contracts}' not found in GCS.",
                     trace_id,
                 )
         except Exception as e:
             log_event(
                 "WARNING",
-                f"⚠️ 📜 [Data Contract Engine] GCS fetch encountered an error: {e}. Engaging AI Generator.",
+                f"⚠️ 📜 [Data Contract Engine] GCS fetch encountered an error: {e}.",
                 trace_id,
             )
 
@@ -583,7 +583,7 @@ def generate_dynamic_schema(
 
 
 # ==============================================================================
-# 🧠 AGENT: TERRAFORM ARCHITECT (UPDATED WITH PARTITIONING & DELETION PROTECTION)
+# 🧠 AGENT: TERRAFORM ARCHITECT
 # ==============================================================================
 def analyze_tf_repo_state(
     repo, branch_sha: str, table_id: str, trace_id: str
@@ -1069,7 +1069,7 @@ def infer_pipeline_datasets_with_ai(
 
 
 # ==============================================================================
-# 🧠 AGENT: DATAFORM ARCHITECT (UPDATED FOR PARTITIONS/CLUSTERS IN ALL TABLES)
+# 🧠 AGENT: DATAFORM ARCHITECT (REVERTED TO NATIVE ASSERTIONS)
 # ==============================================================================
 def generate_ai_dataform_pipeline(
     table_name: str,
@@ -1084,7 +1084,7 @@ def generate_ai_dataform_pipeline(
     contract_yaml: str,
     trace_id: str,
 ) -> Dict[str, str]:
-    """Goal: Dynamically generate Dataform files, strictly enforcing DLQ, explicit mapping, and partitioned table configs."""
+    """Goal: Dynamically generate Dataform files, using strict Native Assertions, explicit mapping, and partitioned table configs."""
     log_event(
         "INFO",
         f"▶️ 🪄 [Agent: DF Architect] Analyzing requirements for '{table_name}'...",
@@ -1126,6 +1126,7 @@ def generate_ai_dataform_pipeline(
     )
 
     if existing_files:
+        # Keep _bad_recs in allowed_paths so they can be deleted downstream if necessary, but don't force their creation
         existing_paths = list(existing_files.keys())
         allowed_paths = existing_paths + [
             p.replace(".sqlx", "_bad_recs.sqlx")
@@ -1140,12 +1141,12 @@ def generate_ai_dataform_pipeline(
         pruned_existing_files = prune_whitespace(json.dumps(existing_files))
         instruction_block = f"""
         Some or all pipeline files exist. EXISTING FILES: {pruned_existing_files}
-        Task: PATCH these existing files AND CREATE the quarantine _bad_recs files. 
+        Task: PATCH these existing files. 
         CRITICAL SCHEMA DRIFT EVENT:
         - Added Columns: {added_cols} (Must explicitly map these)
         - Removed Columns: {removed_cols} (Must explicitly remove these from SELECT statements)
         
-        CRITICAL ANTI-HALLUCINATION RULE: You MUST use the EXACT file paths provided in the EXISTING FILES dictionary as the keys in your output JSON. The allowed keys are strictly: {allowed_paths}. DO NOT invent new file paths.
+        CRITICAL ANTI-HALLUCINATION RULE: You MUST use the EXACT file paths provided in the EXISTING FILES dictionary as the keys in your output JSON. DO NOT invent new file paths. DO NOT generate _bad_recs.sqlx files.
         CRITICAL CONTRACT RULE: You MUST apply data types, SAFE_CASTing, and quality rules STRICTLY as defined in the provided DATA CONTRACT YAML.
         """
     else:
@@ -1157,15 +1158,13 @@ def generate_ai_dataform_pipeline(
         instruction_block = f"""
         Create files from scratch.
         CRITICAL DOMAIN ROUTING: Use domain '{actual_domain}'.
-        Structure MUST strictly follow this pattern:
+        Structure MUST strictly follow this pattern (NO _bad_recs files):
         - definitions/sources/{actual_domain}/{base_name}/{table_name}.sqlx
         - definitions/staging/{actual_domain}/{base_name}/stg_{base_name}.sqlx
-        - definitions/staging/{actual_domain}/{base_name}/stg_{base_name}_bad_recs.sqlx
         - definitions/marts/{actual_domain}/{base_name}/fct_{base_name}.sqlx
-        - definitions/marts/{actual_domain}/{base_name}/fct_{base_name}_bad_recs.sqlx
         - definitions/operations/{actual_domain}/{base_name}/archive_{table_name}.sqlx
         
-        CRITICAL CONTRACT RULE: All dynamic casting (SAFE_CAST), primary keys, clustering, and data quality WHERE clauses MUST be extracted directly from the DATA CONTRACT YAML (looking inside the 'schema' array for 'type', 'constraints', and 'tests').
+        CRITICAL CONTRACT RULE: All dynamic casting (SAFE_CAST), primary keys, clustering, and data quality Native Assertions MUST be extracted directly from the DATA CONTRACT YAML (looking inside the 'schema' array for 'type', 'constraints', and 'tests').
         STYLE GUIDE (Mimic formatting and alignment perfectly):
         --- SQL START ---
         {prune_whitespace(style_guide[:2000])}
@@ -1174,7 +1173,7 @@ def generate_ai_dataform_pipeline(
 
     log_event(
         "INFO",
-        "🛡️ 🪄 [Agent: DF Architect] Injecting strict Dataform Templates, Explicit Column Mapping, Quarantine Routing, and Contract YAML Enforcement.",
+        "🛡️ 🪄 [Agent: DF Architect] Injecting strict Dataform Templates, Explicit Column Mapping, Native Assertions, and Contract YAML Enforcement.",
         trace_id,
     )
 
@@ -1193,48 +1192,36 @@ def generate_ai_dataform_pipeline(
     
     {instruction_block}
     
-    DATAFORM TEMPLATES TO STRICTLY FOLLOW (Use these exact structures - NOTE THE DESCRIPTIONS AND BIGQUERY CONFIGS):
+    DATAFORM TEMPLATES TO STRICTLY FOLLOW (Use these exact structures - NOTE THE DESCRIPTIONS AND NATIVE ASSERTIONS):
     
     1. Source Declaration (`definitions/sources/{actual_domain}/{base_name}/{table_name}.sqlx`):
        config {{ type: "declaration", database: "{PROJECT_ID}", schema: "{datasets['raw']}", name: "{table_name}", description: "Raw ingestion source for {base_name}." }}
 
     2. Main Staging Table (`definitions/staging/{actual_domain}/{base_name}/stg_{base_name}.sqlx`):
-       config {{ type: "table", schema: "{datasets['stg']}", tags: ["{actual_domain}", "{base_name}", "staging"], description: "Cleansed, deduplicated, and strictly typed staging layer for {base_name}.", bigquery: {{ partitionBy: "batch_date", clusterBy: ["<actual_pk_col_from_YAML>"] }} }}
-       -- NO ASSERTIONS BLOCK. We filter explicitly using the YAML rules.
+       config {{ 
+         type: "table", schema: "{datasets['stg']}", tags: ["{actual_domain}", "{base_name}", "staging"], description: "Cleansed, deduplicated, and strictly typed staging layer for {base_name}.", 
+         bigquery: {{ partitionBy: "batch_date", clusterBy: ["<actual_pk_col_from_YAML>"] }},
+         assertions: {{ ...extract from yaml using STRICT Dataform v3.x syntax... }} 
+       }}
        SELECT 
          <list_every_core_column_explicitly_applying_dynamic_casting_based_on_YAML_types>,
          CURRENT_DATE() AS batch_date,
          SAFE_CAST(processed_dttm AS TIMESTAMP) AS processed_dttm,
          CURRENT_TIMESTAMP() AS updated_dttm
        FROM ${{ref("{table_name}")}} 
-       WHERE <insert_contract_YAML_rules_here_as_AND_conditions>
        QUALIFY ROW_NUMBER() OVER(PARTITION BY <actual_pk_col_from_YAML> ORDER BY SAFE_CAST(processed_dttm AS TIMESTAMP) DESC) = 1
 
-    3. Quarantine Staging Table (`definitions/staging/{actual_domain}/{base_name}/stg_{base_name}_bad_recs.sqlx`):
-       config {{ type: "incremental", schema: "{datasets['stg']}", tags: ["{actual_domain}", "{base_name}", "staging", "quarantine"], description: "Dead Letter Queue (DLQ) capturing data contract violations for {base_name} staging.", bigquery: {{ partitionBy: "batch_date", clusterBy: ["<actual_pk_col_from_YAML>"] }} }}
-       SELECT 
-         <list_every_core_column_explicitly_applying_dynamic_casting_based_on_YAML_types>,
-         CASE 
-            WHEN NOT (<condition_1_from_YAML>) THEN 'VIOLATION: rule 1'
-            WHEN NOT (<condition_2_from_YAML>) THEN 'VIOLATION: rule 2'
-            ELSE 'VIOLATION: UNKNOWN'
-         END AS failure_reason,
-         CURRENT_DATE() AS batch_date,
-         CURRENT_TIMESTAMP() AS processed_dttm,
-         CURRENT_TIMESTAMP() AS updated_dttm
-       FROM ${{ref("{table_name}")}} 
-       WHERE NOT (<insert_contract_YAML_rules_here_as_AND_conditions>)
-
-    4. Operations/Archive (`definitions/operations/{actual_domain}/{base_name}/archive_{table_name}.sqlx`):
+    3. Operations/Archive (`definitions/operations/{actual_domain}/{base_name}/archive_{table_name}.sqlx`):
        config {{ type: "operations", dependencies: ["fct_{base_name}"], tags: ["{actual_domain}", "{base_name}", "archive"], description: "Idempotent archival operations moving processed {base_name} records to history." }}
        INSERT INTO `{PROJECT_ID}.{datasets['raw']}.{table_name}_hist` (col1, batch_date, processed_dttm)
        SELECT col1, CURRENT_DATE() AS batch_date, processed_dttm FROM ${{ref("{table_name}")}};
        TRUNCATE TABLE ${{ref("{table_name}")}};
 
-    5. Main Marts Incremental (`definitions/marts/{actual_domain}/{base_name}/fct_{base_name}.sqlx`):
+    4. Main Marts Incremental (`definitions/marts/{actual_domain}/{base_name}/fct_{base_name}.sqlx`):
        config {{ 
          type: "incremental", schema: "{datasets['marts']}", uniqueKey: ["<actual_pk_col_from_YAML>"], 
-         bigquery: {{ partitionBy: "batch_date", clusterBy: ["<actual_clustering_col_from_YAML>"] }}, tags: ["{actual_domain}", "{base_name}", "marts"], description: "Incremental fact/dimension mart layer for {base_name} driving downstream analytics."
+         bigquery: {{ partitionBy: "batch_date", clusterBy: ["<actual_clustering_col_from_YAML>"] }}, tags: ["{actual_domain}", "{base_name}", "marts"], description: "Incremental fact/dimension mart layer for {base_name} driving downstream analytics.",
+         assertions: {{ ...extract from yaml using STRICT Dataform v3.x syntax... }}
        }}
        SELECT 
          <list_every_core_column_explicitly_do_not_use_select_star>,
@@ -1244,35 +1231,22 @@ def generate_ai_dataform_pipeline(
        FROM ${{ref("stg_{base_name}")}}
        ${{when(incremental(), `WHERE processed_dttm > (SELECT COALESCE(MAX(processed_dttm), TIMESTAMP("1970-01-01")) FROM ${{self()}})` )}}
 
-    6. Quarantine Marts Table (definitions/marts/{actual_domain}/{base_name}/fct_{base_name}_bad_recs.sqlx):
-       ---
-       CRITICAL SCHEMA ADHERENCE: This table MUST have the exact same schema as the main Marts table.
-       - SOURCE: Select from the Staging table (${{ref("stg_{base_name}")}}).
-       - NO INVENTIONS: Do NOT create or append non-existing columns like 'quarantined_at'. Only include core columns, failure_reason, batch_date, processed_dttm, updated_dttm.
-       - CONFIG: Set partitionBy to "batch_date" and clusterBy appropriately in the config block.
-       - LOGIC: This table captures rows that were technically 'processed' but failed mart-level business validations (if any). Use an inverted WHERE NOT clause.
-       ---
-
     GENERAL REQUIREMENTS:
-    1. STRICT DATA CONTRACT ENFORCEMENT: The provided DATA CONTRACT YAML is your master reference. You MUST parse it to extract:
-       - The exact datatype for EVERY column (apply `SAFE_CAST(col AS <YAML_TYPE>)` in Staging).
-       - The exact Primary Key for `uniqueKey` and `QUALIFY ROW_NUMBER()`.
-       - The exact Data Quality rules (assertions/constraints) to inject into the `WHERE` clauses.
-    2. EXPLICIT COLUMN MAPPING (NO SELECT *): You MUST explicitly write out every single column name in the SELECT statements for Staging and Marts. DO NOT use `SELECT *` or `SELECT * EXCEPT(...)`.
-    3. STRICT DATASETS & PARTITIONING: Use exactly the schemas passed in the templates. Every table (Staging, Marts, DLQ) MUST have `bigquery: {{ partitionBy: "batch_date" ... }}`.
-    4. QUARANTINE ROUTING (NO FATAL ASSERTIONS): NEVER use the `assertions: {{}}` block inside the `config`. It causes fatal pipeline crashes. Instead, translate the YAML Data Contract rules into SQL `WHERE` clauses for the main tables. 
-    5. BAD RECORDS FILES: Catch the failed rows using an inverted `WHERE NOT (...)` filter, and explicitly append a `CASE WHEN` statement to populate the `failure_reason` STRING column.
-    6. TEMPORAL ACCURACY: Include both `processed_dttm` and `updated_dttm` (CURRENT_TIMESTAMP()) in staging and marts.
-    7. EXPLICIT DESCRIPTIONS: EVERY `config {{ }}` block MUST contain a `description` field as shown in the templates.
-    8. PERFECT STYLING & FORMATTING: Ensure the generated SQLX code is cleanly formatted with perfectly aligned `SELECT` block columns (2 spaces indentation).
-    9. REGEX/STRING ESCAPING (CRITICAL): When writing SQL functions (like REGEXP_CONTAINS), you MUST use single quotes (') for the inner string literals to avoid breaking outer strings if generated. Example CORRECT: "REGEXP_CONTAINS(order_id, r'^ORD-[0-9]{{5,10}}$')"
-    10. Output STRICTLY a JSON object where keys are full file paths and values are exact SQLX string content. No markdown formatting.
+    1. STRICT DATA CONTRACT ENFORCEMENT: The provided DATA CONTRACT YAML is your master reference. Extract Data Types, PKs, and Clustering directly from it.
+    2. EXPLICIT DESCRIPTIONS: EVERY `config {{ }}` block MUST contain a `description` field as shown in the templates.
+    3. EXPLICIT COLUMN MAPPING (NO SELECT *): You MUST explicitly write out every single column name in the SELECT statements for Staging and Marts. DO NOT use `SELECT *` or `SELECT * EXCEPT(...)`.
+    4. NATIVE ASSERTIONS (NO DLQ): You MUST use the `assertions: {{}}` block inside the `config` to handle Data Quality. Map the YAML constraints and tests to the exact Dataform arrays: `nonNull`, `uniqueKey`, and `rowConditions`. Do NOT generate _bad_recs files.
+    5. TEMPORAL ACCURACY: Include both `processed_dttm` and `updated_dttm` (CURRENT_TIMESTAMP()) in staging and marts.
+    6. STRICT TAGGING TAXONOMY: Every file's `config` block MUST contain a `tags: []` array, EXCEPT for declaration files. 
+    7. PERFECT STYLING & FORMATTING: Ensure the generated SQLX code is cleanly formatted with perfectly aligned `SELECT` block columns (2 spaces indentation).
+    8. REGEX/STRING ESCAPING (CRITICAL): When writing SQL functions inside `rowConditions` (like REGEXP_CONTAINS), you MUST use single quotes (') for the inner string literals to avoid breaking outer strings if generated. Example CORRECT: "REGEXP_CONTAINS(order_id, r'^ORD-[0-9]{{5,10}}$')"
+    9. Output STRICTLY a JSON object where keys are full file paths and values are exact SQLX string content. No markdown formatting.
     """
 
     try:
         log_event(
             "INFO",
-            "⏳ 🪄 [Agent: DF Architect] Instructing Gemini to synthesize Dataform files with Quarantine Routing, Explicit Column Mapping, YAML Contract Enforcement, and Strict Formatting...",
+            "⏳ 🪄 [Agent: DF Architect] Instructing Gemini to synthesize Dataform files with Native Assertions, Explicit Column Mapping, YAML Contract Enforcement, and Strict Formatting...",
             trace_id,
         )
         response = generate_content_with_retry(model_heavy, prompt, trace_id)
@@ -1286,7 +1260,7 @@ def generate_ai_dataform_pipeline(
         pipeline_files = json.loads(text)
         log_event(
             "INFO",
-            f"✅ 🪄 [Agent: DF Architect] AI successfully generated {len(pipeline_files)} SQLX files conforming to exact YAML constraints, explicit mapping, DLQ routing, and formatting bounds.",
+            f"✅ 🪄 [Agent: DF Architect] AI successfully generated {len(pipeline_files)} SQLX files with native assertions and explicit config descriptions.",
             trace_id,
         )
 
@@ -1346,7 +1320,7 @@ def verify_dataform_pipeline(
     target_domain: str,
     trace_id: str,
 ) -> Dict[str, str]:
-    """Goal: QA Lead verifies exact syntax match with DLQ templates, explicit mappings, descriptions, and partitioning."""
+    """Goal: QA Lead verifies exact syntax match with templates, explicit mappings, native assertions, descriptions, and partitioning."""
     log_event(
         "INFO",
         f"▶️ 🕵️‍♀️ [Agent: DF QA] Initiating automated peer-review of generated SQLX code...",
@@ -1374,6 +1348,8 @@ def verify_dataform_pipeline(
     )
 
     existing_paths = list(df_state.get("existing_files", {}).keys())
+    # Note: Keep bad_recs in allowed paths to avoid hallucination alerts if they are passed in to be patched/deleted,
+    # but the architect is no longer generating them from scratch.
     allowed_paths = existing_paths + [
         p.replace(".sqlx", "_bad_recs.sqlx")
         for p in existing_paths
@@ -1388,21 +1364,21 @@ def verify_dataform_pipeline(
     ADDED COLUMNS: {added_cols} | REMOVED COLUMNS: {removed_cols}
     EXPECTED DATASETS: Raw: "{datasets['raw']}", Staging: "{datasets['stg']}", Marts: "{datasets['marts']}"
     EXPECTED BASE ENTITY: "{base_name}"
-    EXPECTED EXISTING PATHS (Including Bad Recs): {allowed_paths}
+    EXPECTED EXISTING PATHS: {allowed_paths}
     
     Checklist & BRUTAL RULES:
     1. EXPLICIT COLUMN MAPPING (CRITICAL): If you see `SELECT *` or `SELECT * EXCEPT` anywhere in the generated code (Staging or Marts), you MUST expand it. Replace it with a comma-separated list of the 'REQUIRED CORE COLUMNS'. No asterisks allowed. Also ensure removed columns ({removed_cols}) are NOT in the SELECT block.
     2. ANTI-HALLUCINATION (FILE PATHS): Forcefully revert hallucinated keys back to the 'EXPECTED EXISTING PATHS' if present. 
-    3. QUARANTINE ROUTING ENFORCEMENT (CRITICAL): Ensure the `assertions: {{}}` block is completely REMOVED from all `config` blocks. Fatal assertions are forbidden. Data Quality MUST be handled in the `WHERE` clauses using the YAML rules.
-    4. BAD RECORDS VERIFICATION: Ensure the `_bad_recs` files explicitly contain a `failure_reason` column derived via a `CASE WHEN` statement mapping out the failed rules, and ensure NO hallucinated columns like `quarantined_at` exist.
+    3. NATIVE ASSERTIONS ENFORCEMENT (CRITICAL): Ensure data quality rules from the YAML are mapped into the `assertions: {{}}` block inside the `config` using strict Dataform v3.x syntax (`nonNull`, `uniqueKey`, `rowConditions`).
+    4. ASSERTION NESTING (TOP PRIORITY): Dataform does NOT allow column names as keys inside 'assertions'. If you see `assertions: {{ "col": {{ "not_null": true }} }}`, you MUST flatten it to `assertions: {{ nonNull: ["col"] }}`. Valid keys are ONLY 'nonNull', 'uniqueKey', and 'rowConditions'.
     5. DECLARATION SYNTAX: Ensure the source file uses `type: "declaration"` with explicit `database`, `schema`, and `name` attributes ONLY. Strictly NO `tags` array allowed in declarations.
-    6. BATCH DATE & TIMESTAMPS (GLOBAL): Across ALL files (staging, marts, including bad_recs), ensure `batch_date` is `CURRENT_DATE() AS batch_date`, and explicitly include `CURRENT_TIMESTAMP() AS updated_dttm`. 
+    6. BATCH DATE & TIMESTAMPS (GLOBAL): Across ALL files (staging, marts), ensure `batch_date` is `CURRENT_DATE() AS batch_date`, and explicitly include `CURRENT_TIMESTAMP() AS updated_dttm`. 
     7. ARCHIVE OPERATIONS: Ensure `archive_` explicitly uses `INSERT INTO \`{PROJECT_ID}.{datasets['raw']}.<table_name>_hist\`` followed by `TRUNCATE TABLE ${{ref("<table_name>")}};`. Ensure NO `post_operations` block exists.
     8. MARTS & STAGING INCREMENTAL/PARTITIONING: Does the file include a `bigquery: {{ partitionBy: "batch_date", clusterBy: [...] }}` block? ALL tables and incremental files MUST have this. NEVER filter on SELECT aliases in incremental WHERE clauses.
     9. TAG TAXONOMY: Ensure `config` blocks of EVERY file (EXCEPT declarations) contains a `tags: ["{actual_domain}", "{base_name}", "<layer>"]` array.
     10. CONFIG BLOCK SYNTAX: Remove any comments (`--`, `//`, `/* */`) inside the `config {{ ... }}` blocks.
     11. REGEX QUOTE ESCAPING FIX (CRITICAL): If conditions contain a regex or string literal wrapped in double quotes (e.g., r"^...$"), you MUST change the inner quotes to single quotes (e.g., r'^...$'). Double quotes inside the double-quoted string will cause a fatal compilation error.
-    12. EXPLICIT DESCRIPTIONS (CRITICAL): EVERY `config {{ }}` block MUST contain a valid, meaningful `description` property explaining the file's purpose. Ensure no properties other than ('description', 'tags', 'schema', 'type', 'uniqueKey', 'bigquery', 'dependencies', 'database', 'name') exist in the config block.
+    12. EXPLICIT DESCRIPTIONS (CRITICAL): EVERY `config {{ }}` block MUST contain a valid, meaningful `description` property explaining the file's purpose. Ensure no properties other than ('description', 'tags', 'schema', 'type', 'uniqueKey', 'bigquery', 'dependencies', 'database', 'name', 'assertions') exist in the config block.
     
     Output STRICTLY a JSON object where keys are the corrected full file paths and values are the corrected SQLX string content. Output JSON ONLY. Do not include markdown formatting.
     """
@@ -1410,7 +1386,7 @@ def verify_dataform_pipeline(
     try:
         log_event(
             "INFO",
-            "⏳ 🕵️‍♀️ [Agent: DF QA] Awaiting QA review, global temporal enforcement, Quarantine (DLQ) validation, explicit mapping checks, tagging, placeholder verification, and formatting validation...",
+            "⏳ 🕵️‍♀️ [Agent: DF QA] Awaiting QA review, global temporal enforcement, Native Assertions validation, explicit mapping checks, tagging, placeholder verification, and formatting validation...",
             trace_id,
         )
         response = generate_content_with_retry(model_lite, prompt, trace_id)
@@ -1423,7 +1399,7 @@ def verify_dataform_pipeline(
         verified_files = json.loads(text)
         log_event(
             "INFO",
-            f"✅ 🕵️‍♀️ [Agent: DF QA] QA passed. Quarantine Routing, Explicit Column Mapping, Partitioning, and Descriptions perfectly enforced.",
+            f"✅ 🕵️‍♀️ [Agent: DF QA] QA passed. Native Assertions, Explicit Column Mapping, Partitioning, and Descriptions perfectly enforced.",
             trace_id,
         )
         log_event("INFO", "⏹️ 🕵️‍♀️ [Agent: DF QA] Finished automated review.", trace_id)
@@ -1694,9 +1670,9 @@ def decommission_pipeline(
             f"{table_name}_contracts.yaml",
             f"{table_name}.sqlx",
             f"stg_{base_name}.sqlx",
-            f"stg_{base_name}_bad_recs.sqlx",
+            f"stg_{base_name}_bad_recs.sqlx",  # Kept in case they exist from a previous run
             f"fct_{base_name}.sqlx",
-            f"fct_{base_name}_bad_recs.sqlx",
+            f"fct_{base_name}_bad_recs.sqlx",  # Kept in case they exist from a previous run
             f"archive_{table_name}.sqlx",
             f"{table_name}.tf",
         ]
@@ -1769,9 +1745,14 @@ def apply_infrastructure_update(
     # GitHub App Authentication
     # ----------------------------------------------------------------------
     try:
+        # 1. Force integer casting for PyGithub
         app_id_int = int(GITHUB_APP_ID)
         install_id_int = int(GITHUB_INSTALLATION_ID)
+
+        # 2. Sanitize Secret Manager newlines for PyJWT
         clean_pvt_key = key.replace("\\n", "\n")
+
+        # 3. Authenticate
         auth = Auth.AppAuth(app_id=app_id_int, private_key=clean_pvt_key)
         installation_auth = auth.get_installation_auth(installation_id=install_id_int)
         g = Github(auth=installation_auth)
@@ -2217,7 +2198,7 @@ def apply_infrastructure_update(
         col_table += f"| ... ({len(added_cols_for_pr)-15} more) | | |\n"
 
     title_prefix = "fix" if json_exists or df_files_changed > 0 else "feat"
-    pr_title = f"{title_prefix}(dataops): Automated Pipeline & DQ Healing for {table}"
+    pr_title = f"{title_prefix}(dataops): Automated Pipeline & Native Assertions Healing for {table}"
 
     pr_body = f"""
 # 🤖 Sentinel-Forge Automated Resolution
@@ -2244,10 +2225,10 @@ All raw ingestion fields configured strictly as `STRING` type.
 ### 🪄 Agent Activity Log
 1. **Scanner & Router:** Mapped target domain folders semantically. AI Dataset Routing successfully assigned correct schema endpoints.
 2. **Contract Resolution (Drift Sync):** Fetched `data_contracts` YAML. Autonomously bumped version, updated schema array with additions/deletions, and appended Drift Changelog.
-3. **Architect:** Generated HCL. Embedded exact Dataform templates including YAML-directed explicit columns, DLQ quarantine routing, dynamic `SAFE_CAST`, file descriptions, and `incremental` logic into `.sqlx` blocks based on sample payload analysis. 
+3. **Architect:** Generated HCL. Embedded exact Dataform templates including YAML-directed explicit columns, Native Assertions, dynamic `SAFE_CAST`, file descriptions, and `incremental` logic into `.sqlx` blocks based on sample payload analysis. 
 4. **Schema QA:** Verified JSON structure. Executed Column Drop logic for deleted fields. Enforced absolute `STRING` typing on all new columns.
 5. **Terraform QA:** Enforced schema reuse (`DRY` principle) between main and `_hist` table resources. Enforced `deletion_protection = false` to enable teardown.
-6. **Dataform QA:** Validated SQL syntax, enforced explicit column mapping (NO `SELECT *`), removed dropped columns from SELECT statements, enforced `CURRENT_DATE()` and `CURRENT_TIMESTAMP()` logic, enforced Quarantine DLQ routing, verified explicit configuration `description` blocks, and validated strict Tag Taxonomy.
+6. **Dataform QA:** Validated SQL syntax, enforced explicit column mapping (NO `SELECT *`), removed dropped columns from SELECT statements, enforced `CURRENT_DATE()` and `CURRENT_TIMESTAMP()` logic, enforced Native Assertions syntax flattening, verified explicit configuration `description` blocks, and validated strict Tag Taxonomy.
 
 **Commit Log:**
 {df_commit_log}
@@ -2258,7 +2239,7 @@ All raw ingestion fields configured strictly as `STRING` type.
 - [x] **Schema Integrity:** Absolute `STRING` typing and `defaultValueExpression` strictly enforced for raw layer.
 - [x] **DRY Architecture:** History tables natively reuse raw landing schemas.
 - [x] **Tag Taxonomy:** `config` blocks securely tagged with `[domain, entity, layer]` (Exempting Declarations).
-- [x] **Staging Governance:** Dynamic YAML-directed casting to native BigQuery types (`type: "table"`) and DLQ routing executed securely.
+- [x] **Staging Governance:** Dynamic YAML-directed casting to native BigQuery types (`type: "table"`) and Native Assertions executed securely.
 - [x] **Operations Accuracy:** Operations securely bypass self-contexts and `post_operations`.
 - [x] **Temporal Accuracy:** `CURRENT_DATE() AS batch_date` and `CURRENT_TIMESTAMP() AS updated_dttm` strictly enforced globally across all layers.
 - [x] **Format Standardization:** Code cleanly indented and SQL keywords perfectly aligned.
@@ -2315,7 +2296,7 @@ Review the file changes and merge this Pull Request.
             "yaml_contracts_enforced": True,
             "yaml_keys_extracted": True,
             "explicit_column_mapping": True,
-            "quarantine_dlq_routed": True,
+            "native_assertions_enforced": True,
             "anti_hallucination_paths_enforced": True,
             "anti_hallucination_schemas_verified": True,
             "global_current_date_enforced": True,
