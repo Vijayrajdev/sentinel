@@ -503,7 +503,7 @@ def generate_dynamic_schema(
     
     Requirements:
     1. Output strictly a JSON list of objects. Do not use markdown formatting.
-    2. ABSOLUTE RULE: ALL TYPES MUST STRICTLY BE 'STRING' for the incoming raw columns. Do NOT output INT64, BOOLEAN, or TIMESTAMP for these incoming columns. Only audit columns (like batch_date) get explicit native types.
+    2. ABSOLUTE RULE: ALL TYPES MUST STRICTLY BE 'STRING' for the incoming raw columns. Do NOT output INT64, BOOLEAN, or TIMESTAMP for these incoming columns. DO NOT generate audit columns like `batch_date` or `processed_dttm`. They are handled purely by the external Python orchestrator.
     3. Mode must be 'NULLABLE'.
     4. Descriptions are mandatory. Infer them from column names.
     5. EVERY single column MUST have a "defaultValueExpression" defined (e.g., use "NULL" for standard strings).
@@ -1318,7 +1318,7 @@ def verify_dataform_pipeline(
     datasets: Dict[str, str],
     df_state: Dict[str, Any],
     base_name: str,
-    table_name: str,  # <--- ADDED: Fix for Pylance UndefinedVariable
+    table_name: str,  # <--- FIXED PYLANCE ERROR
     target_domain: str,
     trace_id: str,
 ) -> Dict[str, str]:
@@ -1946,19 +1946,21 @@ def apply_infrastructure_update(
             pass
 
     final_schema_list, added_cols_for_pr = [], []
+
+    # EXACT AUDIT COLUMNS INJECTED HERE
     audit_cols = [
         {
             "name": "batch_date",
             "type": "DATE",
             "mode": "NULLABLE",
-            "description": "Partition",
+            "description": "Audit column to identify the record is newly inserted.",
             "defaultValueExpression": "DATE '9999-12-31'",
         },
         {
             "name": "processed_dttm",
             "type": "TIMESTAMP",
             "mode": "NULLABLE",
-            "description": "Audit",
+            "description": "System timestamp indicating when the record was loaded",
             "defaultValueExpression": "CURRENT_TIMESTAMP()",
         },
     ]
@@ -1982,6 +1984,7 @@ def apply_infrastructure_update(
         for ac in audit_cols:
             if ac["name"] not in final_names:
                 final_schema_list.append(ac)
+
         added_cols_for_pr = final_schema_list
     else:
         log_event(
@@ -2011,6 +2014,15 @@ def apply_infrastructure_update(
     final_schema_list = verify_schema_json(
         final_schema_list, table, [c["name"] for c in added_cols_for_pr], trace_id
     )
+
+    # 💥 ABSOLUTE FORCE OVERRIDE FOR AUDIT COLUMNS 💥
+    final_schema_list = [
+        col
+        for col in final_schema_list
+        if col["name"] not in ["batch_date", "processed_dttm"]
+    ]
+    final_schema_list.extend(audit_cols)
+
     log_event(
         "INFO",
         f"✅ 🚀 [Orchestrator] Schema configuration complete. Total added columns: {len(added_cols_for_pr)}",
@@ -2232,7 +2244,7 @@ All raw ingestion fields are configured strictly as `STRING` type to prevent dow
 1. **Scanner & Router:** Mapped target domain folders semantically. AI Dataset Routing successfully assigned correct schema endpoints.
 2. **Contract Resolution (Drift Sync):** Fetched `data_contracts` YAML. Autonomously bumped version, updated schema array with additions/deletions, and appended Drift Changelog.
 3. **Architect:** Generated HCL. Embedded exact Dataform templates including YAML-directed explicit columns, Native Assertions, dynamic `SAFE_CAST`, file descriptions, and `incremental` logic into `.sqlx` blocks based on sample payload analysis. 
-4. **Schema QA:** Verified JSON structure. Executed Column Drop logic for deleted fields. Enforced absolute `STRING` typing on all new columns.
+4. **Schema QA:** Verified JSON structure. Executed Column Drop logic for deleted fields. Enforced absolute `STRING` typing on all new columns. Applied absolute Python override to freeze `batch_date` and `processed_dttm`.
 5. **Terraform QA:** Enforced schema reuse (`DRY` principle) between main and `_hist` table resources. Enforced `deletion_protection = false` to enable teardown. Validated RAW tables are unclustered.
 6. **Dataform QA:** Validated SQL syntax, enforced explicit column mapping (NO `SELECT *`), removed dropped columns from SELECT statements, enforced `CURRENT_DATE()` and `CURRENT_TIMESTAMP()` logic, enforced Native Assertions syntax flattening, verified explicit configuration `description` blocks, and validated strict Tag Taxonomy. Verified Archive strictly selects from raw source.
 
