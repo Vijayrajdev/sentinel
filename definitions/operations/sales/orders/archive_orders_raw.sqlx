@@ -1,0 +1,30 @@
+config {
+  type: "operations",
+  dependencies: ["stg_orders"],
+  tags: ["sales", "orders", "archive"],
+  description: "Idempotent archival operations moving processed orders records to history."
+}
+
+INSERT INTO `sentinel-486707.sentinel_raw.orders_raw_hist` (
+    order_id,
+    customer_name,
+    amount,
+    status,
+    order_date,
+    warehouse_id,
+    batch_date,
+    processed_dttm
+  )
+SELECT
+    order_id,
+    customer_name,
+    amount,
+    status,
+    order_date,
+    warehouse_id,
+    batch_date,
+    processed_dttm
+  FROM
+    ${ref("stg_orders")};
+
+TRUNCATE TABLE ${ref("orders_raw")};
