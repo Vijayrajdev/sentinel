@@ -1,15 +1,34 @@
 config {
   type: "incremental",
   schema: "sentinel_marts",
-  tags: ["sales", "orders", "marts"],
-  description: "Incremental fact/dimension mart layer for orders driving downstream analytics.",
+  tags: [
+    "sales",
+    "orders",
+    "marts"
+  ],
+  description: "Incremental fact mart layer for orders driving downstream analytics.",
   bigquery: {
     partitionBy: "batch_date",
-    clusterBy: ["order_id", "status"]
+    clusterBy: [
+      "order_id",
+      "status"
+    ]
   },
   assertions: {
-    uniqueKey: ["order_id"],
-    nonNull: ["order_id", "customer_name", "amount", "order_date", "warehouse_id", "batch_date", "processed_dttm"],
+    uniqueKey: [
+      "order_id"
+    ],
+    nonNull: [
+      "order_id",
+      "customer_name",
+      "amount",
+      "order_date",
+      "warehouse_id",
+      "product_id",
+      "email",
+      "batch_date",
+      "processed_dttm"
+    ],
     rowConditions: [
       "amount >= 0 AND amount <= 1000000",
       "status IN ('COMPLETED', 'PENDING', 'SHIPPED', 'DELIVERED', 'CANCELLED', 'RETURNED')"
@@ -24,8 +43,10 @@ SELECT
   status,
   order_date,
   warehouse_id,
+  product_id,
+  email,
   processed_dttm,
-  CURRENT_DATE() AS batch_date,
+  batch_date,
   CURRENT_TIMESTAMP() AS updated_dttm
 FROM ${ref("stg_orders")}
 ${when(incremental(), `WHERE processed_dttm > (SELECT MAX(processed_dttm) FROM ${self()})`)}
