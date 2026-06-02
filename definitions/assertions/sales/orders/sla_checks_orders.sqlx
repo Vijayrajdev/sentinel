@@ -1,11 +1,27 @@
 config {
   type: "assertion",
-  tags: ["sales", "orders", "sla"],
-  description: "Validates freshness and completeness SLAs as defined in the Data Contract."
+  tags: [
+    "sales",
+    "orders",
+    "sla"
+  ],
+  description: "Validates freshness and completeness SLAs."
 }
 
 SELECT
-  'Freshness Breach: Max processed_dttm is older than 24 hours' AS failure_reason,
-  MAX(processed_dttm) AS last_processed_at
+  'Freshness Breach: Max processed_dttm is older than 24 hours' AS failure_reason
 FROM ${ref("fct_orders")}
 HAVING MAX(processed_dttm) < TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL 24 HOUR)
+
+UNION ALL
+
+SELECT
+  'Completeness Breach: Data pipeline processing rate dropped below 98%' AS failure_reason
+FROM (
+  SELECT
+    SAFE_DIVIDE(
+      (SELECT COUNT(*) FROM ${ref("fct_orders")}),
+      (SELECT COUNT(*) FROM `sentinel-486707.sentinel_raw.orders_raw_hist`)
+    ) AS completeness_score
+)
+WHERE completeness_score < 0.98
