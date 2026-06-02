@@ -46,12 +46,14 @@ schema:
     tests:
       - type: accepted_values
         values:
-          - "COMPLETED"
-          - "PENDING"
-          - "SHIPPED"
-          - "DELIVERED"
-          - "CANCELLED"
-          - "RETURNED"
+          [
+            "COMPLETED",
+            "PENDING",
+            "SHIPPED",
+            "DELIVERED",
+            "CANCELLED",
+            "RETURNED",
+          ]
 
   - column: order_date
     type: DATE
@@ -62,6 +64,19 @@ schema:
   - column: warehouse_id
     type: INT64
     description: "Identifier for the fulfillment center."
+    constraints:
+      not_null: true
+
+  - column: product_id
+    type: STRING
+    description: "Inferred: Unique identifier for the product purchased."
+    constraints:
+      not_null: true
+
+  - column: email
+    type: STRING
+    description: "Inferred: Customer contact email address."
+    classification: PII
     constraints:
       not_null: true
 
@@ -91,5 +106,5 @@ service_level_agreement:
 changelog:
   - date: "2026-03-22"
     changes: "Initial contract generation based on warehouse order ingestion samples."
-  - date: "2026-03-28"
-    changes: "Automated schema drift resolution. Added: ['order_id', 'customer_name', 'amount', 'status', 'order_date', 'warehouse_id']. Removed: []."
+  - date: "2026-06-02"
+    changes: "Automated schema drift resolution. Added: ['product_id', 'email']. Removed: []."
