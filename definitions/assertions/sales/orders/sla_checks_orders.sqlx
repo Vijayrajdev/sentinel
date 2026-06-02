@@ -5,7 +5,13 @@ config {
 }
 
 SELECT
-  'Freshness Breach: Max processed_dttm is older than 24 hours' AS failure_reason,
-  MAX(processed_dttm) AS last_processed_at
+  'Freshness Breach: Max processed_dttm is older than 24 hours' AS failure_reason
 FROM ${ref("fct_orders")}
 HAVING MAX(processed_dttm) < TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL 24 HOUR)
+
+UNION ALL
+
+SELECT
+  'Completeness Breach: Data quality volume failure' AS failure_reason
+FROM ${ref("fct_orders")}
+HAVING COUNT(*) = 0
