@@ -45,15 +45,13 @@
     "name": "product_id",
     "type": "STRING",
     "mode": "NULLABLE",
-    "description": "The unique identifier for the product.",
-    "defaultValueExpression": "NULL"
+    "description": "The unique identifier for the product."
   },
   {
     "name": "email",
     "type": "STRING",
     "mode": "NULLABLE",
-    "description": "The email address associated with the order.",
-    "defaultValueExpression": "NULL"
+    "description": "The email address associated with the order."
   },
   {
     "name": "batch_date",

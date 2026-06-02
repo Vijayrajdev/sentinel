@@ -247,6 +247,18 @@ def prune_whitespace(text: str) -> str:
     return re.sub(r"\s+", " ", text).strip()
 
 
+def clean_sqlx_content(code_str: str) -> str:
+    """CRITICAL FIX: Removes markdown ticks from AI JSON values that crash the Dataform compiler."""
+    c = code_str.strip()
+    if c.startswith("```sql"):
+        c = c[6:]
+    elif c.startswith("```"):
+        c = c[3:]
+    if c.endswith("```"):
+        c = c[:-3]
+    return c.strip()
+
+
 # ==============================================================================
 # 🧠 NEW FEATURE: DATA CONTRACT RESOLUTION & SCHEMA DRIFT ENGINE
 # ==============================================================================
@@ -336,7 +348,7 @@ def resolve_and_sync_data_contract(
         """
         try:
             response = generate_content_with_retry(model_heavy, prompt, trace_id)
-            contract_content = response.text.strip()
+            contract_content = response.text.strip().replace('\xa0', ' ')
             if contract_content.startswith("```"):
                 contract_content = contract_content.split("\n", 1)[1].rsplit("\n", 1)[0]
             if contract_content.startswith("yaml"):
@@ -420,7 +432,7 @@ changelog:
             response = generate_content_with_retry(
                 model_heavy if model_heavy else model_lite, prompt, trace_id
             )
-            contract_content = response.text.strip()
+            contract_content = response.text.strip().replace('\xa0', ' ')
             if contract_content.startswith("```"):
                 contract_content = contract_content.split("\n", 1)[1].rsplit("\n", 1)[0]
             if contract_content.startswith("yaml"):
@@ -530,7 +542,7 @@ def generate_dynamic_schema(
         )
         response = generate_content_with_retry(model_lite, prompt, trace_id)
 
-        text = response.text.strip()
+        text = response.text.strip().replace('\xa0', ' ')
         if text.startswith("```"):
             text = text.split("\n", 1)[1].rsplit("\n", 1)[0]
         if text.startswith("json"):
@@ -858,7 +870,8 @@ def generate_tf_patch_or_create(
             trace_id,
         )
         response = generate_content_with_retry(model_heavy, prompt, trace_id)
-        text = response.text.strip()
+        
+        text = response.text.strip().replace('\xa0', ' ')
         if text.startswith("```"):
             text = text.split("\n", 1)[1].rsplit("\n", 1)[0]
         if text.startswith("hcl"):
@@ -1050,7 +1063,7 @@ def infer_pipeline_datasets_with_ai(
 
         response = generate_content_with_retry(model_lite, prompt, trace_id)
 
-        text = response.text.strip()
+        text = response.text.strip().replace('\xa0', ' ')
         if text.startswith("```"):
             text = text.split("\n", 1)[1].rsplit("\n", 1)[0]
         if text.startswith("json"):
@@ -1305,14 +1318,18 @@ def generate_ai_dataform_pipeline(
             trace_id,
         )
         response = generate_content_with_retry(model_heavy, prompt, trace_id)
+        
         text = response.text.strip()
-
         if text.startswith("```"):
             text = text.split("\n", 1)[1].rsplit("\n", 1)[0]
         if text.startswith("json"):
             text = text[4:]
 
         pipeline_files = json.loads(text)
+        
+        # CRITICAL FIX: Strip invisible non-breaking spaces and markdown ticks from all SQLX values
+        pipeline_files = {k: clean_sqlx_content(v.replace('\xa0', ' ')) for k, v in pipeline_files.items()}
+        
         log_event(
             "INFO",
             f"✅ 🪄 [Agent: DF Architect] AI successfully generated {len(pipeline_files)} SQLX files with SLA checks, native assertions, and explicit config descriptions.",
@@ -1440,6 +1457,10 @@ def verify_dataform_pipeline(
     11. REGEX QUOTE ESCAPING FIX (CRITICAL): If conditions contain a regex or string literal wrapped in double quotes (e.g., r"^...$"), you MUST change the inner quotes to single quotes (e.g., r'^...$'). Double quotes inside the double-quoted string will cause a fatal compilation error.
     12. EXPLICIT DESCRIPTIONS (CRITICAL): EVERY `config {{ }}` block MUST contain a valid, meaningful `description` property explaining the file's purpose. Ensure no properties other than ('description', 'tags', 'schema', 'type', 'uniqueKey', 'bigquery', 'dependencies', 'database', 'name', 'assertions') exist in the config block.
     13. FORMATTING (CRITICAL): Force perfect SQL indentation (2 spaces) and ALL CAPS SQL keywords. Ensure clean vertical alignment. Ensure ALL `config {{ ... }}` and `bigquery {{ ... }}` blocks are beautifully formatted as multi-line objects with each property on its own line to match standard Dataform style.
+    14. DATAFORM COMPILER CRASH PREVENTION (CRITICAL):
+        - Do NOT include trailing commas in your JavaScript/JSON objects inside the `config {{}}` block. (e.g., `tags: ['a', 'b'],` is FATAL. Remove the comma).
+        - Ensure all `description` values inside the `config {{}}` block are kept on a SINGLE LINE. Do not use multi-line strings for descriptions.
+        - Never wrap standard SQL functions like `CURRENT_TIMESTAMP()` or `MAX()` inside `${{}}` blocks. Only use `${{}}` for Dataform native functions like `ref()` or `when()`.
     
     Output STRICTLY a JSON object where keys are the corrected full file paths and values are the corrected SQLX string content. Output JSON ONLY. Do not include markdown formatting.
     """
@@ -1451,6 +1472,7 @@ def verify_dataform_pipeline(
             trace_id,
         )
         response = generate_content_with_retry(model_lite, prompt, trace_id)
+        
         text = response.text.strip()
         if text.startswith("```"):
             text = text.split("\n", 1)[1].rsplit("\n", 1)[0]
@@ -1458,6 +1480,10 @@ def verify_dataform_pipeline(
             text = text[4:]
 
         verified_files = json.loads(text)
+        
+        # CRITICAL FIX: Strip invisible non-breaking spaces and markdown ticks from all SQLX values
+        verified_files = {k: clean_sqlx_content(v.replace('\xa0', ' ')) for k, v in verified_files.items()}
+        
         log_event(
             "INFO",
             f"✅ 🕵️‍♀️ [Agent: DF QA] QA passed. Native Assertions, Explicit Column Mapping, Partitioning, Formatting, and Descriptions perfectly enforced.",
@@ -1508,10 +1534,10 @@ def verify_schema_json(
     
     Checklist:
     1. Are all `NEW COLUMNS` explicitly present in the schema?
-    2. ABSOLUTE RULE ON TYPES: Check every single column. If the column is NOT 'batch_date' and NOT 'processed_dttm', its type MUST be strictly set to 'STRING'. If you see INT64, BOOLEAN, FLOAT64, or anything else, you MUST change it to 'STRING'. Only 'batch_date' (DATE) and 'processed_dttm' (TIMESTAMP) are allowed to be non-strings.
+    2. ABSOLUTE RULE ON TYPES: Check every single column. If the column is NOT 'batch_date' and NOT 'processed_dttm', its type MUST be strictly set to 'STRING'.
     3. Are all modes strictly set to 'NULLABLE'?
     4. Are 'batch_date' and 'processed_dttm' explicitly included at the end?
-    5. CRITICAL: Does EVERY single column have a "defaultValueExpression" defined? If missing, you MUST inject `"defaultValueExpression": "NULL"` into that column's object.
+    5. CRITICAL BIGQUERY RULE: BigQuery prohibits adding fields with default values to existing tables. You MUST REMOVE the "defaultValueExpression" key completely from EVERY column object.
     
     Fix any errors found. Output STRICTLY a valid JSON list of objects representing the corrected BigQuery schema.
     Output JSON ONLY. No explanation. Do not use markdown formatting.
@@ -1522,7 +1548,8 @@ def verify_schema_json(
             "INFO", "⏳ 🕵️‍♀️ [Agent: Schema QA] Awaiting Schema QA review...", trace_id
         )
         response = generate_content_with_retry(model_lite, prompt, trace_id)
-        text = response.text.strip()
+        
+        text = response.text.strip().replace('\xa0', ' ')
         if text.startswith("```"):
             text = text.split("\n", 1)[1].rsplit("\n", 1)[0]
         if text.startswith("json"):
@@ -1531,7 +1558,7 @@ def verify_schema_json(
         verified_schema = json.loads(text)
         log_event(
             "INFO",
-            f"✅ 🕵️‍♀️ [Agent: Schema QA] QA passed. Schema verified and Default Values validated.",
+            f"✅ 🕵️‍♀️ [Agent: Schema QA] QA passed. Schema verified and Default Values successfully stripped.",
             trace_id,
         )
         log_event(
@@ -1541,12 +1568,12 @@ def verify_schema_json(
     except Exception as e:
         log_event(
             "WARNING",
-            f"⚠️ 🕵️‍♀️ [Agent: Schema QA] QA Verification Failed. Applying programmatic fallback for default values. {e}",
+            f"⚠️ 🕵️‍♀️ [Agent: Schema QA] QA Verification Failed. Applying programmatic fallback to strip defaults. {e}",
             trace_id,
         )
+        # Programmatically strip the default values so BigQuery doesn't crash
         for col in schema_list:
-            if "defaultValueExpression" not in col:
-                col["defaultValueExpression"] = "NULL"
+            col.pop("defaultValueExpression", None)
 
         log_event(
             "INFO",
@@ -1615,7 +1642,9 @@ def verify_terraform_hcl(
     try:
         log_event("INFO", "⏳ 🕵️‍♀️ [Agent: TF QA] Awaiting TF QA review...", trace_id)
         response = generate_content_with_retry(model_lite, prompt, trace_id)
-        text = response.text.strip()
+        
+        # CRITICAL FIX: Strip invisible non-breaking spaces
+        text = response.text.strip().replace('\xa0', ' ')
         if text.startswith("```"):
             text = text.split("\n", 1)[1].rsplit("\n", 1)[0]
         if text.startswith("hcl"):
@@ -2041,7 +2070,7 @@ def apply_infrastructure_update(
             pass
 
     final_schema_list, added_cols_for_pr = [], []
-
+    
     # EXACT AUDIT COLUMNS INJECTED HERE
     audit_cols = [
         {
@@ -2079,7 +2108,7 @@ def apply_infrastructure_update(
         for ac in audit_cols:
             if ac["name"] not in final_names:
                 final_schema_list.append(ac)
-
+        
         added_cols_for_pr = final_schema_list
     else:
         log_event(
@@ -2109,13 +2138,9 @@ def apply_infrastructure_update(
     final_schema_list = verify_schema_json(
         final_schema_list, table, [c["name"] for c in added_cols_for_pr], trace_id
     )
-
+    
     # 💥 ABSOLUTE FORCE OVERRIDE FOR AUDIT COLUMNS 💥
-    final_schema_list = [
-        col
-        for col in final_schema_list
-        if col["name"] not in ["batch_date", "processed_dttm"]
-    ]
+    final_schema_list = [col for col in final_schema_list if col["name"] not in ["batch_date", "processed_dttm"]]
     final_schema_list.extend(audit_cols)
 
     log_event(
