@@ -53,7 +53,7 @@ jobs:
           node-version: "20"
 
       - name: Install Dataform CLI
-        run: npm install -g @dataform/cli
+        run: npm install -g @dataform/cli@3.0.0
 
       - name: Install Project Dependencies
         run: npm install
