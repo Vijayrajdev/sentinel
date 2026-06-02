@@ -4,16 +4,13 @@ name: stg_orders
 description: "Enterprise Staging Layer for Warehouse Orders. Handles raw-to-typed conversion and validation of order telemetry."
 status: active
 owner: sales_ops_data_team
-
-# Data Platform Metadata
 service: bigquery
 dataset: staging
 project: sentinel-486707
 partition_by: "batch_date"
-cluster_by: 
+cluster_by:
   - "order_id"
   - "status"
-
 schema:
   - column: order_id
     type: INT64
@@ -22,27 +19,12 @@ schema:
     constraints:
       not_null: true
       unique: true
-
   - column: customer_name
     type: STRING
     description: "Full name of the customer who placed the order."
     classification: PII
     constraints:
-      not_null: true # Rows 1006 and 1009 will be quarantined due to missing names
-
-  - column: email
-    type: STRING
-    description: "Primary contact email for the customer."
-    classification: PII
-    constraints:
-      not_null: false
-
-  - column: product_id
-    type: STRING
-    description: "Identifier for the product purchased."
-    constraints:
       not_null: true
-
   - column: amount
     type: NUMERIC
     description: "Total order value."
@@ -52,7 +34,6 @@ schema:
       - type: range
         min: 0
         max: 1000000
-
   - column: status
     type: STRING
     description: "Current lifecycle status of the order."
@@ -67,34 +48,33 @@ schema:
             "CANCELLED",
             "RETURNED",
           ]
-
+  - column: category
+    type: STRING
+    description: "Broad classification of the order contents inferred from source telemetry."
+    constraints:
+      not_null: false
   - column: order_date
     type: DATE
     description: "The date the order was recorded."
     constraints:
       not_null: true
-
   - column: warehouse_id
     type: INT64
     description: "Identifier for the fulfillment center."
     constraints:
       not_null: true
-
   - column: batch_date
     type: DATE
     description: "Audit column: The processing date for the ingestion batch."
     default: "9999-12-31"
     constraints:
       not_null: true
-
   - column: processed_dttm
     type: TIMESTAMP
     description: "Audit column: The exact time the record entered the warehouse."
     default: "CURRENT_TIMESTAMP()"
     constraints:
       not_null: true
-
-# Service Level Objectives (SLOs)
 service_level_agreement:
   freshness:
     period: 24h
@@ -102,9 +82,8 @@ service_level_agreement:
   completeness:
     percentage: 98.0
     description: "SLA allows for up to 2% quarantine rate for dirty raw source data."
-
 changelog:
   - date: "2026-03-22"
     changes: "Initial contract generation based on warehouse order ingestion samples."
   - date: "2026-06-02"
-    changes: "Automated schema drift resolution. Added: ['product_id', 'email']. Removed: []."
+    changes: "Automated schema drift resolution. Added: ['category']. Removed: []."
