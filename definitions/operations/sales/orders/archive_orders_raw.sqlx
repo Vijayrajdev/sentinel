@@ -1,13 +1,15 @@
 config {
   type: "operations",
-  tags: ["sales", "orders", "archive"],
   dependencies: ["fct_orders"],
+  tags: ["sales", "orders", "archive"],
   description: "Idempotent archival operations moving processed orders records to history."
 }
 
 INSERT INTO `sentinel-486707.sentinel_raw.orders_raw_hist` (
   order_id,
   customer_name,
+  email,
+  product_id,
   amount,
   status,
   order_date,
@@ -18,12 +20,14 @@ INSERT INTO `sentinel-486707.sentinel_raw.orders_raw_hist` (
 SELECT
   order_id,
   customer_name,
+  email,
+  product_id,
   amount,
   status,
   order_date,
   warehouse_id,
-  CURRENT_DATE() AS batch_date,
-  processed_dttm
+  CAST(batch_date AS DATE) AS batch_date,
+  CAST(processed_dttm AS TIMESTAMP) AS processed_dttm
 FROM ${ref("orders_raw")};
 
 TRUNCATE TABLE ${ref("orders_raw")};
