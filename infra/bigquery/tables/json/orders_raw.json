@@ -42,6 +42,20 @@
     "defaultValueExpression": "NULL"
   },
   {
+    "name": "email",
+    "type": "STRING",
+    "mode": "NULLABLE",
+    "description": "The email address associated with the order.",
+    "defaultValueExpression": "NULL"
+  },
+  {
+    "name": "product_id",
+    "type": "STRING",
+    "mode": "NULLABLE",
+    "description": "The unique identifier for the product ordered.",
+    "defaultValueExpression": "NULL"
+  },
+  {
     "name": "batch_date",
     "type": "DATE",
     "mode": "NULLABLE",
