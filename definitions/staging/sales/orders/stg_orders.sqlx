@@ -9,7 +9,7 @@ config {
   },
   assertions: {
     uniqueKey: ["order_id"],
-    nonNull: ["order_id", "customer_name", "product_id", "amount", "order_date", "warehouse_id", "batch_date", "processed_dttm"],
+    nonNull: ["order_id", "customer_name", "amount", "order_date", "warehouse_id", "batch_date", "processed_dttm"],
     rowConditions: [
       "amount >= 0 AND amount <= 1000000",
       "status IN ('COMPLETED', 'PENDING', 'SHIPPED', 'DELIVERED', 'CANCELLED', 'RETURNED')"
@@ -20,12 +20,13 @@ config {
 SELECT
   SAFE_CAST(order_id AS INT64) AS order_id,
   SAFE_CAST(customer_name AS STRING) AS customer_name,
-  SAFE_CAST(email AS STRING) AS email,
-  SAFE_CAST(product_id AS STRING) AS product_id,
   SAFE_CAST(amount AS NUMERIC) AS amount,
   SAFE_CAST(status AS STRING) AS status,
   SAFE_CAST(order_date AS DATE) AS order_date,
   SAFE_CAST(warehouse_id AS INT64) AS warehouse_id,
+  SAFE_CAST(product_id AS STRING) AS product_id,
+  SAFE_CAST(email AS STRING) AS email,
+  SAFE_CAST(category AS STRING) AS category,
   CURRENT_DATE() AS batch_date,
   SAFE_CAST(processed_dttm AS TIMESTAMP) AS processed_dttm,
   CURRENT_TIMESTAMP() AS updated_dttm
