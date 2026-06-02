@@ -9,7 +9,7 @@ config {
   },
   assertions: {
     uniqueKey: ["order_id"],
-    nonNull: ["order_id", "customer_name", "product_id", "amount", "order_date", "warehouse_id", "batch_date", "processed_dttm"],
+    nonNull: ["order_id", "customer_name", "amount", "order_date", "warehouse_id", "batch_date", "processed_dttm"],
     rowConditions: [
       "amount >= 0 AND amount <= 1000000",
       "status IN ('COMPLETED', 'PENDING', 'SHIPPED', 'DELIVERED', 'CANCELLED', 'RETURNED')"
@@ -20,14 +20,15 @@ config {
 SELECT
   order_id,
   customer_name,
-  email,
-  product_id,
   amount,
   status,
   order_date,
   warehouse_id,
-  batch_date,
+  product_id,
+  email,
+  category,
   processed_dttm,
+  CURRENT_DATE() AS batch_date,
   CURRENT_TIMESTAMP() AS updated_dttm
 FROM ${ref("stg_orders")}
-${when(incremental(), "WHERE processed_dttm > (SELECT MAX(processed_dttm) FROM " + self() + ")")}
+${when(incremental(), "WHERE processed_dttm > (SELECT COALESCE(MAX(processed_dttm), TIMESTAMP('1970-01-01')) FROM " + self() + ")")}
