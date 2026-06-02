@@ -336,7 +336,8 @@ def resolve_and_sync_data_contract(
         """
         try:
             response = generate_content_with_retry(model_heavy, prompt, trace_id)
-            contract_content = response.text.strip()
+            # CRITICAL FIX: Strip invisible non-breaking spaces
+            contract_content = response.text.strip().replace('\xa0', ' ')
             if contract_content.startswith("```"):
                 contract_content = contract_content.split("\n", 1)[1].rsplit("\n", 1)[0]
             if contract_content.startswith("yaml"):
@@ -420,7 +421,8 @@ changelog:
             response = generate_content_with_retry(
                 model_heavy if model_heavy else model_lite, prompt, trace_id
             )
-            contract_content = response.text.strip()
+            # CRITICAL FIX: Strip invisible non-breaking spaces
+            contract_content = response.text.strip().replace('\xa0', ' ')
             if contract_content.startswith("```"):
                 contract_content = contract_content.split("\n", 1)[1].rsplit("\n", 1)[0]
             if contract_content.startswith("yaml"):
@@ -530,7 +532,8 @@ def generate_dynamic_schema(
         )
         response = generate_content_with_retry(model_lite, prompt, trace_id)
 
-        text = response.text.strip()
+        # CRITICAL FIX: Strip invisible non-breaking spaces
+        text = response.text.strip().replace('\xa0', ' ')
         if text.startswith("```"):
             text = text.split("\n", 1)[1].rsplit("\n", 1)[0]
         if text.startswith("json"):
@@ -858,7 +861,9 @@ def generate_tf_patch_or_create(
             trace_id,
         )
         response = generate_content_with_retry(model_heavy, prompt, trace_id)
-        text = response.text.strip()
+        
+        # CRITICAL FIX: Strip invisible non-breaking spaces
+        text = response.text.strip().replace('\xa0', ' ')
         if text.startswith("```"):
             text = text.split("\n", 1)[1].rsplit("\n", 1)[0]
         if text.startswith("hcl"):
@@ -1050,7 +1055,8 @@ def infer_pipeline_datasets_with_ai(
 
         response = generate_content_with_retry(model_lite, prompt, trace_id)
 
-        text = response.text.strip()
+        # CRITICAL FIX: Strip invisible non-breaking spaces
+        text = response.text.strip().replace('\xa0', ' ')
         if text.startswith("```"):
             text = text.split("\n", 1)[1].rsplit("\n", 1)[0]
         if text.startswith("json"):
@@ -1305,8 +1311,9 @@ def generate_ai_dataform_pipeline(
             trace_id,
         )
         response = generate_content_with_retry(model_heavy, prompt, trace_id)
-        text = response.text.strip()
-
+        
+        # CRITICAL FIX: Strip invisible non-breaking spaces
+        text = response.text.strip().replace('\xa0', ' ')
         if text.startswith("```"):
             text = text.split("\n", 1)[1].rsplit("\n", 1)[0]
         if text.startswith("json"):
@@ -1451,7 +1458,9 @@ def verify_dataform_pipeline(
             trace_id,
         )
         response = generate_content_with_retry(model_lite, prompt, trace_id)
-        text = response.text.strip()
+        
+        # CRITICAL FIX: Strip invisible non-breaking spaces
+        text = response.text.strip().replace('\xa0', ' ')
         if text.startswith("```"):
             text = text.split("\n", 1)[1].rsplit("\n", 1)[0]
         if text.startswith("json"):
@@ -1522,7 +1531,9 @@ def verify_schema_json(
             "INFO", "⏳ 🕵️‍♀️ [Agent: Schema QA] Awaiting Schema QA review...", trace_id
         )
         response = generate_content_with_retry(model_lite, prompt, trace_id)
-        text = response.text.strip()
+        
+        # CRITICAL FIX: Strip invisible non-breaking spaces
+        text = response.text.strip().replace('\xa0', ' ')
         if text.startswith("```"):
             text = text.split("\n", 1)[1].rsplit("\n", 1)[0]
         if text.startswith("json"):
@@ -1615,7 +1626,9 @@ def verify_terraform_hcl(
     try:
         log_event("INFO", "⏳ 🕵️‍♀️ [Agent: TF QA] Awaiting TF QA review...", trace_id)
         response = generate_content_with_retry(model_lite, prompt, trace_id)
-        text = response.text.strip()
+        
+        # CRITICAL FIX: Strip invisible non-breaking spaces
+        text = response.text.strip().replace('\xa0', ' ')
         if text.startswith("```"):
             text = text.split("\n", 1)[1].rsplit("\n", 1)[0]
         if text.startswith("hcl"):
@@ -2041,7 +2054,7 @@ def apply_infrastructure_update(
             pass
 
     final_schema_list, added_cols_for_pr = [], []
-
+    
     # EXACT AUDIT COLUMNS INJECTED HERE
     audit_cols = [
         {
@@ -2079,7 +2092,7 @@ def apply_infrastructure_update(
         for ac in audit_cols:
             if ac["name"] not in final_names:
                 final_schema_list.append(ac)
-
+        
         added_cols_for_pr = final_schema_list
     else:
         log_event(
@@ -2109,13 +2122,9 @@ def apply_infrastructure_update(
     final_schema_list = verify_schema_json(
         final_schema_list, table, [c["name"] for c in added_cols_for_pr], trace_id
     )
-
+    
     # 💥 ABSOLUTE FORCE OVERRIDE FOR AUDIT COLUMNS 💥
-    final_schema_list = [
-        col
-        for col in final_schema_list
-        if col["name"] not in ["batch_date", "processed_dttm"]
-    ]
+    final_schema_list = [col for col in final_schema_list if col["name"] not in ["batch_date", "processed_dttm"]]
     final_schema_list.extend(audit_cols)
 
     log_event(
