@@ -5,7 +5,7 @@ config {
 }
 
 SELECT
-  'Freshness Breach: Max processed_dttm is older than 24 hours' AS failure_reason,
+  'Freshness Breach: Data older than 24h' AS failure_reason,
   MAX(processed_dttm) AS last_processed_at
 FROM ${ref("fct_orders")}
 HAVING MAX(processed_dttm) < TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL 24 HOUR)
@@ -13,11 +13,13 @@ HAVING MAX(processed_dttm) < TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL 24 HOUR
 UNION ALL
 
 SELECT
-  'Completeness Breach: Success rate below 98%' AS failure_reason,
+  'Completeness Breach: Ingestion success rate below 98%' AS failure_reason,
   NULL AS last_processed_at
 FROM (
   SELECT
-    (SELECT COUNT(*) FROM ${ref("fct_orders")}) / 
-    NULLIF((SELECT COUNT(*) FROM `sentinel-486707.sentinel_raw.orders_raw_hist` WHERE batch_date = CURRENT_DATE()), 0) AS success_rate
+    SAFE_DIVIDE(
+      (SELECT COUNT(*) FROM ${ref("fct_orders")} WHERE batch_date = CURRENT_DATE()),
+      (SELECT COUNT(*) FROM `sentinel-486707.sentinel_raw.orders_raw_hist` WHERE batch_date = CURRENT_DATE())
+    ) AS success_rate
 )
 WHERE success_rate < 0.98
