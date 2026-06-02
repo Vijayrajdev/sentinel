@@ -28,6 +28,19 @@ schema:
     description: "Full name of the customer who placed the order."
     classification: PII
     constraints:
+      not_null: true # Rows 1006 and 1009 will be quarantined due to missing names
+
+  - column: email
+    type: STRING
+    description: "Primary contact email for the customer."
+    classification: PII
+    constraints:
+      not_null: false
+
+  - column: product_id
+    type: STRING
+    description: "Identifier for the product purchased."
+    constraints:
       not_null: true
 
   - column: amount
@@ -46,12 +59,14 @@ schema:
     tests:
       - type: accepted_values
         values:
-          - "COMPLETED"
-          - "PENDING"
-          - "SHIPPED"
-          - "DELIVERED"
-          - "CANCELLED"
-          - "RETURNED"
+          [
+            "COMPLETED",
+            "PENDING",
+            "SHIPPED",
+            "DELIVERED",
+            "CANCELLED",
+            "RETURNED",
+          ]
 
   - column: order_date
     type: DATE
@@ -91,5 +106,5 @@ service_level_agreement:
 changelog:
   - date: "2026-03-22"
     changes: "Initial contract generation based on warehouse order ingestion samples."
-  - date: "2026-03-28"
-    changes: "Automated schema drift resolution. Added: ['order_id', 'customer_name', 'amount', 'status', 'order_date', 'warehouse_id']. Removed: []."
+  - date: "2026-06-02"
+    changes: "Automated schema drift resolution. Added: ['product_id', 'email']. Removed: []."
