@@ -3,43 +3,37 @@
     "name": "order_id",
     "type": "STRING",
     "mode": "NULLABLE",
-    "description": "Unique identifier for the order",
-    "defaultValueExpression": "NULL"
+    "description": "Unique identifier for the order"
   },
   {
     "name": "customer_name",
     "type": "STRING",
     "mode": "NULLABLE",
-    "description": "Name of the customer who placed the order",
-    "defaultValueExpression": "NULL"
+    "description": "Name of the customer who placed the order"
   },
   {
     "name": "amount",
     "type": "STRING",
     "mode": "NULLABLE",
-    "description": "Total monetary value of the order",
-    "defaultValueExpression": "NULL"
+    "description": "Total monetary value of the order"
   },
   {
     "name": "status",
     "type": "STRING",
     "mode": "NULLABLE",
-    "description": "Current processing status of the order",
-    "defaultValueExpression": "NULL"
+    "description": "Current processing status of the order"
   },
   {
     "name": "order_date",
     "type": "STRING",
     "mode": "NULLABLE",
-    "description": "Calendar date when the order was placed",
-    "defaultValueExpression": "NULL"
+    "description": "Calendar date when the order was placed"
   },
   {
     "name": "warehouse_id",
     "type": "STRING",
     "mode": "NULLABLE",
-    "description": "Identifier for the warehouse handling the order",
-    "defaultValueExpression": "NULL"
+    "description": "Identifier for the warehouse handling the order"
   },
   {
     "name": "product_id",
@@ -52,6 +46,12 @@
     "type": "STRING",
     "mode": "NULLABLE",
     "description": "The email address associated with the order."
+  },
+  {
+    "name": "category",
+    "type": "STRING",
+    "mode": "NULLABLE",
+    "description": "The category of the order"
   },
   {
     "name": "batch_date",
